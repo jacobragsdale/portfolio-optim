@@ -1,0 +1,19 @@
+{
+  "name": "core-muni",
+  "rules": [
+    {"kind": "min_rating", "rating": "A-"},
+    {"kind": "maturity_range", "min_years": 1, "max_years": 20},
+    {"kind": "after_tax"},
+    {"kind": "no_wash_sales"},
+    {"kind": "top_signals", "n": 2000}
+  ],
+  "objective": {"horizon_years": 1, "tax_aversion": 1},
+  "constraints": [
+    {"kind": "position_limit", "max_weight": 0.05},
+    {"kind": "group_limit", "by": "issuer", "max_weight": 0.08},
+    {"kind": "group_limit", "by": "state", "max_weight": 0.3, "overrides": {"NY": 0.7}},
+    {"kind": "duration_band", "tolerance": 0.5},
+    {"kind": "max_turnover", "max_weight": 0.25},
+    {"kind": "cash_range", "min_weight": 0.01, "max_weight": 0.05}
+  ]
+}
