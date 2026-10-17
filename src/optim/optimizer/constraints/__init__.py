@@ -11,6 +11,6 @@ from pydantic import Field
 from optim.optimizer.constraints.limits import GroupLimit, PositionLimit
 from optim.optimizer.constraints.risk import DurationBand
 from optim.optimizer.constraints.tax import MaxTax
-from optim.optimizer.constraints.trading import CashRange, MaxTurnover
+from optim.optimizer.constraints.trading import CashRange, MaxBuys, MaxTurnover
 
-Constraint = Annotated[PositionLimit | GroupLimit | DurationBand | MaxTurnover | CashRange | MaxTax, Field(discriminator="kind")]
+Constraint = Annotated[PositionLimit | GroupLimit | DurationBand | MaxTurnover | CashRange | MaxBuys | MaxTax, Field(discriminator="kind")]

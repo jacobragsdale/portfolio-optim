@@ -33,4 +33,4 @@ def transition(ctx: Context, request: TransitionRequest) -> Run:
 
 
 def _with_tax_budget(strategy: Strategy, dollars: float) -> Strategy:
-    return Strategy(name=f"{strategy.name}|tax<={dollars:.0f}", rules=strategy.rules, objective=strategy.objective, constraints=[*strategy.constraints, MaxTax(dollars=dollars)])
+    return Strategy(name=f"{strategy.name}|tax<={dollars:.0f}", rules=strategy.rules, objective=strategy.objective, constraints=[*strategy.constraints, MaxTax(dollars=dollars)], solve=strategy.solve)

@@ -55,7 +55,10 @@ class Market:
         if account.benchmark_id not in self.targets:
             msg = f"account {account.account_id}: benchmark {account.benchmark_id} is not loaded"
             raise LookupError(msg)
-        return Inputs(self.as_of, account, portfolio.lots, self.securities, self.targets[account.benchmark_id])
+        # Every portfolio in a process reads the same frames. Shallow copies cost nothing under copy-on-write, and keep a
+        # rule that edits a frame in place from changing what the next portfolio sees.
+        target = self.targets[account.benchmark_id]
+        return Inputs(self.as_of, account, portfolio.lots.copy(deep=False), self.securities.copy(deep=False), target.copy(deep=False))
 
 
 def load_market(loader: Loader, as_of: date) -> Market:

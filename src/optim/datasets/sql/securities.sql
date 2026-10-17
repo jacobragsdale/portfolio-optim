@@ -10,6 +10,8 @@ SELECT s.cusip,
        a.modified_duration                AS duration,
        a.cost_bps,
        CAST(s.min_piece AS NUMBER(15, 0)) AS min_piece,
-       CAST(s.increment AS NUMBER(15, 0)) AS increment
+       CAST(s.increment AS NUMBER(15, 0)) AS increment,
+       -- the minimum piece, where the security master records no minimum remaining
+       CAST(COALESCE(s.min_remaining, s.min_piece) AS NUMBER(15, 0)) AS min_remaining
 FROM   securities s
 JOIN   analytics a ON a.cusip = s.cusip AND a.as_of = :as_of

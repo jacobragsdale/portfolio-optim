@@ -21,8 +21,9 @@ class Security(Row):
     price: Price  # dirty
     duration: Annotated[float, Field(ge=0)]  # modified, years
     cost_bps: Annotated[float, Field(ge=0)]  # estimated one-way trading cost
-    min_piece: Par
-    increment: Par
+    min_piece: Par  # smallest trade
+    increment: Par  # trades are whole multiples of it
+    min_remaining: Par  # smallest amount a partial sale may leave in a lot
 
 
 class Offering(Row):

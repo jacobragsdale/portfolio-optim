@@ -4,10 +4,16 @@
     {"kind": "min_rating", "rating": "A-"},
     {"kind": "after_tax"}
   ],
-  "objective": {"horizon_years": 1, "tax_aversion": 1, "tracking_penalty": 0.05},
+  "objective": [
+    {"kind": "expected_return", "horizon_years": 1},
+    {"kind": "tax", "aversion": 1},
+    {"kind": "cost"},
+    {"kind": "tracking_l1", "penalty": 0.05}
+  ],
   "constraints": [
     {"kind": "position_limit", "max_weight": 0.05},
     {"kind": "duration_band", "tolerance": 0.25},
     {"kind": "cash_range", "min_weight": 0.005, "max_weight": 0.03}
-  ]
+  ],
+  "solve": {"integer": true, "time_limit_s": 30}
 }

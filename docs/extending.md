@@ -16,10 +16,14 @@ To load a new table, for example issuer credit scores from Oracle:
    `ISSUER_SCORES = Dataset("issuer_scores", IssuerScore, source="oracle", query="datasets/sql/issuer_scores.sql", key=("issuer",))`.
    Without a `cache`, it is read live on every load. To cache it, see the next section.
 5. Load it in `src/optim/inputs.py`. Per-security data goes in `load_market`: add it to the `loader.load_all(...)`
-   call and merge `frames["issuer_scores"]` into `securities` with `validate="many_to_one"` or `"one_to_one"`.
-   Per-account data goes in `load_portfolios` through `loader.load_batched`, and its query unpacks the ids with
-   `OPENJSON` or `JSON_TABLE`.
-A rule or constraint can now read the new column from `inputs.securities` or `model.securities`.
+   call and merge `frames["issuer_scores"]` into `securities` with `validate="many_to_one"` or `"one_to_one"`. A rule
+   or constraint can then read the new column from `inputs.securities` or `model.securities`.
+
+   Per-account data goes in `load_portfolios` through `loader.load_batched`, which sends up to 1,000 accounts per
+   query; the SQL unpacks the ids with `OPENJSON` or `JSON_TABLE`, as `lots.sql` does. Split the frame by `account_id`
+   as `lots` is, then carry it to the solve: a field on `Portfolio` and on `Inputs`, a line in `Market.inputs_for`, and
+   an empty frame for the all-cash account in `jobs/model_portfolio.py`. Add it to `input_frames` in
+   `outputs/snapshots.py` too: a run whose snapshot lacks it still solves, but cannot be replayed.
 
 ## How to cache a dataset
 
@@ -73,11 +77,78 @@ Strategy files can use the rule as soon as it is in the union.
 1. Pick the module in `src/optim/optimizer/constraints/` for the constraint's family (`limits`, `risk`, `trading`,
    `tax`), or add one.
 2. Write a `Strict` class with a `kind` field, its parameters, and `build(self, m: Model) -> list[cp.Constraint]`.
-3. Write the constraint against the model's expressions: `m.weights`, `m.cash`, `m.turnover`, `m.tax`. Divide dollar
-   quantities by `m.value` so the constraint is in weights and shares the verification tolerance.
+3. Write the constraint against the model's expressions: `m.weights`, `m.cash`, `m.turnover`, `m.tax`, or a column of
+   `m.securities` times the weights, such as `m.securities["duration"].to_numpy() @ m.weights`. `m.inputs` holds the
+   account and its lots. Divide dollar quantities by `m.value` so the constraint is in weights and shares the tolerance
+   of the re-check after the solve.
 4. If you need a quantity the model lacks, add it to `Model` in `src/optim/optimizer/model.py` and compute it once in
    `build_model`.
 5. Add the class to the `Constraint` union in `src/optim/optimizer/constraints/__init__.py`.
+
+A constraint that counts trades or positions needs an integer solve. Count with the model's 0/1 flags, `m.buying` per
+bond and `m.selling` per lot, as `max_buys` does; they are `None` in an LP solve, so raise a clear error then. A
+constraint can also declare its own 0/1 variables and tie them to what it limits. This one caps the bonds held after
+trading: a weight can only be above zero where its flag is 1, and no weight exceeds 1.
+
+```python
+class MaxHoldings(Strict):
+    """Hold at most `n` bonds after trading. Needs an integer solve."""
+
+    kind: Literal["max_holdings"] = "max_holdings"
+    n: int = Field(gt=0)
+
+    def build(self, m: Model) -> list[cp.Constraint]:
+        held = cp.Variable(len(m.securities), boolean=True)
+        return [m.weights <= held, cp.sum(held) <= self.n]
+```
+
+## How to add an objective term
+
+A strategy's objective is the sum of its terms, listed under `"objective"`. Without that key, a strategy maximizes
+expected return less tax and trading costs.
+
+1. Write a `Strict` class in `src/optim/optimizer/objective.py` with a `kind` field, its parameters, and
+   `expression(self, m: Model) -> cp.Expression`.
+2. Return what the term adds to the objective as a fraction of portfolio value: divide dollars by `m.value`. A reward
+   is positive and a penalty negative, as in `Tax`.
+3. Keep the term linear, or piecewise linear like `cp.norm1`, which cvxpy turns into extra variables and rows: HiGHS
+   solves linear problems.
+4. Add the class to the `Term` union at the bottom of the module.
+
+## How to configure a solve
+
+Each strategy's `"solve"` block says how its portfolios are solved:
+
+```json
+"solve": {"integer": true, "solver": "HIGHS", "time_limit_s": 30, "options": {"mip_rel_gap": 0.001}}
+```
+
+- `integer`: `true`, the default, trades exactly the sizes the market trades. Each bond's `min_piece`, `increment` and
+  `min_remaining` come from `datasets/sql/securities.sql`. `false` solves an LP and rounds its trades afterwards. That
+  is tens to hundreds of times faster, but rounding can break a binding constraint, and a result with a broken
+  constraint is never ordered.
+- `time_limit_s`: per portfolio. An integer solve that reaches it keeps the best solution it found, logs a warning,
+  and reports how far that may be from the best possible as `gap` in the run's summary. If it found none, the portfolio
+  is unsolved, with status `user_limit`.
+- `options`: passed to the solver as they are, under the solver's own names, such as HiGHS's `mip_rel_gap` (default
+  1e-4) or `presolve`.
+- `solver`: `HIGHS`. To use another solver cvxpy supports, such as a licensed COPT, install its package (`uv add
+  coptpy`), add its name to `solver` in `src/optim/strategy.py`, and map the time limit and the solver stats that
+  `src/optim/optimizer/solve.py` reads.
+
+## How to compare strategies on a saved run
+
+Every run's snapshot holds the market, accounts and lots it loaded. `optim replay` solves them again with another
+strategy, so two strategies can be compared on the same data:
+
+```sh
+uv run optim replay snapshots/RUN_ID --strategy strategies/my-variant.json --workers 4
+```
+
+Replay reads only the snapshot directory. It needs no `.env`, database or Redis, and it never submits orders. It
+applies the new strategy's rules, objective, constraints and solve block, saves the results as a new run beside the
+original, and prints the summary. `--accounts A1 A2` replays only some accounts. Each run's `summary.parquet` holds one
+row per portfolio, so comparing two runs is a join on `account_id`.
 
 ## How to add a data source
 

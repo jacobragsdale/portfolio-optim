@@ -7,6 +7,7 @@ uv run --env-file .env optim transition --strategy strategies/track-benchmark.js
 uv run --env-file .env optim warm
 uv run --env-file .env optim warm --datasets benchmarks
 uv run --env-file .env optim clear --datasets securities universe
+uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json --workers 4
 uv run optim schema > strategy.schema.json
 """
 
@@ -22,8 +23,10 @@ from zoneinfo import ZoneInfo
 from optim import logs
 from optim.context import open_cache, open_context
 from optim.datasets import all_datasets
+from optim.jobs import Run
 from optim.jobs.model_portfolio import ModelPortfolioRequest, model_portfolio
 from optim.jobs.optimize import OptimizeRequest, optimize
+from optim.jobs.replay import ReplayRequest, replay
 from optim.jobs.transition import TransitionRequest, transition
 from optim.outputs.snapshots import result_frames
 from optim.settings import Settings
@@ -51,6 +54,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _run(args: argparse.Namespace) -> int:
+    if args.command == "replay":  # reads a snapshot only: no settings, connections or cache
+        log.info("starting replay", extra={"cli": vars(args)})
+        strategy = Strategy.model_validate_json(args.strategy.read_bytes())
+        return _report(replay(ReplayRequest(strategy=strategy, snapshot=args.snapshot, accounts=args.accounts), workers=args.workers))
     settings = Settings()
     log.info("starting %s", args.command, extra={"cli": vars(args), "settings": settings.model_dump(mode="json")})
     if args.command == "clear":
@@ -68,6 +75,10 @@ def _run(args: argparse.Namespace) -> int:
                 run = model_portfolio(ctx, ModelPortfolioRequest(strategy=strategy, benchmark_id=args.benchmark, notional=args.notional, as_of=as_of))
             case _:
                 run = transition(ctx, TransitionRequest(strategy=strategy, account_id=args.account, tax_budgets=args.tax_budgets, as_of=as_of))
+    return _report(run)
+
+
+def _report(run: Run) -> int:
     sys.stdout.write(f"run {run.run_id}\n{result_frames(run.results)['summary'].to_string(index=False)}\n")
     return 0 if run.ok else 1
 
@@ -123,4 +134,10 @@ def _parser() -> argparse.ArgumentParser:
     transition_command = commands.add_parser("transition", parents=[run], help="tax cost vs. tracking for one account")
     transition_command.add_argument("--account", required=True)
     transition_command.add_argument("--tax-budgets", type=float, nargs="+", required=True, help="dollars of tax allowed, one solve each")
+
+    replay_command = commands.add_parser("replay", help="re-solve a saved run with another strategy; reads only the snapshot and never orders")
+    replay_command.add_argument("snapshot", type=Path, help="the run's snapshot directory")
+    replay_command.add_argument("--strategy", type=Path, required=True, help="strategy JSON file")
+    replay_command.add_argument("--accounts", nargs="+", help="only these accounts (default: every account in the run)")
+    replay_command.add_argument("--workers", type=int, default=1, help="solver processes (default: 1)")
     return parser

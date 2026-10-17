@@ -1,13 +1,17 @@
 """A snapshot of every run: its request, everything the solves read and everything they returned, so any result can be
 explained and replayed. One directory per run, holding `run.json` and a Parquet file per frame."""
 
+import json
 import logging
 from collections.abc import Mapping, Sequence
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import pydantic_core
 
+from optim.data.frames import empty_frame, to_models
+from optim.datasets.accounts import Account, Lot
 from optim.inputs import Market, Portfolio
 from optim.optimizer.results import Result, Solved, Unsolved
 from optim.schema import Strict
@@ -16,8 +20,19 @@ log = logging.getLogger(__name__)
 
 
 def save_run(root: Path, run_id: str, *, job: str, request: Strict, market: Market, portfolios: Sequence[Portfolio], results: Sequence[Result], **extra: object) -> Path:
-    meta = {"run_id": run_id, "job": job, "request": request, **extra}
+    meta = {"run_id": run_id, "job": job, "as_of": market.as_of, "request": request, **extra}
     return save_snapshot(root, run_id, meta=meta, frames=input_frames(market, portfolios) | result_frames(results))
+
+
+def load_run(path: Path) -> tuple[Market, list[Portfolio]]:
+    """A saved run's market and portfolios, as its solves read them before the rules, for `optim replay`."""
+    as_of = date.fromisoformat(json.loads((path / "run.json").read_bytes())["as_of"])
+    targets = pd.read_parquet(path / "targets.parquet")
+    market = Market(as_of, pd.read_parquet(path / "securities.parquet"), {str(b): group.set_index("cusip")["weight"] for b, group in targets.groupby("benchmark_id")})
+    lots = pd.read_parquet(path / "lots.parquet")
+    by_account = {str(account_id): group.reset_index(drop=True) for account_id, group in lots.groupby("account_id")}
+    accounts = to_models(Account, pd.read_parquet(path / "accounts.parquet"))
+    return market, [Portfolio(a, by_account.get(a.account_id, empty_frame(Lot))) for a in accounts]
 
 
 def save_snapshot(root: Path, run_id: str, *, meta: Mapping[str, object], frames: Mapping[str, pd.DataFrame]) -> Path:
@@ -36,7 +51,7 @@ def input_frames(market: Market, portfolios: Sequence[Portfolio]) -> dict[str, p
     # ponytail: writes the whole market every run; store it once per content hash if snapshots grow too fast
     return {
         "securities": market.securities,
-        "targets": pd.concat(market.targets, names=["benchmark_id"]).reset_index(),
+        "targets": pd.concat(market.targets, names=["benchmark_id", "cusip"]).rename("weight").reset_index(),  # `load_run` reads these names
         "accounts": pd.DataFrame([p.account.model_dump() for p in portfolios]),
         "lots": pd.concat([p.lots for p in portfolios], ignore_index=True),
     }

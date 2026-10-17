@@ -1,6 +1,6 @@
 """Entry points, one module each. A job takes the process `Context` and a validated request, the same model whether the
 CLI or the API built it, and runs load -> solve -> snapshot -> act from shared parts. The request is saved in the
-snapshot, so every run records exactly what was asked."""
+snapshot, so every run records exactly what was asked. `replay` loads from a snapshot instead, so it needs no `Context`."""
 
 from dataclasses import dataclass
 

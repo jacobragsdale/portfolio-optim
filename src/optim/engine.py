@@ -38,7 +38,7 @@ def solve_task(market: Market, task: Task) -> Result:
         inputs = market.inputs_for(task.portfolio)
         for rule in task.strategy.rules:
             inputs = _apply(rule, inputs)
-        result = solve(inputs, task.strategy.objective, task.strategy.constraints, strategy=strategy)
+        result = solve(inputs, task.strategy)
     except Exception as error:
         log.exception("solve failed", extra={"account_id": account_id, "strategy": strategy})
         return Unsolved(account_id, strategy, f"error: {error!r}")

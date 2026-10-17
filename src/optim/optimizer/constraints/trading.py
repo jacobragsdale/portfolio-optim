@@ -3,6 +3,7 @@
 from typing import Literal
 
 import cvxpy as cp
+from pydantic import Field
 
 from optim.optimizer.model import Model
 from optim.schema import Strict, Weight
@@ -27,3 +28,16 @@ class CashRange(Strict):
 
     def build(self, m: Model) -> list[cp.Constraint]:
         return [m.cash / m.value >= self.min_weight, m.cash / m.value <= self.max_weight]
+
+
+class MaxBuys(Strict):
+    """Buy at most `n` different bonds. It counts the model's 0/1 `buying` flags, so it needs an integer solve."""
+
+    kind: Literal["max_buys"] = "max_buys"
+    n: int = Field(ge=0)
+
+    def build(self, m: Model) -> list[cp.Constraint]:
+        if m.buying is None:
+            msg = 'max_buys counts bonds bought, which needs "solve": {"integer": true}'
+            raise ValueError(msg)
+        return [cp.sum(m.buying) <= self.n]
