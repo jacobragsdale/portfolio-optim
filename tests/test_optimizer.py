@@ -1,7 +1,12 @@
 """The LP's decisions on tiny portfolios whose right answer is obvious."""
 
-from optim.lp import TOLERANCE, CashRange, Objective, PositionLimit, Solved, solve
-from optim.outputs import orders_for
+from optim.optimizer.constraints.limits import PositionLimit
+from optim.optimizer.constraints.trading import CashRange
+from optim.optimizer.objective import Objective
+from optim.optimizer.results import Solved
+from optim.optimizer.rounding import TOLERANCE
+from optim.optimizer.solve import solve
+from optim.outputs.orders import orders_for
 from tests.builders import account, inputs, lot, security, tables
 
 

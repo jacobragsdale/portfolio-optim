@@ -1,18 +1,24 @@
 """Test data. A `FakeSource` serves raw records by query name, so tests run the real loading, validation and assembly
 code. Builders give every record valid defaults, so a test states only the fields it is about."""
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+import httpx
 import numpy as np
 
 from optim.cache import Cache
-from optim.data import Loader
-from optim.inputs import Inputs, Portfolio, load_market, load_portfolios
-from optim.run import Strategy
-from optim.sources import Columns, Param
+from optim.context import Context
+from optim.data.loader import Loader
+from optim.datasets.accounts import ACCOUNTS, LOTS
+from optim.datasets.benchmarks import BENCHMARKS
+from optim.datasets.securities import SECURITIES, UNIVERSE
+from optim.datasets.signals import SIGNALS
+from optim.inputs import Inputs, load_market, load_portfolios
+from optim.sources import Columns, Param, columns_from_records
+from optim.strategy import Strategy
 
 AS_OF = date(2026, 10, 16)
 STRATEGIES = Path(__file__).parents[1] / "strategies"
@@ -30,8 +36,7 @@ class FakeSource:
         records = self.tables[query]
         if isinstance(accounts := params.get("accounts"), tuple):
             records = [r for r in records if r["account_id"] in accounts]
-        names = list(self.tables[query][0]) if self.tables[query] else []
-        return {name: [record[name] for record in records] for name in names}
+        return columns_from_records(records, source=query)
 
 
 def cusip(i: int) -> str:
@@ -72,12 +77,12 @@ def tables(
     """Every security is offered and scored; the benchmark is equal-weighted over `benchmark` (default: all)."""
     members = benchmark if benchmark is not None else [str(s["cusip"]) for s in securities]
     return {
-        "securities.sql": securities,
-        "universe.sql": [{"cusip": s["cusip"], "offer_par": 5_000_000} for s in securities],
-        "/v1/expected-returns": [{"cusip": s["cusip"], "expected_return": expected_return} for s in securities],
-        "benchmarks.sql": [{"benchmark_id": "BM", "cusip": c, "weight": 1 / len(members)} for c in members],
-        "accounts.sql": accounts,
-        "lots.sql": lots,
+        SECURITIES.query: securities,
+        UNIVERSE.query: [{"cusip": s["cusip"], "offer_par": 5_000_000} for s in securities],
+        SIGNALS.query: [{"cusip": s["cusip"], "expected_return": expected_return} for s in securities],
+        BENCHMARKS.query: [{"benchmark_id": "BM", "cusip": c, "weight": 1 / len(members)} for c in members],
+        ACCOUNTS.query: accounts,
+        LOTS.query: lots,
     }
 
 
@@ -93,9 +98,11 @@ def inputs(data: Mapping[str, Sequence[Record]], account_id: str = "A1") -> Inpu
     return load_market(load, AS_OF).inputs_for(portfolio)
 
 
-def portfolio_of(data: Mapping[str, Sequence[Record]], account_id: str = "A1") -> Portfolio:
+def context(data: Mapping[str, Sequence[Record]], snapshot_dir: Path, *, oms: Callable[[httpx.Request], httpx.Response] | None = None) -> Context:
+    """A `Context` over fake sources, with an OMS that accepts every request unless `oms` says otherwise."""
     load, _ = loader(data)
-    return load_portfolios(load, [account_id])[0]
+    transport = httpx.MockTransport(oms or (lambda _: httpx.Response(200)))
+    return Context(load, httpx.Client(base_url="https://oms.example.com", transport=transport), snapshot_dir)
 
 
 def strategy(name: str) -> Strategy:
@@ -127,5 +134,5 @@ def synthetic_book(accounts: int = 3, securities: int = 80, seed: int = 7) -> di
         for i in rng.choice(securities, size=25, replace=False).tolist()
     ]
     return tables(bonds, accounts=holders, lots=lots, expected_return=0.03, benchmark=[cusip(i) for i in range(0, securities, 2)]) | {
-        "/v1/expected-returns": [{"cusip": b["cusip"], "expected_return": float(rng.uniform(0.02, 0.05))} for b in bonds]
+        SIGNALS.query: [{"cusip": b["cusip"], "expected_return": float(rng.uniform(0.02, 0.05))} for b in bonds]
     }

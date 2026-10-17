@@ -6,16 +6,32 @@ worker processes. Most of the design follows from keeping those two kinds of wor
 
 ## One run, end to end
 
-A run starts in `jobs.py`. `load_market` fetches the data every portfolio shares: security analytics, the buy
-universe, signals and benchmarks, fetched concurrently on threads and merged into a single securities frame.
-`load_portfolios` fetches accounts and tax lots in batches of a thousand accounts per query. The parent then builds one
-`Task` per portfolio (a portfolio plus a `Strategy`) and hands the tasks to `solve_all`.
+A run starts in a module of `jobs/` with a validated request, such as `OptimizeRequest`, and a `Context`.
+`load_market` in `inputs.py` fetches the data every portfolio shares: security analytics, the buy universe, signals
+and benchmarks, loaded concurrently and merged into a single securities frame. `load_portfolios` fetches accounts and
+tax lots in batches of a thousand accounts per query. The job then builds one `Task` per portfolio (a portfolio plus a
+`Strategy`) and hands the tasks to `solve_all` in `engine.py`.
 
 In a worker, `solve_task` turns the market and one portfolio into `Inputs`, applies the strategy's rules in order, and
-calls `lp.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any constraint
-the lot rounding broke) or `Unsolved` (the solver status or the error). Back in the parent, the run is written to a
-snapshot directory: every input frame, every result frame, the strategy and the orders. Only after the snapshot is on
-disk does `optimize` submit orders, and only for results that rounding left intact.
+calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
+constraint the lot rounding broke) or `Unsolved` (the solver status or the error). Back in the parent,
+`outputs.snapshots` writes the run to a directory: the request, every input frame, every result frame and the orders.
+Only after the snapshot is on disk does `optimize` submit orders, and only for results that rounding left intact.
+
+## Requests and the context
+
+Each entry point takes two things. Its request is a strict pydantic model of what was asked: the strategy, the
+accounts, the business date, the number of workers. The CLI builds requests from its arguments, and an API or an agent
+can build the same models from JSON. Because the request goes into the snapshot whole, every run records exactly what
+produced it.
+
+The `Context` is everything the process is connected to: the loader with its sources and cache, the OMS client, and
+the snapshot directory. `open_context` in `context.py` is the only place that opens connections, and it closes them on
+exit. Jobs never read settings or build clients, so a new entry point needs no infrastructure code, and a test gives a
+job fake sources and a fake OMS through the same `Context`.
+
+Configuration follows the same split. Each source module owns its settings model (`OracleSettings` beside the Oracle
+connection code), and `Settings` composes them under nested environment variables such as `OPTIM_ORACLE__DSN`.
 
 ## Why workers do no I/O
 
@@ -31,9 +47,10 @@ batched, and caching makes it cheaper still.
 
 ## Datasets: schema, query and cache rule in one place
 
-A `Dataset` in `inputs.py` declares everything about one table: the pydantic row model that is its schema, which
-source and query produce it, its unique key, how long it may be cached, and any cross-row check. One generic `Loader`
-serves all of them, so adding data never means adding a loader class.
+A `Dataset` declares everything about one table: the pydantic row model that is its schema, which source and query
+produce it, its unique key, how long it may be cached, and any cross-row check. The declarations live in `datasets/`,
+one module per subject, next to their SQL. One generic `Loader` serves all of them, so adding data never means adding
+a loader class.
 
 Rows are validated column by column: one pydantic `TypeAdapter(list[T])` per field, built from the row model. For
 100,000 bonds this takes about 85ms, against about 460ms for building a model per row and 45ms for no validation at
@@ -55,11 +72,12 @@ formatting.
 
 A `Strategy` is a list of rules, an objective and a list of constraints. Each rule and constraint is a small pydantic
 class whose fields are its parameters and whose method does the work: `apply` for a rule, `build` for a constraint.
-They are collected in discriminated unions on `kind`. A strategy file therefore validates strictly, an unknown `kind`
-or a typo'd field is rejected, and `optim schema` prints a JSON schema that traders' tools and agents can write
+Rules are grouped by family in `rules/`, constraints in `optimizer/constraints/`, and each package's `__init__.py`
+collects its classes into a discriminated union on `kind`. A strategy file therefore validates strictly, an unknown
+`kind` or a typo'd field is rejected, and `optim schema` prints a JSON schema that traders' tools and agents can write
 against. There is no registry to keep in sync: the union is the registry.
 
-Rules never drop rows. They narrow what may be bought (`buyable`) or adjust what the solver believes
+Rules never drop rows. They narrow what may be bought (`Inputs.restrict`) or adjust what the solver believes
 (`expected_return`). A bond that a rule forbids buying may still be held, and the solver must be able to sell it.
 
 ## The LP
@@ -77,10 +95,10 @@ constant to tracking error and are left out without changing the answer. With th
 market and a 10,000-bond solve take about 205ms per portfolio: rules 40ms, building the model 30ms, cvxpy compile 50ms,
 HiGHS 60ms.
 
-The LP trades fractional par, and the market trades lots with a minimum piece. After the solve, buys round down and
-sells round up, both toward cash, so position limits, group limits and the cash floor survive rounding. Every
-constraint is then re-evaluated at the rounded trades, and any breach is recorded on the result. A result with a breach
-is snapshotted but never ordered.
+The LP trades fractional par, and the market trades lots with a minimum piece. After the solve, `optimizer.rounding`
+rounds buys down and sells up, both toward cash, so position limits, group limits and the cash floor survive rounding.
+Every constraint is then re-evaluated at the rounded trades, and any breach is recorded on the result. A result with a
+breach is snapshotted but never ordered.
 
 ## Three entry points, one engine
 
@@ -102,4 +120,5 @@ These are deliberate shortcuts, marked `ponytail:` in the code.
   below the minimum piece, and rounding erases them. For small accounts, track exposures instead (duration buckets,
   sector, state, rating) with group constraints on the difference from the target.
 - **Wash sales** are blocked only for bonds held at a loss in open lots. Sales in the last 30 days need a dataset.
-- **Snapshots** write the whole market every run. Store it once per content hash if storage grows too fast.
+- **Snapshots** write the whole market every run, to a local directory. Store the market once per content hash if
+  storage grows too fast, and write to shared storage before running on pods whose disks do not outlive them.

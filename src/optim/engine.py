@@ -1,9 +1,8 @@
-"""Solving: a `Strategy` (the JSON contract that traders and agents write) applied to portfolios, in this process or a
-process pool.
+"""Solving tasks, in this process or a process pool.
 
 Workers only compute. The parent loads the data, ships the `Market` once to each worker process, sends small tasks (one
-portfolio and a strategy), and writes the outputs. Workers hold no database connections, and moving from one machine to
-a cluster (Ray, Dask) changes only `solve_all`.
+portfolio and a strategy), and writes the outputs. Workers hold no connections, and moving from one machine to a
+cluster (Ray, Dask) changes only `solve_all`.
 """
 
 import logging
@@ -12,23 +11,12 @@ from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass
 from functools import partial
 
-from optim import lp
-from optim.data import Strict
 from optim.inputs import Market, Portfolio
-from optim.lp import Constraint, Objective, Result, Unsolved
-from optim.rules import Rule
+from optim.optimizer.results import Result, Unsolved
+from optim.optimizer.solve import solve
+from optim.strategy import Strategy
 
 log = logging.getLogger(__name__)
-
-
-class Strategy(Strict):
-    """How to optimize: rules applied in order before the solve, the objective, and constraints. `optim schema` prints
-    the JSON schema."""
-
-    name: str
-    rules: tuple[Rule, ...] = ()
-    objective: Objective = Objective()
-    constraints: tuple[Constraint, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -41,7 +29,7 @@ def solve_task(market: Market, task: Task) -> Result:
     inputs = market.inputs_for(task.portfolio)
     for rule in task.strategy.rules:
         inputs = rule.apply(inputs)
-    return lp.solve(inputs, task.strategy.objective, task.strategy.constraints, strategy=task.strategy.name)
+    return solve(inputs, task.strategy.objective, task.strategy.constraints, strategy=task.strategy.name)
 
 
 def solve_all(market: Market, tasks: Sequence[Task], *, workers: int) -> list[Result]:

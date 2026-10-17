@@ -1,4 +1,4 @@
-"""Small helpers shared across the package."""
+"""Timing blocks of work into the logs."""
 
 import logging
 import time

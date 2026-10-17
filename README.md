@@ -23,24 +23,29 @@ account:
 uv run --env-file .env optim optimize --strategy strategies/core-muni.json --accounts ACCOUNT_ID
 ```
 
-`ACCOUNT_ID` is an account in the SQL Server `accounts` table. The run prints one summary row per portfolio and writes
-a snapshot under `OPTIM_SNAPSHOT_DIR`. It submits no orders until you add `--submit`. `uv run optim --help` lists the
-other commands: `model`, `transition` and `schema`.
+`ACCOUNT_ID` is an account in the SQL Server `accounts` table that `src/optim/datasets/sql/accounts.sql` queries. The
+run prints one summary row per portfolio and writes a snapshot under `OPTIM_SNAPSHOT_DIR`. It submits no orders until
+you add `--submit`. `uv run optim --help` lists the other commands: `model`, `transition` and `schema`.
 
 ## Layout
 
+Each folder under `src/optim/` is one concern, with one module per thing that grows: a source, a subject of data, a
+family of rules or constraints, an entry point.
+
 | Path | Holds |
 |---|---|
-| `src/optim/inputs.py` | Every dataset: its row schema, query and cache rule. How they combine into `Market` and `Inputs`. |
-| `src/optim/queries/` | One SQL file per database dataset. |
-| `src/optim/rules.py` | Pre-solve rules. |
-| `src/optim/lp.py` | The LP: variables, objective, constraints, lot rounding, results. |
-| `src/optim/run.py` | `Strategy`, the JSON contract, and solving tasks in-process or in a process pool. |
-| `src/optim/jobs.py` | The entry points: optimize, model portfolio, transition analysis. |
-| `src/optim/outputs.py` | Orders and snapshots. |
-| `src/optim/data.py` | The loader: pydantic row validation into typed DataFrames, batching, caching. |
-| `src/optim/sources.py`, `cache.py`, `settings.py` | Oracle, SQL Server and REST adapters; memory and Redis caches; environment config. |
-| `strategies/` | Example strategy files. |
+| `jobs/` | The entry points, one module each: `optimize`, `model_portfolio`, `transition`. Each defines its request model. |
+| `datasets/` | Every dataset by subject (accounts, securities, signals, benchmarks): row schema, query and cache rule. SQL is in `datasets/sql/`. |
+| `inputs.py` | How datasets combine into the `Market` all portfolios share and the `Inputs` one solve sees. |
+| `rules/` | Pre-solve rules, by family: `eligibility`, `tax`. |
+| `optimizer/` | The LP: `model`, `objective`, `constraints/` by family, `solve`, lot `rounding`, `results`. |
+| `strategy.py`, `engine.py` | The strategy JSON contract; solving tasks in-process or in a process pool. |
+| `outputs/` | `orders`, submission to the `oms`, and run `snapshots`. |
+| `sources/` | `oracle`, `mssql` and `rest` adapters, each with its settings model, over the shared `sql` adapter. |
+| `cache/` | The `memory` and `redis` caches. |
+| `data/` | The loader: row validation into typed frames (`frames`), and fetching, batching and caching (`loader`). |
+| `context.py`, `settings.py`, `cli.py` | Wiring: the connections a process opens, its environment config, and the command line. |
+| `schema.py`, `utils/` | The strict pydantic base and shared field types; small helpers. |
 
 ## Further reading
 

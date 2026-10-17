@@ -2,8 +2,9 @@
 
 import pytest
 
-from optim.inputs import Rating
-from optim.rules import AfterTax, MinRating, NoWashSales
+from optim.rules.eligibility import MinRating
+from optim.rules.tax import AfterTax, NoWashSales
+from optim.schema import Rating
 from tests.builders import account, inputs, lot, security, tables
 
 
