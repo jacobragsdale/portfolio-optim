@@ -1,4 +1,4 @@
-"""Concentration limits: per bond, and per issuer, sector, state or rating."""
+"""Concentration limits: per bond, and per issuer, sector or rating."""
 
 from typing import Literal
 
@@ -23,10 +23,10 @@ class PositionLimit(Strict):
 
 
 class GroupLimit(Strict):
-    """Cap the weight of each issuer, sector, state or rating. `overrides` sets the cap for named groups."""
+    """Cap the weight of each issuer, sector or rating. `overrides` sets the cap for named groups."""
 
     kind: Literal["group_limit"] = "group_limit"
-    by: Literal["issuer", "sector", "state", "rating"]
+    by: Literal["issuer", "sector", "rating"]
     max_weight: Weight
     overrides: dict[str, Weight] = Field(default_factory=dict)
 

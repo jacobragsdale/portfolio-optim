@@ -1,14 +1,13 @@
 """Accounts and their open tax lots, from SQL Server. Both are read live: holdings change with every trade."""
 
 from optim.data.loader import Dataset
-from optim.schema import Cusip, Date, Par, Price, Rate, Row, State
+from optim.schema import Cusip, Date, Par, Price, Rate, Row
 
 
 class Account(Row):
     account_id: str
     benchmark_id: str
     cash: float
-    state: State | None  # tax residence; None when no state income tax applies
     federal_rate: Rate  # marginal rate on ordinary income
     state_rate: Rate
     st_gain_rate: Rate  # short-term capital gains, federal + state

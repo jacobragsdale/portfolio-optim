@@ -25,9 +25,7 @@ class ModelPortfolioRequest(Strict):
 def model_portfolio(ctx: Context, request: ModelPortfolioRequest) -> Run:
     run_id = str(uuid.uuid7())
     market = load_market(ctx.loader, request.as_of)
-    account = Account(
-        account_id=f"model:{request.strategy.name}", benchmark_id=request.benchmark_id, cash=request.notional, state=None, federal_rate=0.0, state_rate=0.0, st_gain_rate=0.0, lt_gain_rate=0.0
-    )
+    account = Account(account_id=f"model:{request.strategy.name}", benchmark_id=request.benchmark_id, cash=request.notional, federal_rate=0.0, state_rate=0.0, st_gain_rate=0.0, lt_gain_rate=0.0)
     portfolios = [Portfolio(account, empty_frame(Lot))]
     results = solve_all(market, [Task(portfolios[0], request.strategy)], workers=ctx.workers)
     save_run(ctx.snapshot_dir, run_id, job="model_portfolio", request=request, market=market, portfolios=portfolios, results=results)

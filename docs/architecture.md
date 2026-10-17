@@ -133,9 +133,10 @@ trade. Rounding broke a constraint in most LP solves, and in all of track-benchm
 
 Every solve has a time limit, 30 seconds by default. An integer solve that reaches it keeps the best solution it has
 found, logs a warning, and reports the remaining optimality gap in its summary. One that has found none is unsolved. On
-that market, an integer solve took a median 12.8s for core-muni, about 2,000 bonds in the model, and 10.4s for
-track-benchmark, about 21,000; one core-muni solve reached the limit and kept a solution within 2.5% of the best
-possible. As LPs, the same portfolios took 0.04s and 0.3s.
+that market, an integer solve took a median 1.5s (at most 14s) for core, about 2,000 bonds in the model, and 6.4s (at
+most 12.6s) for track-benchmark, about 21,000. As LPs, the same portfolios took 0.06s and 0.3s. Solve times swing with
+the data: with every bond taxed alike, core took a median 10.6s on the same market, and one solve reached the limit and
+kept a solution within 4% of the best possible.
 
 ## Four entry points, one engine
 
@@ -181,7 +182,7 @@ These are deliberate shortcuts, marked `ponytail:` in the code.
   plus whole increments is exact for the rest, and measured about 1.7x slower.
 - **Name-level tracking.** An L1 penalty against a 50,000-name index asks a $1mm account for thousands of positions
   below the minimum piece. Rounding erases them in an LP solve, and an integer solve has to search among them. For
-  small accounts, track exposures instead (duration buckets, sector, state, rating) with group constraints on the
+  small accounts, track exposures instead (duration buckets, sector, rating) with group constraints on the
   difference from the target.
 - **Wash sales** are blocked only for bonds held at a loss in open lots. Sales in the last 30 days need a dataset.
 - **Snapshots** write the whole market every run, to a local directory. Store the market once per content hash if

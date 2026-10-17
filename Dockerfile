@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # The `optim` CLI. Every run is an AKS Job that Airflow starts with the command's arguments, e.g.
-# `optimize --strategy /strategies/core-muni.json --accounts A1 A2`. deploy/job.yaml is the Job spec.
+# `optimize --strategy /strategies/core.json --accounts A1 A2`. deploy/job.yaml is the Job spec.
 
 FROM python:3.14.7-slim-trixie AS build
 COPY --from=ghcr.io/astral-sh/uv:0.12.7 /uv /bin/uv

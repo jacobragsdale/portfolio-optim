@@ -1,8 +1,8 @@
 """Command line. Choose the environment file explicitly:
 
-uv run --env-file .env optim optimize --strategy strategies/core-muni.json --accounts A1 A2
-uv run --env-file .env optim optimize --strategy strategies/core-muni.json --accounts @accounts.txt --submit
-uv run --env-file .env optim model --strategy strategies/track-benchmark.json --benchmark MUNI-5Y
+uv run --env-file .env optim optimize --strategy strategies/core.json --accounts A1 A2
+uv run --env-file .env optim optimize --strategy strategies/core.json --accounts @accounts.txt --submit
+uv run --env-file .env optim model --strategy strategies/track-benchmark.json --benchmark IG-5Y
 uv run --env-file .env optim transition --strategy strategies/track-benchmark.json --account A1 --tax-budgets 0 25000 100000
 uv run --env-file .env optim warm
 uv run --env-file .env optim warm --datasets benchmarks

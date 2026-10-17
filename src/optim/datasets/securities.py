@@ -7,16 +7,15 @@ from typing import Annotated, Literal
 from pydantic import Field
 
 from optim.data.loader import CachePolicy, Dataset
-from optim.schema import Cusip, Date, Par, Price, Rating, Row, State
+from optim.schema import Cusip, Date, Par, Price, Rating, Row
 
 
 class Security(Row):
     cusip: Cusip
     issuer: str
     sector: str
-    state: State | None  # munis only
     rating: Rating
-    tax_status: Literal["taxable", "muni"]
+    tax_status: Literal["taxable", "state_exempt"]  # state_exempt: no state tax on interest, as for Treasuries
     maturity: Date
     price: Price  # dirty
     duration: Annotated[float, Field(ge=0)]  # modified, years

@@ -2,7 +2,6 @@
 SELECT a.account_id,
        a.benchmark_id,
        CAST(a.cash AS FLOAT)          AS cash,
-       a.tax_state                    AS state,
        CAST(t.federal_rate AS FLOAT)  AS federal_rate,
        CAST(t.state_rate AS FLOAT)    AS state_rate,
        CAST(t.st_gain_rate AS FLOAT)  AS st_gain_rate,

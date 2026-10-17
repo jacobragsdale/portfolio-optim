@@ -70,7 +70,7 @@ def _dtype(annotation: object) -> Dtype:
     category in declared order (so `rating <= "A-"` means "A- or better")."""
     optional = NoneType in get_args(annotation)
     base = next(arg for arg in get_args(annotation) if arg is not NoneType) if optional else annotation
-    if get_origin(base) is Annotated:  # `State | None`: constraints sit inside the union
+    if get_origin(base) is Annotated:  # `Price | None`: constraints sit inside the union
         base = get_args(base)[0]
     if get_origin(base) is Literal:
         return pd.CategoricalDtype(list(get_args(base)), ordered=True)

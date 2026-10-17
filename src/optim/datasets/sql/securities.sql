@@ -2,8 +2,8 @@
 SELECT s.cusip,
        s.issuer,
        s.sector,
-       s.state,
        s.rating,
+       -- 'taxable', or 'state_exempt' for Treasuries and other bonds whose interest no state taxes
        s.tax_status,
        s.maturity_date                    AS maturity,
        a.dirty_price                      AS price,

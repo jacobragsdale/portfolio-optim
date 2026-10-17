@@ -1,6 +1,6 @@
 # portfolio-optim
 
-A tax-aware optimizer for taxable fixed income portfolios: munis and corporates, held in tax lots. It loads holdings,
+A tax-aware optimizer for taxable fixed income portfolios held in tax lots. It loads holdings,
 the buy universe, signals, benchmarks and security analytics from Oracle, SQL Server and REST. It applies pre-solve
 rules, then solves each portfolio with cvxpy and HiGHS, in parallel processes: as an integer program that trades exact
 lot sizes, or as a faster LP whose trades are rounded. Every run is saved as a snapshot, and orders go to the OMS.
@@ -17,7 +17,7 @@ To run against real systems, copy `.env.example` to `.env` and fill in every var
 account:
 
 ```sh
-uv run --env-file .env optim optimize --strategy strategies/core-muni.json --accounts ACCOUNT_ID
+uv run --env-file .env optim optimize --strategy strategies/core.json --accounts ACCOUNT_ID
 ```
 
 `ACCOUNT_ID` is an account in the SQL Server `accounts` table that `src/optim/datasets/sql/accounts.sql` queries. The

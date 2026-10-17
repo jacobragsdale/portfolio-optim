@@ -30,7 +30,6 @@ def _as_date(value: object) -> object:
 
 Date = Annotated[date, BeforeValidator(_as_date)]
 Cusip = Annotated[str, StringConstraints(pattern=r"^[0-9A-Z*@#]{8}[0-9]$")]
-State = Annotated[str, StringConstraints(pattern=r"^[A-Z]{2}$")]
 Rate = Annotated[float, Field(ge=0, lt=1)]
 Price = Annotated[float, Field(gt=0)]  # per 100 par
 Par = Annotated[int, Field(gt=0)]  # face amount in whole dollars: orders are exact, the solver works in float64

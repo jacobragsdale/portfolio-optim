@@ -10,16 +10,14 @@ from optim.schema import Strict
 
 
 class AfterTax(Strict):
-    """Turn pre-tax expected returns into this account's after-tax returns: munis are free of federal tax, and of state
-    tax in the account's own state; taxable bonds pay both."""
+    """Turn pre-tax expected returns into this account's after-tax returns: interest pays federal tax, and state tax
+    unless the bond is state-exempt, as Treasuries are."""
 
     kind: Literal["after_tax"] = "after_tax"
 
     def apply(self, inputs: Inputs) -> Inputs:
         a, s = inputs.account, inputs.securities
-        muni = s["tax_status"] == "muni"
-        in_state = muni & (s["state"] == a.state)
-        rate = np.select([in_state, muni], [0.0, a.state_rate], default=a.federal_rate + a.state_rate)
+        rate = np.where(s["tax_status"] == "state_exempt", a.federal_rate, a.federal_rate + a.state_rate)
         return replace(inputs, securities=s.assign(expected_return=s["expected_return"] * (1 - rate)))
 
 

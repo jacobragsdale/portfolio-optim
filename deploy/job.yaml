@@ -1,6 +1,6 @@
 # One run of the CLI. Airflow creates a Job from this spec per run and sets `args`, e.g.
 #   [warm]                                                           each business morning, before the first run
-#   [optimize, --strategy, /strategies/core-muni.json, --accounts, A1, A2, --submit]
+#   [optimize, --strategy, /strategies/core.json, --accounts, A1, A2, --submit]
 # Never retry a run, here or in Airflow: a rerun of `optimize --submit` could send its orders twice.
 apiVersion: batch/v1
 kind: Job

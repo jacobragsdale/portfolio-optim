@@ -44,7 +44,7 @@ that binds only `as_of`. Anything else is a short function:
 
 ```python
 def _by_curve(loader: Loader, as_of: date) -> list[dict[str, Param]]:
-    return [{"as_of": as_of, "curve": curve} for curve in ("aaa_muni", "ust")]
+    return [{"as_of": as_of, "curve": curve} for curve in ("ust", "sofr")]
 
 
 def _by_portfolio(loader: Loader, as_of: date) -> list[dict[str, Param]]:
