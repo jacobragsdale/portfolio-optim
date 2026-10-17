@@ -11,10 +11,7 @@ You need [uv](https://docs.astral.sh/uv/). It installs Python 3.14 on first use.
 
 ```sh
 uv sync
-uv run pytest
 ```
-
-The tests run every entry point against in-memory fake sources, so they need no database or network.
 
 To run against real systems, copy `.env.example` to `.env` and fill in every variable, then run a strategy for one
 account:
@@ -25,7 +22,18 @@ uv run --env-file .env optim optimize --strategy strategies/core-muni.json --acc
 
 `ACCOUNT_ID` is an account in the SQL Server `accounts` table that `src/optim/datasets/sql/accounts.sql` queries. The
 run prints one summary row per portfolio and writes a snapshot under `OPTIM_SNAPSHOT_DIR`. It submits no orders until
-you add `--submit`. `uv run optim --help` lists the other commands: `model`, `transition` and `schema`.
+you add `--submit`. `uv run optim --help` lists the other commands: `model`, `transition`, `warm`, `clear` and `schema`.
+
+## Run as a Job
+
+```sh
+docker build -t portfolio-optim .
+```
+
+The image's entrypoint is the `optim` CLI. Every run is an AKS Job that Airflow starts with the command's arguments:
+`deploy/job.yaml` is the Job spec, and `deploy/snapshots-pvc.yaml` the volume that snapshots go to. Schedule
+`optim warm` each business morning, before the first run, so runs read cached datasets from Redis (see
+[How to cache a dataset](docs/extending.md#how-to-cache-a-dataset)).
 
 ## Layout
 
@@ -42,10 +50,11 @@ family of rules or constraints, an entry point.
 | `strategy.py`, `engine.py` | The strategy JSON contract; solving tasks in-process or in a process pool. |
 | `outputs/` | `orders`, submission to the `oms`, and run `snapshots`. |
 | `sources/` | `oracle`, `mssql` and `rest` adapters, each with its settings model, over the shared `sql` adapter. |
-| `cache/` | The `memory` and `redis` caches. |
+| `cache.py` | The Redis dataset cache that every Job shares. |
 | `data/` | The loader: row validation into typed frames (`frames`), and fetching, batching and caching (`loader`). |
 | `context.py`, `settings.py`, `cli.py` | Wiring: the connections a process opens, its environment config, and the command line. |
-| `schema.py`, `utils/` | The strict pydantic base and shared field types; small helpers. |
+| `logs.py` | Structured logging: JSON lines, timings, and exceptions with their root cause. |
+| `schema.py` | The strict pydantic base and shared field types. |
 
 ## Further reading
 

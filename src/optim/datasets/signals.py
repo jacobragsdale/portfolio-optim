@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from optim.data.loader import Dataset
+from optim.data.loader import CachePolicy, Dataset
 from optim.schema import Cusip, Row
 
 
@@ -11,4 +11,4 @@ class Signal(Row):
     expected_return: float  # annual, pre-tax, decimal
 
 
-SIGNALS = Dataset("signals", Signal, source="signals", query="/v1/expected-returns", key=("cusip",), ttl=timedelta(minutes=5))
+SIGNALS = Dataset("signals", Signal, source="signals", query="/v1/expected-returns", key=("cusip",), cache=CachePolicy(ttl=timedelta(minutes=5)))

@@ -6,7 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
-from optim.data.loader import Dataset
+from optim.data.loader import CachePolicy, Dataset
 from optim.schema import Cusip, Date, Par, Price, Rating, Row, State
 
 
@@ -30,5 +30,5 @@ class Offering(Row):
     offer_par: Par  # par we can buy today
 
 
-SECURITIES = Dataset("securities", Security, source="oracle", query="datasets/sql/securities.sql", key=("cusip",), ttl=timedelta(minutes=15))
-UNIVERSE = Dataset("universe", Offering, source="oracle", query="datasets/sql/universe.sql", key=("cusip",), ttl=timedelta(minutes=15))
+SECURITIES = Dataset("securities", Security, source="oracle", query="datasets/sql/securities.sql", key=("cusip",), cache=CachePolicy(ttl=timedelta(minutes=15)))
+UNIVERSE = Dataset("universe", Offering, source="oracle", query="datasets/sql/universe.sql", key=("cusip",), cache=CachePolicy(ttl=timedelta(minutes=15)))

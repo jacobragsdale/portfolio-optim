@@ -1,0 +1,41 @@
+# One run of the CLI. Airflow creates a Job from this spec per run and sets `args`, e.g.
+#   [warm]                                                           each business morning, before the first run
+#   [optimize, --strategy, /strategies/core-muni.json, --accounts, A1, A2, --submit]
+# Never retry a run, here or in Airflow: a rerun of `optimize --submit` could send its orders twice.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  generateName: optim-
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400  # keep a day for `kubectl logs`, then clean up
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: optim
+          image: IMAGE  # e.g. <registry>.azurecr.io/portfolio-optim:<git sha>
+          args: [--help]
+          envFrom:
+            - secretRef: {name: optim}  # every OPTIM_* variable in .env.example except the two below
+          env:
+            - {name: OPTIM_WORKERS, value: "4"}  # match the CPU request
+            - {name: OPTIM_SNAPSHOT_DIR, value: /snapshots}
+          resources:
+            requests: {cpu: "4", memory: 6Gi}
+            limits: {memory: 6Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: snapshots, mountPath: /snapshots}
+            - {name: tmp, mountPath: /tmp}  # the multiprocessing forkserver's socket
+      volumes:
+        - name: snapshots
+          persistentVolumeClaim: {claimName: optim-snapshots}
+        - name: tmp
+          emptyDir: {}

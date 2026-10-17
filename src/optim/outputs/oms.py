@@ -18,6 +18,5 @@ def submit_orders(oms: httpx.Client, orders: Sequence[Order], *, batch_size: int
     """POST orders in batches. A failed batch raises; batches already sent stay sent, and resubmitting the whole run is
     safe because the OMS deduplicates on `client_order_id`."""
     for batch in batched(orders, batch_size, strict=False):
-        response = oms.post("/orders", content=_ORDERS.dump_json(list(batch)), headers={"content-type": "application/json"})
-        response.raise_for_status()
-        log.info("submitted %d orders", len(batch), extra={"first_order": batch[0].client_order_id})
+        oms.post("/orders", content=_ORDERS.dump_json(list(batch)), headers={"content-type": "application/json"})
+        log.info("submitted %d orders", len(batch), extra={"first_order": batch[0].client_order_id, "last_order": batch[-1].client_order_id})

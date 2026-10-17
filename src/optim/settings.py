@@ -2,8 +2,9 @@
 source owns its settings model; nested fields use a double underscore, as in `OPTIM_ORACLE__DSN`."""
 
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import RedisDsn
+from pydantic import Field, RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from optim.sources.mssql import MssqlSettings
@@ -28,5 +29,6 @@ class Settings(BaseSettings):
     mssql: MssqlSettings
     signals: ApiSettings
     oms: ApiSettings
-    redis_url: RedisDsn | None  # without Redis, datasets are cached in process memory
+    redis_url: RedisDsn | None  # the dataset cache every Job shares; without it, every dataset is read live
     snapshot_dir: Path
+    workers: Annotated[int, Field(ge=1)]  # solver processes per run; 1 solves in the calling process

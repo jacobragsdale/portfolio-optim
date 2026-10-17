@@ -8,10 +8,9 @@ from pathlib import Path
 
 import httpx
 import redis
+from pydantic import RedisDsn
 
-from optim.cache import Cache
-from optim.cache.memory import MemoryCache
-from optim.cache.redis import RedisCache
+from optim.cache import RedisCache
 from optim.data.loader import Loader
 from optim.settings import Settings
 from optim.sources import Source, SourceName, mssql, oracle, rest
@@ -22,11 +21,12 @@ class Context:
     loader: Loader
     oms: httpx.Client
     snapshot_dir: Path
+    workers: int  # solver processes per run; 1 solves in this process
 
 
 @contextmanager
 def open_context(settings: Settings, *, cache: bool = True) -> Generator[Context]:
-    """Everything closes on exit. `cache=False` reads every dataset live."""
+    """Everything closes on exit. `cache=False`, or no Redis, reads every dataset live."""
     with ExitStack() as stack:
         sources: dict[SourceName, Source] = {
             "oracle": stack.enter_context(oracle.connect(settings.oracle)),
@@ -34,10 +34,12 @@ def open_context(settings: Settings, *, cache: bool = True) -> Generator[Context
             "signals": rest.Rest(stack.enter_context(rest.client(settings.signals))),
         }
         oms = stack.enter_context(rest.client(settings.oms))
-        yield Context(Loader(sources, _cache(settings, stack) if cache else None), oms, settings.snapshot_dir)
+        redis_cache = stack.enter_context(open_cache(settings.redis_url)) if cache and settings.redis_url else None
+        yield Context(Loader(sources, redis_cache), oms, settings.snapshot_dir, settings.workers)
 
 
-def _cache(settings: Settings, stack: ExitStack) -> Cache:
-    if settings.redis_url is None:
-        return MemoryCache()
-    return RedisCache(stack.enter_context(redis.Redis.from_url(str(settings.redis_url), socket_timeout=5)))
+@contextmanager
+def open_cache(url: RedisDsn) -> Generator[RedisCache]:
+    """The dataset cache alone, for `optim clear`, which needs no sources."""
+    with redis.Redis.from_url(str(url), socket_timeout=5) as client:
+        yield RedisCache(client)

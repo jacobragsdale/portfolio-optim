@@ -23,7 +23,7 @@ class ExcludeIssuers(Strict):
     """Never buy these issuers (restricted list, credit watch)."""
 
     kind: Literal["exclude_issuers"] = "exclude_issuers"
-    issuers: tuple[str, ...]
+    issuers: list[str]
 
     def apply(self, inputs: Inputs) -> Inputs:
         return inputs.restrict(~inputs.securities["issuer"].isin(self.issuers))

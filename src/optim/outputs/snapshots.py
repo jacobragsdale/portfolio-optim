@@ -48,14 +48,14 @@ def result_frames(results: Sequence[Result]) -> dict[str, pd.DataFrame]:
         "trades": _concat([r.trades.assign(strategy=r.strategy) for r in solved]),
         "positions": _concat([r.positions.assign(account_id=r.account_id, strategy=r.strategy) for r in solved]),
         "summary": pd.DataFrame([_summary_row(r) for r in results]),
+        "solver_inputs": _concat([r.solver_inputs.assign(account_id=r.account_id, strategy=r.strategy) for r in results if r.solver_inputs is not None]),
     }
 
 
 def _summary_row(result: Result) -> dict[str, object]:
     match result:
         case Solved():
-            status = "ok" if result.ok else f"rounding broke {sorted(result.violations)}"
-            return {"account_id": result.account_id, "strategy": result.strategy, "status": status, **result.summary, "seconds": result.seconds}
+            return {"account_id": result.account_id, "strategy": result.strategy, "status": result.status, **result.summary, "seconds": result.seconds}
         case Unsolved():
             return {"account_id": result.account_id, "strategy": result.strategy, "status": result.status}
 

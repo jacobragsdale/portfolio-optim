@@ -6,7 +6,7 @@ from typing import Annotated
 import pandas as pd
 from pydantic import Field
 
-from optim.data.loader import Dataset
+from optim.data.loader import CachePolicy, Dataset, by_date
 from optim.schema import Cusip, Row
 
 
@@ -23,4 +23,12 @@ def _weights_sum_to_one(frame: pd.DataFrame) -> None:
         raise ValueError(msg)
 
 
-BENCHMARKS = Dataset("benchmarks", BenchmarkWeight, source="oracle", query="datasets/sql/benchmarks.sql", key=("benchmark_id", "cusip"), ttl=timedelta(hours=12), check=_weights_sum_to_one)
+BENCHMARKS = Dataset(
+    "benchmarks",
+    BenchmarkWeight,
+    source="oracle",
+    query="datasets/sql/benchmarks.sql",
+    key=("benchmark_id", "cusip"),
+    cache=CachePolicy(ttl=timedelta(hours=12), warm=by_date),
+    check=_weights_sum_to_one,
+)

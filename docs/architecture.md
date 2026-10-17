@@ -16,22 +16,33 @@ In a worker, `solve_task` turns the market and one portfolio into `Inputs`, appl
 calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
 constraint the lot rounding broke) or `Unsolved` (the solver status or the error). Back in the parent,
 `outputs.snapshots` writes the run to a directory: the request, every input frame, every result frame and the orders.
+Its `solver_inputs` frame is exactly what each LP saw after the rules.
 Only after the snapshot is on disk does `optimize` submit orders, and only for results that rounding left intact.
 
 ## Requests and the context
 
 Each entry point takes two things. Its request is a strict pydantic model of what was asked: the strategy, the
-accounts, the business date, the number of workers. The CLI builds requests from its arguments, and an API or an agent
+accounts, the business date. The CLI builds requests from its arguments, and an API or an agent
 can build the same models from JSON. Because the request goes into the snapshot whole, every run records exactly what
 produced it.
 
 The `Context` is everything the process is connected to: the loader with its sources and cache, the OMS client, and
 the snapshot directory. `open_context` in `context.py` is the only place that opens connections, and it closes them on
-exit. Jobs never read settings or build clients, so a new entry point needs no infrastructure code, and a test gives a
+exit. Jobs never read settings or build clients, so a new entry point needs no infrastructure code, and a test can give a
 job fake sources and a fake OMS through the same `Context`.
 
 Configuration follows the same split. Each source module owns its settings model (`OracleSettings` beside the Oracle
 connection code), and `Settings` composes them under nested environment variables such as `OPTIM_ORACLE__DSN`.
+
+## Every run is a Job
+
+Each run is one AKS Job running the CLI. Airflow starts it with the command's arguments, and it loads, solves,
+snapshots, acts and exits. The exit code is the run's status: 0 only when every portfolio solved cleanly. Neither
+Kubernetes nor Airflow retries a run, because a rerun of `optimize --submit` could send its orders twice.
+
+`OPTIM_WORKERS` sizes the run's process pool and should match the Job's CPU request. A run with one task, the common
+intraday case, solves in the Job's own process and starts no pool. Snapshots go to an Azure Files volume, so they
+outlive the Job's pod.
 
 ## Why workers do no I/O
 
@@ -59,10 +70,20 @@ all. Validation stays on even in the hot path. The constraint is that field rule
 have one. The annotations also choose the pandas dtype. A `Literal` becomes an ordered categorical, which is why a
 rule can write `rating <= "A-"`.
 
-Caching is a property of the data, not of the code that reads it. Holdings and accounts have no `ttl`, so they are
-always read live. The universe and analytics may be 15 minutes old, signals 5, benchmarks 12 hours. A run chooses
-whether to use a cache at all: none, per-process memory for a long-lived service, or Redis shared across processes and
-machines. Cache keys include the row schema, so a deploy that changes a schema never reads frames of the old shape.
+Caching is a property of the data, not of the code that reads it. A dataset's `CachePolicy` says how long its entry
+lives, whether `optim warm` fills it, and whether a run may read the source when the entry is missing. Holdings and
+accounts have no policy, so they are always read live. Every Job is a new process, so the cache is Redis, shared by all
+of them. Nothing is cached in process memory: a job that needs a dataset twice loads it once and passes the frame, as
+`Market` does for every portfolio in a run. Cache keys include the query parameters, the SQL text and the row schema.
+The parameters include the business date, so each day starts with new entries, and a deploy that changes a query or a
+schema never reads what the old code cached.
+
+`optim warm` is the morning Job. It finds every declared dataset whose policy has a warm hook, asks the hook which
+parameters to load it with, reads each set live, and overwrites its entry, so the day's runs read them from Redis. A
+failed load does not stop the others, but it fails the Job, as Redis failing does. A run
+treats Redis being down as a miss and lets each dataset's policy decide: read the source, or fail. A dataset that is
+too heavy to read once per Job sets `live_on_miss=False`, so an outage cannot turn every Job into a full read of the
+source. Without Redis, or with `--no-cache`, a run reads everything live.
 
 Batched queries bind a list of ids as one JSON array string, which the SQL unpacks with `OPENJSON` (SQL Server) or
 `JSON_TABLE` (Oracle). One bind per batch avoids Oracle's 1,000-item `IN` limit and keeps SQL out of string
@@ -108,6 +129,24 @@ once per tax budget, adding a `MaxTax` constraint each time, and reads the resul
 distance from the target. Because transitions are just more tasks, their frontier points solve in parallel like any
 batch.
 
+## Logs are written for agents
+
+Every record is one JSON object per line on stderr, because the main reader is an agent, and Azure Monitor parses the
+same lines; `OPTIM_LOG_FORMAT=text` is for a person at a terminal. Logging lives in the shared parts, not in jobs or
+rules: the loader, the SQL and HTTP adapters, the engine and the solver each log what passes through them, so a new
+dataset, rule or entry point is logged without a line of logging code. At INFO a run tells its story: what loaded, each
+portfolio's result and trades, the snapshot, the orders sent. `OPTIM_LOG_LEVEL=DEBUG` adds a record for every load
+(with its cache outcome), query (connect, execute and fetch times), HTTP call, rule (what it made unbuyable) and LP
+(size, settings, and build, compile and solver times).
+
+Records stay small, because AKS splits lines over 16KB. Bulk data goes in the snapshot: the logs say what happened, and
+`solver_inputs` holds exactly what each LP was given.
+
+An exception is logged once, where its traceback is whole: by the CLI, or in the worker for a solve, so one portfolio's
+failure is logged and the batch goes on. The record carries the error, the notes added on the way up (the loader names
+the dataset and its parameters; an HTTP error carries the server's reply), the root cause, and `where`: the line in
+this package where it surfaced, even when a library raised it.
+
 ## Known limits
 
 These are deliberate shortcuts, marked `ponytail:` in the code.
@@ -121,4 +160,4 @@ These are deliberate shortcuts, marked `ponytail:` in the code.
   sector, state, rating) with group constraints on the difference from the target.
 - **Wash sales** are blocked only for bonds held at a loss in open lots. Sales in the last 30 days need a dataset.
 - **Snapshots** write the whole market every run, to a local directory. Store the market once per content hash if
-  storage grows too fast, and write to shared storage before running on pods whose disks do not outlive them.
+  storage grows too fast.
