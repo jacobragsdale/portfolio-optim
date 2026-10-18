@@ -14,7 +14,7 @@ from optim.schema import StrictModel
 
 
 class ExpectedReturn(StrictModel):
-    """Expected after-tax income over the horizon, as the rules left `expected_return`."""
+    """Expected income over the horizon, as the rules left `expected_return`: after tax when they include `after_tax`."""
 
     kind: Literal["expected_return"] = "expected_return"
     horizon_years: float = Field(default=1.0, gt=0)

@@ -35,7 +35,9 @@ class Code(BaseSettings):
 def save_run(root: Path, run_id: str, *, job: str, request: Model, as_of_date: date, frames: Mapping[str, pd.DataFrame], results: Sequence[Result], **extra: object) -> Path:
     """`frames` are the datasets the run loaded, by name, as `load_frames` returns them."""
     meta = {"run_id": run_id, "job": job, "as_of_date": as_of_date, "code": Code(), "request": request, **extra}
-    return save_snapshot(root, run_id, meta=meta, frames=input_frames(frames) | result_frames(results))
+    # writes the whole market every run; store it once per content hash if snapshots grow too fast
+    inputs = {f"inputs/{name}": frame for name, frame in frames.items()}
+    return _write(root, run_id, meta=meta, frames=inputs | result_frames(results))
 
 
 def load_run(path: Path) -> tuple[dict[str, object], dict[str, pd.DataFrame]]:
@@ -59,7 +61,7 @@ def load_run(path: Path) -> tuple[dict[str, object], dict[str, pd.DataFrame]]:
     return meta, frames
 
 
-def save_snapshot(root: Path, run_id: str, *, meta: Mapping[str, object], frames: Mapping[str, pd.DataFrame]) -> Path:
+def _write(root: Path, run_id: str, *, meta: Mapping[str, object], frames: Mapping[str, pd.DataFrame]) -> Path:
     """Write `root/run_id/`, a frame per `frames` key, which may name a subdirectory. The directory appears only once
     it is complete."""
     partial, path = root / f".{run_id}.partial", root / run_id
@@ -72,9 +74,3 @@ def save_snapshot(root: Path, run_id: str, *, meta: Mapping[str, object], frames
     partial.rename(path)
     log.info("saved snapshot %s", path, extra={"run_id": run_id})
     return path
-
-
-def input_frames(frames: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-    """The datasets a run loaded, keyed as `save_snapshot` writes them and `load_run` reads them back."""
-    # writes the whole market every run; store it once per content hash if snapshots grow too fast
-    return {f"inputs/{name}": frame for name, frame in frames.items()}

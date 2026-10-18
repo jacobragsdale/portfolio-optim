@@ -16,7 +16,9 @@ To load a new table, for example issuer credit scores from Oracle:
    `ISSUER_SCORES = Dataset("issuer_scores", IssuerScore, source="oracle", query="datasets/sql/issuer_scores.sql", key=("issuer",))`.
    Without a `cache`, it is read live on every load. To cache it, see the next section.
 5. Load it and prepare it in `src/optim/inputs.py`. Per-security data is loaded once a run: add the dataset to
-   `MARKET`, which also fails the run if it returns no rows. Merge `frames["issuer_scores"]` in `build_market` with
+   `MARKET`, which also fails the run if it returns no rows. Every `MARKET` dataset is loaded with the business date, so
+   its SQL must bind `:as_of_date`: Oracle refuses a bind its SQL does not use. A REST source receives it as a query
+   parameter. Merge `frames["issuer_scores"]` in `build_market` with
    `validate="many_to_one"` or `"one_to_one"`. A rule or constraint can then read the new column from
    `inputs.securities` or `model.securities`.
 
@@ -55,10 +57,6 @@ def _by_date(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:
 
 def _by_curve(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:
     return [{"as_of_date": as_of_date, "curve": curve} for curve in ("ust", "sofr")]
-
-
-def _by_portfolio(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:
-    return [{"as_of_date": as_of_date, "portfolio_id": i} for i in loader.load(PORTFOLIOS, as_of_date=as_of_date)["portfolio_id"]]
 ```
 
 A job reads a warmed entry only if it loads the dataset with exactly the parameters the hook returned. Any other
@@ -97,7 +95,8 @@ Strategy files can use the rule as soon as it is in the union.
 5. Add the class to the `Constraint` union in `src/optim/optimizer/constraints/__init__.py`.
 
 A constraint that counts trades or positions needs an integer solve. Count with the model's 0/1 flags, `m.buying` per
-bond and `m.selling` per lot, as `max_buys` does; they are `None` in an LP solve, so raise a clear error then. A
+bond and `m.selling` per lot, as `max_buys` does. Give the class `integer_only: ClassVar[bool] = True`, so a strategy
+that solves an LP is refused when it is read, and still raise a clear error if a flag is `None`. A
 constraint can also declare its own 0/1 variables and tie them to what it limits. This one caps the bonds held after
 trading: a weight can only be above zero where its flag is 1, and no weight exceeds 1.
 
@@ -159,18 +158,22 @@ uv run optim replay snapshots/RUN_ID --strategy strategies/my-variant.json --wor
 Without `--strategy`, it replays the run as it was, which shows whether a code change moved any result. Replay reads
 only the snapshot directory. It needs no `.env`, database or Redis, and writes nothing but its own snapshot. It
 applies the strategy's rules, objective, constraints and solve block, saves the results as a new run of the same job
-beside the original, and prints the summary. `--portfolios A1 A2` replays only some portfolios. Each run's `summary.parquet` holds one
-row per portfolio, so comparing two runs is a join on `portfolio_id`.
+beside the original, and prints the summary. `--portfolios A1 A2` replays only some portfolios. Each run's
+`summary.parquet` holds one row per solve, so comparing two runs is a join on `portfolio_id`; for a transition, which
+has a row per tax budget, on `portfolio_id` and row order. [Snapshot files](snapshots.md) defines every column.
 
 ## How to add a data source
 
 1. Add a module to `src/optim/sources/`, such as `pricing.py`, with a settings model (a `Model` subclass) and a
    `connect` function. Its settings model subclasses `SourceSettings`, so it has a concurrency limit and a timeout
    like every other source. A database with a DB-API driver returns a `SqlSource` over a connection factory; anything else
-   returns a class with `fetch(self, query, params) -> Columns`. Put `settings.timeout_s` on every call, the login included:
-   Oracle's thin driver bounds only the TCP connect, so `oracle.py` runs its login in a thread it stops waiting for.
+   returns a class with `fetch(self, query, params) -> Columns`. Put a deadline on every call: `settings.timeout_s` on
+   each query or request, and a fixed one on the login, as `LOGIN_TIMEOUT_S` in `mssql.py` and `CONNECT_TIMEOUT_S` in
+   `oracle.py` are. Oracle's thin driver bounds only the TCP connect, so `oracle.py` runs its login in a thread it stops
+   waiting for.
 2. Add the source's name to `SourceName` in `src/optim/sources/__init__.py`.
-3. Add its settings to `Settings` in `src/optim/settings.py`, and its variables to `.env.example`.
+3. Add its settings to `Settings` in `src/optim/settings.py` under that same name, which `open_context` uses to find its
+   limit, and its variables to `.env.example`.
 4. Open it in `open_context` in `src/optim/context.py`, which also gives it its slot limit. If it holds a pool or
    client, enter it on the `ExitStack` so it closes.
 
@@ -192,8 +195,8 @@ If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSetting
 A report, a write to a database or a call to another API after the solves:
 
 1. Add a module to `src/optim/outputs/`, such as `reports.py`, with a function that takes what it needs: the `run_id`,
-   the results (`result_frames(results)` gives the trades, positions and summary as frames), and a client or
-   connection.
+   the results (`result_frames(results)` from `optim.optimizer.results` gives the trades, positions, summary and
+   violations as frames), and a client or connection.
 2. If it needs a client or connection, add its settings and open it in `open_context` as for
    [a data source](#how-to-add-a-data-source), and add it to `Context`.
 3. Call it in `run` in `src/optim/jobs/__init__.py`, after `_solve` returns: the snapshot is on disk by then, so a

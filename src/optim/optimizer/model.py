@@ -39,7 +39,7 @@ class OptimizationModel:
     turnover: cp.Expression  # value traded, $
     tax: cp.Expression  # tax on realized gains, $; negative when harvesting losses
     cost: cp.Expression  # trading costs, $
-    income: cp.Expression  # expected after-tax return, $ per year
+    income: cp.Expression  # expected return, $ per year, as the rules left it: after tax with `after_tax`
     bounds: list[cp.Constraint]  # what every solve needs: the trade sizes the market allows, and no overspending
 
 

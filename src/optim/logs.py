@@ -1,6 +1,6 @@
 """Logging. Each record is one JSON object per line on stderr, for agents and Azure Monitor; `OPTIM_LOG_FORMAT=text`
 prints lines for a person instead. INFO tells a run's story: what loaded, each portfolio's result and trades, what was
-saved and sent, and a record for every load (with its cache outcome), query, HTTP call and LP solve, with timings in
+saved, and a record for every load (with its cache outcome), query, HTTP call and solve, with timings in
 `*ms` fields. `OPTIM_LOG_LEVEL=DEBUG` adds a record for every rule.
 
 To log, use stdlib logging and put data in `extra`. Each key becomes a JSON field, and frames, series, numpy values,

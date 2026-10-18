@@ -177,7 +177,7 @@ Rules never drop rows. They narrow what may be bought (`SolverInputs.restrict`) 
 The model decides what is bought per security and sold per tax lot. Selling by lot rather than by bond is what makes
 the optimizer tax-aware: given two lots of one bond, it sells the one bought above today's price and keeps the one with
 a gain. The objective is the sum of the strategy's terms, each a fraction of portfolio value; by default, expected
-after-tax return over a horizon, less taxes and trading costs. Constraints are written in weights, fractions of
+return over a horizon, after tax when the strategy's rules include `after_tax`, less taxes and trading costs. Constraints are written in weights, fractions of
 pre-trade value, so they share one scale and one feasibility tolerance. Every constraint builds from numpy and sparse
 scipy arrays. Group limits, for example, are one sparse membership matrix times the weight vector, which keeps cvxpy's
 compile time flat as the universe grows.
