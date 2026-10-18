@@ -8,6 +8,7 @@ import logging
 from collections.abc import Sequence
 from typing import Annotated
 
+import pandas as pd
 from pydantic import Field
 
 from optim.inputs import SolverInputs
@@ -28,6 +29,10 @@ def apply_rules(rules: Sequence[Rule], inputs: SolverInputs) -> SolverInputs:
 
 def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
     after = rule.apply(inputs)
+    if changed := [name for name, frame in _frames(after).items() if not frame.index.equals(_frames(inputs)[name].index)]:
+        # a dropped bond leaves the target and tracking unpriced, and a dropped lot hides a holding from the solve
+        msg = f"rule {rule.kind} changed the rows of {', '.join(changed)}: a rule narrows `buyable` or edits a column, and keeps every row"
+        raise ValueError(msg)
     was, now = inputs.securities, after.securities
     dropped = was.loc[was["buyable"] & ~now["buyable"], "cusip"]
     changed = int((was["expected_return"] != now["expected_return"]).sum())
@@ -43,3 +48,7 @@ def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
         },
     )
     return after
+
+
+def _frames(inputs: SolverInputs) -> dict[str, pd.DataFrame]:
+    return {"securities": inputs.securities} | {name: value for name, value in vars(inputs.portfolio).items() if isinstance(value, pd.DataFrame)}
