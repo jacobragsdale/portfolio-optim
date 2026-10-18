@@ -16,20 +16,29 @@ class Security(Row):
     issuer: str
     sector: str
     rating: Rating
-    tax_status: Literal["taxable", "state_exempt"]  # state_exempt: no state tax on interest, as for Treasuries
+    tax_status: Literal["taxable", "state_exempt"]
+    """`state_exempt`: no state tax on interest, as for Treasuries."""
     maturity: date
-    price: Price  # dirty: what a trade pays, accrued interest included
-    accrued: Annotated[float, Field(ge=0)]  # accrued interest in `price`; price less accrued is the clean price, which gains are measured from
-    duration: Annotated[float, Field(ge=0)]  # modified, years
-    cost_bps: Annotated[float, Field(ge=0)]  # estimated one-way trading cost
-    min_piece: Par  # smallest trade
-    increment: Par  # trades are whole multiples of it
-    min_remaining: Par  # smallest amount a partial sale may leave in a lot
+    price: Price
+    """Dirty price per 100 par: what a trade pays, accrued interest included."""
+    accrued: Annotated[float, Field(ge=0)]
+    """Accrued interest in `price`. Price less accrued is the clean price, which gains are measured from."""
+    duration: Annotated[float, Field(ge=0)]
+    """Modified duration, years."""
+    cost_bps: Annotated[float, Field(ge=0)]
+    """Estimated one-way trading cost, basis points."""
+    min_piece: Par
+    """Smallest trade, par."""
+    increment: Par
+    """Trades are whole multiples of it, par."""
+    min_remaining: Par
+    """Smallest amount a partial sale may leave in a lot, par."""
 
 
 class Offering(Row):
     cusip: Cusip
-    offer_par: Par  # par we can buy today
+    offer_par: Par
+    """Par we can buy today."""
 
 
 def _accrued_below_price(frame: pd.DataFrame) -> None:

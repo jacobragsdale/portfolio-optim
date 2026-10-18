@@ -24,9 +24,11 @@ per portfolio for `optimize`, one per tax budget for `transition`. `run` hands t
 In a worker, `solve_task` turns the market and one portfolio into `SolverInputs`, applies the strategy's rules in order
 (`apply_rules`), and calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
 constraint broken at the exact trades) or `Unsolved` (the solver status or the error). Back in the parent,
-`outputs.snapshots` writes the run to a directory: the request, the code that ran it (its commit and image), every
-dataset as it was loaded, and every result frame. Result frames have row models like datasets do (`Trade`, `Position`,
-`Summary`, `Violation` in `optimizer/results.py`), so whatever reads a snapshot reads a fixed schema.
+`outputs.snapshots` writes the run to a directory: its `run.json` (the request; when it started, finished loading and
+finished solving; the code that ran it; its labels; and how each dataset was read, from its source or the cache, and
+when), every dataset as it was loaded, and every result frame. Result frames have row models like datasets do
+(`Trade`, `Position`, `Summary`, `Violation` in `optimizer/results.py`), so whatever reads a snapshot reads a fixed
+schema.
 Nothing derived from the datasets is stored: prep and rules are pure, so replay rebuilds what each solve saw with the
 same code, in about 0.1 s for the market and 30 ms per portfolio. A change to prep therefore shows on replay, as a
 change to a rule does. Storing what each solve saw held 0.26 MB per portfolio in the parent, and 3.2 MB for a

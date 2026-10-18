@@ -12,18 +12,18 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
-from typing import Self
+from typing import Literal, Self
 
 import pandas as pd
 import redis
 
 from optim.data.cache import RedisCache
 from optim.data.frames import empty_frame, validate_columns
-from optim.logs import brief, ms_since, timed, to_json
-from optim.schema import Row
+from optim.logs import brief, ms_since, timed, to_json, utc_now
+from optim.schema import Model, Row
 from optim.sources import Columns, Param, Source, SourceName
 from optim.sources.sql import read_sql
 
@@ -114,6 +114,35 @@ class Dataset:
         return frame
 
 
+class DatasetRead(Model):
+    """How a run got one dataset, as its snapshot's `run.json` records it."""
+
+    read: Literal["live", "hit", "miss", "refresh"]
+    """`live`: read from its source, as it is not cached; `hit`: from the cache; `miss`: read from its source, then
+    cached; `refresh`: read from its source by `optim warm`."""
+    fetched_at: datetime
+    """When its source was read: for a hit, when the cache entry was filled. Loaded in batches, the oldest batch's."""
+
+
+class Reads:
+    """Where each dataset of a run came from, as its loads finish. Thread-safe: they finish concurrently."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._by_dataset: dict[str, DatasetRead] = {}
+
+    def add(self, dataset: str, read: DatasetRead) -> None:
+        """A dataset loaded in batches keeps its oldest read."""
+        with self._lock:
+            if (seen := self._by_dataset.get(dataset)) is None or read.fetched_at < seen.fetched_at:
+                self._by_dataset[dataset] = read
+
+    def by_dataset(self) -> dict[str, DatasetRead]:
+        """By dataset name, so a run's `run.json` lists them in the same order whichever load finished first."""
+        with self._lock:
+            return dict(sorted(self._by_dataset.items()))
+
+
 @dataclass(frozen=True)
 class Loader:
     """Fetches datasets through their sources, reading and filling the cache as each dataset's policy says. Without a
@@ -123,43 +152,49 @@ class Loader:
     cache: RedisCache | None = None
     limits: Mapping[SourceName, threading.Semaphore] = field(default_factory=dict)  # calls each source may serve at once; none: unbounded
     refresh: bool = False  # set by `warm`: read live, overwrite the cache, and fail if Redis does
+    reads: Reads | None = None  # set for a run: where each load got its data, for the run's snapshot
+    clock: Callable[[], datetime] = utc_now  # stamps each source read
     _redis_down: threading.Event = field(default_factory=threading.Event, init=False, repr=False, compare=False)  # see `_cached`
 
     def load(self, dataset: Dataset, **params: Param) -> pd.DataFrame:
         try:
             with timed(log, "loaded", dataset=dataset.name, params=brief(params)) as fields:
-                frame, fields["cache"] = self._read(dataset, params, fields)
-                fields["rows"] = len(frame)
+                frame, read = self._read(dataset, params, fields)
+                fields["cache"], fields["rows"] = read.read, len(frame)
         except Exception as error:
             error.add_note(f"while loading dataset {dataset.name!r} ({dataset.query}) from {dataset.source} with {to_json(brief(params))}")
             raise
+        if self.reads is not None:
+            self.reads.add(dataset.name, read)
         return frame
 
-    def _read(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> tuple[pd.DataFrame, str]:
-        """The frame, and where it came from: `live` (not cached), `hit`, `miss`, or `refresh` (warm). A source read adds
-        `wait_ms` to `fields`: the time spent waiting for a slot."""
+    def _read(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> tuple[pd.DataFrame, DatasetRead]:
+        """The frame, and where it came from. A source read adds `wait_ms` to `fields`: the time spent waiting for a
+        slot."""
         policy, cache = dataset.cache, self.cache
         if policy is None or cache is None:
-            return self._fetch(dataset, params, fields), "live"
+            frame, fetched_at = self._fetch(dataset, params, fields)
+            return frame, DatasetRead(read="live", fetched_at=fetched_at)
         key = _cache_key(dataset, params)
         if self.refresh:
-            frame = self._fetch(dataset, params, fields)
+            frame, fetched_at = self._fetch(dataset, params, fields)
             if frame.empty:
                 msg = f"{dataset.name} returned no rows; an empty entry would hide the data for {policy.ttl} once it lands"
                 raise ValueError(msg)
-            cache.set(key, frame, policy.ttl)
-            return frame, "refresh"
+            cache.set(key, frame, fetched_at, policy.ttl)
+            return frame, DatasetRead(read="refresh", fetched_at=fetched_at)
         if (hit := self._cached(dataset, partial(cache.get, key))) is not None:
-            return hit, "hit"
+            frame, fetched_at = hit
+            return frame, DatasetRead(read="hit", fetched_at=fetched_at)
         if not policy.live_on_miss:  # a miss, Redis down included, and the policy decides what happens next
             msg = f"{dataset.name} is not in the cache for {to_json(brief(params))}, and its policy forbids reading it live: check that Redis is up and `optim warm` ran"
             raise LookupError(msg)
         if policy.warm and not self._redis_down.is_set():  # warm should have filled it: the warm failed, or this load's params differ from the hook's
             log.warning("%s is warmed but missed the cache; reading it live", dataset.name, extra={"params": brief(params)})
-        frame = self._fetch(dataset, params, fields)
+        frame, fetched_at = self._fetch(dataset, params, fields)
         if not frame.empty:  # usually a feed that has not landed yet: cached, it would hide the data for a whole ttl
-            self._cached(dataset, partial(cache.set, key, frame, policy.ttl))
-        return frame, "miss"
+            self._cached(dataset, partial(cache.set, key, frame, fetched_at, policy.ttl))
+        return frame, DatasetRead(read="miss", fetched_at=fetched_at)
 
     def _cached[T](self, dataset: Dataset, call: Callable[[], T]) -> T | None:
         """A cache read or write that cannot fail the run, since the cache only saves time: an error is logged and reads as
@@ -208,15 +243,17 @@ class Loader:
         # each batch's key is checked as it loads; a query that ignores its batch's ids repeats rows across batches
         return dataset.unique(pd.concat([f.result() for f in futures], ignore_index=True), why=" across batches: does the query filter on its batch's ids?")
 
-    def _fetch(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> pd.DataFrame:
+    def _fetch(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> tuple[pd.DataFrame, datetime]:
+        """The frame, and when the source was asked for it, once a slot was free."""
         start = time.perf_counter()
         with self.limits.get(dataset.source) or nullcontext():
             fields["wait_ms"] = ms_since(start)
             if (stop := _stop.get()) and stop.is_set():
                 raise Skipped
+            fetched_at = self.clock()
             columns = self.sources[dataset.source].fetch(dataset.query, params)
         with timed(log, "validated", dataset=dataset.name):
-            return dataset.to_frame(columns)
+            return dataset.to_frame(columns), fetched_at
 
 
 def _cache_key(dataset: Dataset, params: Mapping[str, Param]) -> str:

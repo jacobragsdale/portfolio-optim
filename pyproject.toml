@@ -81,6 +81,9 @@ unsound-return-statement = "error"
 unsound-yield = "error"
 unsupported-dynamic-base = "warn"
 
+[tool.ty.environment]
+extra-paths = ["tests"]  # as pytest's `pythonpath`, so test modules can import `builders`
+
 [tool.ty.analysis]
 respect-type-ignore-comments = false  # Require a specific `# ty: ignore[rule]` suppression.
 strict-generic-narrowing = true
@@ -91,6 +94,7 @@ error-on-warning = true
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config --import-mode=importlib -m 'not integration'"
 testpaths = ["tests"]
+pythonpath = ["tests"]  # test modules share `builders`
 xfail_strict = true  # An xfail that starts passing is a failure, not a silent pass.
 filterwarnings = [
     "error",  # pandas 3 chained assignment only warns; the lost write is otherwise invisible.

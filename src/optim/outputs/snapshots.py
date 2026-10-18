@@ -4,12 +4,12 @@ Parquet file per dataset exactly as loaded. What the solves derived from those i
 same code."""
 
 import logging
+import subprocess
 from collections.abc import Mapping, Sequence
-from datetime import date
 from pathlib import Path
+from typing import Self
 
 import pandas as pd
-import pydantic_core
 from pydantic import TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,9 +22,9 @@ log = logging.getLogger(__name__)
 _RUN_JSON = TypeAdapter(dict[str, object])
 
 
-class Code(BaseSettings):
-    """The code a run ran, as `run.json` records it: the commit, baked into the image at build (`--build-arg GIT_SHA`),
-    and the image, which the Job sets. A run outside an image records neither unless they are set."""
+class _Built(BaseSettings):
+    """What an image says about itself: the commit, baked in at build (`--build-arg GIT_SHA`), and the image, which the
+    Job sets."""
 
     model_config = SettingsConfigDict(env_prefix="OPTIM_", extra="forbid", frozen=True)
 
@@ -32,9 +32,27 @@ class Code(BaseSettings):
     image: str | None = None
 
 
-def save_run(root: Path, run_id: str, *, job: str, request: Model, as_of_date: date, frames: Mapping[str, pd.DataFrame], results: Sequence[Result], **extra: object) -> Path:
-    """`frames` are the datasets the run loaded, by name, as `load_frames` returns them."""
-    meta = {"run_id": run_id, "job": job, "as_of_date": as_of_date, "code": Code(), "request": request, **extra}
+class Code(Model):
+    """The code a run ran, as `run.json` records it."""
+
+    git_sha: str | None
+    """The commit: `OPTIM_GIT_SHA`, baked into the image, or else the checkout's `HEAD`. Null when neither is known."""
+    image: str | None
+    """The image, from `OPTIM_IMAGE`, which the Job sets. Null outside an image."""
+    dirty: bool | None
+    """Whether the checkout had changes not yet committed, so `git_sha` is not the whole story. Null in an image."""
+
+    @classmethod
+    def current(cls) -> Self:
+        built = _Built()
+        if built.git_sha is not None:
+            return cls(git_sha=built.git_sha, image=built.image, dirty=None)
+        head, dirty = _checkout()
+        return cls(git_sha=head, image=built.image, dirty=dirty)
+
+
+def save_run(root: Path, run_id: str, *, meta: Model, frames: Mapping[str, pd.DataFrame], results: Sequence[Result]) -> Path:
+    """`meta` is the run's `run.json`; `frames` are the datasets the run loaded, by name, as `load_frames` returns them."""
     # writes the whole market every run; store it once per content hash if snapshots grow too fast
     inputs = {f"inputs/{name}": frame for name, frame in frames.items()}
     return _write(root, run_id, meta=meta, frames=inputs | result_frames(results))
@@ -61,12 +79,12 @@ def load_run(path: Path) -> tuple[dict[str, object], dict[str, pd.DataFrame]]:
     return meta, frames
 
 
-def _write(root: Path, run_id: str, *, meta: Mapping[str, object], frames: Mapping[str, pd.DataFrame]) -> Path:
+def _write(root: Path, run_id: str, *, meta: Model, frames: Mapping[str, pd.DataFrame]) -> Path:
     """Write `root/run_id/`, a frame per `frames` key, which may name a subdirectory. The directory appears only once
     it is complete."""
     partial, path = root / f".{run_id}.partial", root / run_id
     partial.mkdir(parents=True)
-    (partial / "run.json").write_bytes(pydantic_core.to_json(meta, indent=2))
+    (partial / "run.json").write_text(meta.model_dump_json(indent=2))
     for name, frame in frames.items():
         file = partial / f"{name}.parquet"
         file.parent.mkdir(exist_ok=True)
@@ -74,3 +92,19 @@ def _write(root: Path, run_id: str, *, meta: Mapping[str, object], frames: Mappi
     partial.rename(path)
     log.info("saved snapshot %s", path, extra={"run_id": run_id})
     return path
+
+
+def _checkout() -> tuple[str | None, bool | None]:
+    """The checkout this package runs from: its `HEAD`, and whether it has changes not yet committed. Neither outside
+    one, as for an installed package."""
+    here = Path(__file__).parent
+    try:
+        head = _git(here, "rev-parse", "HEAD")
+        status = _git(here, "status", "--porcelain")
+    except OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired:  # no git, or not a checkout
+        return None, None
+    return head, bool(status)
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True, timeout=10).stdout.strip()  # noqa: S603, S607 -- fixed arguments; git from PATH, as a developer runs it

@@ -5,6 +5,7 @@ import threading
 from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import redis
@@ -12,6 +13,7 @@ from pydantic import RedisDsn, Secret
 
 from optim.data.cache import RedisCache
 from optim.data.loader import Loader
+from optim.logs import utc_now
 from optim.settings import Settings
 from optim.sources import Source, SourceName, mssql, oracle, rest
 
@@ -22,6 +24,7 @@ class Context:
     snapshot_dir: Path
     workers: int  # solver processes per run; 1 solves in this process
     new_run_id: Callable[[], str]  # registers a run in the MSSQL runs table and returns its id
+    clock: Callable[[], datetime] = utc_now  # stamps the run's start, load and finish
 
 
 @contextmanager

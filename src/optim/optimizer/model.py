@@ -29,6 +29,8 @@ class OptimizationModel:
     sell: cp.Expression  # par sold, per lot
     buying: cp.Expression | None  # 1 where a bond is bought, else 0; integer solves only
     selling: cp.Expression | None  # 1 where a lot is sold, in whole or in part, else 0; integer solves only
+    gain: np.ndarray  # per lot, $ per $1 par sold: clean price less basis; a loss is negative
+    gain_rate: np.ndarray  # per lot: the long-term rate if held over a year, else the short-term one
     value: float  # pre-trade value including cash: the fixed denominator of every weight
     par: cp.Expression  # post-trade par, per security
     weights: cp.Expression  # post-trade weight, per security
@@ -72,11 +74,14 @@ def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
     cash = portfolio.cash + price @ (sold - trades.buy) - cost
     gain = (sec["clean_price"].to_numpy()[lot_rows] - lots["cost_price"].to_numpy()) / 100  # per $1 par: accrued interest is income, not a gain
     long_term = (lots["acquired"] + pd.DateOffset(years=1) < pd.Timestamp(inputs.as_of_date)).to_numpy()  # held over a year
+    gain_rate = np.where(long_term, portfolio.lt_gain_rate, portfolio.st_gain_rate)
     return OptimizationModel(
         inputs=inputs,
         securities=sec,
         lots=lots,
         lot_rows=lot_rows,
+        gain=gain,
+        gain_rate=gain_rate,
         buy=trades.buy,
         sell=trades.sell,
         buying=trades.buying,
@@ -89,7 +94,7 @@ def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
         untracked=float(target[~in_model].sum()),
         cash=cash,
         turnover=price @ (trades.buy + sold),
-        tax=(np.where(long_term, portfolio.lt_gain_rate, portfolio.st_gain_rate) * gain) @ trades.sell,
+        tax=(gain_rate * gain) @ trades.sell,
         cost=cost,
         income=(sec["expected_return"].to_numpy() * price) @ par,
         bounds=[*trades.sizes, cash / value >= 0],

@@ -13,7 +13,7 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 |---|---|
 | `cli.py` | Arguments to a request; exit code 0 only when every portfolio solved cleanly. |
 | `context.py`, `settings.py` | The only place connections open; `OPTIM_*` environment variables. |
-| `jobs/` | A request class per job (`optimize`, `model_portfolio`, `transition`) and the solves it makes; `run` and `replay` run any job. |
+| `jobs/` | A request class per job (`optimize`, `model_portfolio`, `transition`) and the solves it makes; `run` and `replay` run any job; `RunInfo`, the snapshot's `run.json`. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. |
 | `data/loader.py`, `data/cache.py` | Fetching, validation, batching and the Redis cache, for every dataset. |
 | `inputs.py` | `load_frames` (every dataset a run reads), then prep: `Market` (shared by a run), `Portfolio`, and `SolverInputs` (what one solve sees). |
@@ -36,6 +36,7 @@ All paths are under `src/optim/`.
 - Rules never drop rows. A bond you may not buy can still be held and sold; a held bond without its row fails the solve.
 - Constraints and objective terms are in weights (fractions of pre-trade value): divide dollars by `m.value`. The
   re-check after every solve uses one tolerance in weights.
+- Document model fields with a docstring under them, not a comment: it becomes the field's description.
 
 ## Checks
 

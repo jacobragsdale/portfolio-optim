@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 
 from optim.data.frames import empty_frame, to_models
-from optim.data.loader import Loader, TaskGroup
+from optim.data.loader import DatasetRead, Loader, Reads, TaskGroup
 from optim.datasets.benchmarks import BENCHMARKS
 from optim.datasets.portfolios import LOSS_SALES, LOTS, PORTFOLIOS, LossSale, Lot, PortfolioDetails
 from optim.datasets.securities import SECURITIES, UNIVERSE
@@ -93,14 +93,17 @@ def _no_wash_sales(securities: pd.DataFrame, portfolio: Portfolio) -> pd.DataFra
     return securities.assign(buyable=securities["buyable"] & ~blocked)
 
 
-def load_frames(loader: Loader, portfolio_ids: Sequence[str], as_of_date: date) -> dict[str, pd.DataFrame]:
+def load_frames(loader: Loader, portfolio_ids: Sequence[str], as_of_date: date) -> tuple[dict[str, pd.DataFrame], dict[str, DatasetRead]]:
     """Every dataset a run reads, by name, all loading at once: the market for `as_of_date`, and the portfolios, their
-    lots and their loss sales of the 30 days to it, in batches. No portfolio ids loads empty portfolio frames."""
+    lots and their loss sales of the 30 days to it, in batches. No portfolio ids loads empty portfolio frames, and reads
+    none. Also returns where each dataset came from, for the run's snapshot."""
     portfolio_ids = list(dict.fromkeys(portfolio_ids))
+    reads = Reads()
+    loader = replace(loader, reads=reads)  # this run's loads alone
     with TaskGroup() as group:
         market = group.submit(_load_market, loader, as_of_date)
         portfolios = group.submit(_load_portfolios, loader, portfolio_ids, as_of_date)
-    return market.result() | portfolios.result()
+    return market.result() | portfolios.result(), reads.by_dataset()
 
 
 def _load_market(loader: Loader, as_of_date: date) -> dict[str, pd.DataFrame]:

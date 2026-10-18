@@ -11,10 +11,15 @@ class PortfolioDetails(Row):
     portfolio_id: str
     benchmark_id: str
     cash: float
-    federal_rate: Rate  # marginal rate on ordinary income
+    """Cash, $."""
+    federal_rate: Rate
+    """Marginal federal rate on ordinary income, such as interest."""
     state_rate: Rate
-    st_gain_rate: Rate  # short-term capital gains, federal + state
-    lt_gain_rate: Rate  # long-term capital gains, federal + state
+    """Marginal state rate on ordinary income."""
+    st_gain_rate: Rate
+    """Short-term capital gains rate, federal and state."""
+    lt_gain_rate: Rate
+    """Long-term capital gains rate, federal and state."""
 
 
 class Lot(Row):
@@ -22,7 +27,8 @@ class Lot(Row):
     lot_id: str
     cusip: Cusip
     par: Par
-    cost_price: Price  # adjusted tax basis
+    cost_price: Price
+    """Adjusted tax basis per 100 par."""
     acquired: date
 
 

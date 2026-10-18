@@ -1,6 +1,6 @@
 # One run of the CLI. Airflow creates a Job from this spec per run and sets `args`, e.g.
 #   [warm]                                                           each business morning, before the first run
-#   [optimize, --strategy, /strategies/core.json, --portfolios, A1, A2]
+#   [optimize, --strategy, /strategies/core.json, --portfolios, A1, A2, --label, purpose=production, --label, dag_run=<run id>]
 apiVersion: batch/v1
 kind: Job
 metadata:

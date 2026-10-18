@@ -43,7 +43,9 @@ The build fails without `GIT_SHA`: every run's snapshot records the commit it ra
 The image's entrypoint is the `optim` CLI. Every run is an AKS Job that Airflow starts with the command's arguments:
 `deploy/job.yaml` is the Job spec, and `deploy/snapshots-pvc.yaml` the volume that snapshots go to. Schedule
 `optim warm` each business morning, before the first run, so runs read cached datasets from Redis (see
-[How to cache a dataset](docs/extending.md#how-to-cache-a-dataset)).
+[How to cache a dataset](docs/extending.md#how-to-cache-a-dataset)). Give each run labels, such as
+`--label purpose=production --label dag_run=<Airflow's run id>`: its `run.json` records them, so production runs can be
+told from research, and each run found from the DAG run that started it.
 
 ## Layout
 

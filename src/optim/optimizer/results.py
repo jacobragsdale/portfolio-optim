@@ -17,7 +17,7 @@ from optim.schema import Cusip, Par, Row
 class Solved:
     portfolio_id: str
     strategy: str
-    trades: pd.DataFrame  # portfolio_id, cusip, lot_id (sells only), side, par
+    trades: pd.DataFrame  # portfolio_id, cusip, lot_id, side, par, gain and tax (sells only)
     positions: pd.DataFrame  # cusip, par, weight after trading
     summary: dict[str, float]  # `Summary`'s numbers: objective, gap for integer solves, value, cash, turnover, tax, cost, income, tracking
     violations: dict[str, float]  # constraint -> worst excess in weights, at the exact trades
@@ -52,9 +52,15 @@ class Trade(Row):
     portfolio_id: str
     strategy: str
     cusip: Cusip
-    lot_id: str | None  # the tax lot a sale comes from; none for a buy
+    lot_id: str | None
+    """The tax lot a sale comes from; null for a buy."""
     side: Literal["buy", "sell"]
     par: Par
+    """Face amount traded."""
+    gain: float | None
+    """Gain a sale realizes, $, from the clean price; negative for a loss. Null for a buy."""
+    tax: float | None
+    """Tax on the gain, $, at the lot's long- or short-term rate; negative when harvesting a loss. Null for a buy."""
 
 
 class Position(Row):
@@ -64,7 +70,9 @@ class Position(Row):
     strategy: str
     cusip: Cusip
     par: Par
-    weight: float  # of pre-trade value, cash included
+    """Face amount held after trading."""
+    weight: float
+    """Market value as a fraction of the pre-trade value, cash included."""
 
 
 class Summary(Row):
@@ -72,17 +80,28 @@ class Summary(Row):
 
     portfolio_id: str
     strategy: str
-    status: str  # `ok`; what rounding broke; or why it did not solve
-    objective: float | None  # the solver's optimum before snapping or rounding, as a fraction of value
-    gap: float | None  # integer solves: how far the optimum may be from the best possible
-    value: float | None  # pre-trade value including cash, $
-    cash: float | None  # after trading, $
-    turnover: float | None  # value traded, $
-    tax: float | None  # on realized gains, $; negative when harvesting losses
-    cost: float | None  # trading costs, $
-    income: float | None  # expected after-tax return, $ per year
-    tracking: float | None  # L1 distance of the weights from the target
+    status: str
+    """`ok`; what rounding broke; or why it did not solve."""
+    objective: float | None
+    """The solver's optimum before snapping or rounding, as a fraction of value."""
+    gap: float | None
+    """Integer solves: how far the optimum may be from the best possible, relative to it."""
+    value: float | None
+    """Pre-trade value, cash included, $."""
+    cash: float | None
+    """Cash after trading, $."""
+    turnover: float | None
+    """Value bought plus value sold, $."""
+    tax: float | None
+    """Tax on realized gains, $; negative when harvesting losses."""
+    cost: float | None
+    """Trading costs, $."""
+    income: float | None
+    """Expected after-tax return over a year, $."""
+    tracking: float | None
+    """L1 distance of the weights from the target, including target weight outside the model."""
     seconds: float | None
+    """Time to build, solve and check the portfolio."""
 
 
 class Violation(Row):
@@ -90,8 +109,10 @@ class Violation(Row):
 
     portfolio_id: str
     strategy: str
-    constraint: str  # as the solve names it: its place in the strategy and its kind, such as `3:max_turnover`
-    excess: float  # the worst excess, in weights
+    constraint: str
+    """As the solve names it: its place in the strategy and its kind, such as `3:max_turnover`."""
+    excess: float
+    """The worst excess, in the constraint's own units: weights for most."""
 
 
 def result_frames(results: Sequence[Result]) -> dict[str, pd.DataFrame]:
@@ -116,10 +137,13 @@ def _summary_row(result: Result) -> dict[str, object]:
 
 def _trades(m: OptimizationModel, portfolio_id: str) -> pd.DataFrame:
     buy, sell = value_of(m.buy), value_of(m.sell)
+    sold = sell > 0
+    gain = m.gain[sold] * sell[sold]  # the same terms as `m.tax`, lot by lot, so the trades' tax sums to the summary's
     buys = pd.DataFrame({"cusip": m.securities["cusip"].to_numpy()[buy > 0], "side": "buy", "par": buy[buy > 0]})
-    sells = pd.DataFrame({"cusip": m.lots["cusip"].to_numpy()[sell > 0], "lot_id": m.lots["lot_id"].to_numpy()[sell > 0], "side": "sell", "par": sell[sell > 0]})
+    sells = pd.DataFrame({"cusip": m.lots["cusip"].to_numpy()[sold], "lot_id": m.lots["lot_id"].to_numpy()[sold], "side": "sell", "par": sell[sold], "gain": gain, "tax": m.gain_rate[sold] * gain})
     trades = pd.concat([buys, sells], ignore_index=True).assign(portfolio_id=portfolio_id)
-    return trades.astype({"portfolio_id": "str", "cusip": "str", "lot_id": "str", "side": "str", "par": "int64"})[["portfolio_id", "cusip", "lot_id", "side", "par"]]
+    columns = {"portfolio_id": "str", "cusip": "str", "lot_id": "str", "side": "str", "par": "int64", "gain": "float64", "tax": "float64"}
+    return trades.astype(columns)[list(columns)]
 
 
 def _positions(m: OptimizationModel) -> pd.DataFrame:

@@ -17,16 +17,26 @@ RUN_ID/
 
 ## `run.json`
 
+What the run was asked, when it ran, with which code, and where its data came from: nothing the snapshot's other files
+hold. `RunInfo` in `src/optim/jobs/__init__.py` is its model.
+
 | Key | Value |
 |---|---|
 | `run_id` | The run's id, which names the directory. |
 | `job` | `optimize`, `model_portfolio` or `transition`. A replay keeps the job of the run it replays. |
 | `as_of_date` | The business date, `YYYY-MM-DD`. |
-| `code` | `git_sha` and `image`: the commit and the image that ran it, from `OPTIM_GIT_SHA` and `OPTIM_IMAGE`. Both are null for a run outside an image unless they are set. |
+| `started_at` | When the run started, before it loaded anything. Times are UTC, ISO 8601. |
+| `loaded_at` | When every dataset had loaded; for a replay, when its snapshot had been read and its portfolios prepared. |
+| `finished_at` | When the last solve finished, just before the snapshot was written. |
+| `code` | `git_sha`: the commit, from `OPTIM_GIT_SHA` in an image, else the checkout's `HEAD`. `image`: from `OPTIM_IMAGE`, which the Job sets. `dirty`: whether the checkout had changes not yet committed; null in an image. Each is null when unknown. |
+| `labels` | `key=value` pairs the run was started with (`--label`), such as `purpose=production` or Airflow's DAG run. |
+| `workers` | Solver processes. A solve that stops at its time limit depends on how many solves shared the machine. |
+| `datasets` | Per dataset loaded: `read`, which is `live` (not cached), `hit`, `miss` (read live, then cached) or `refresh` (by `optim warm`); and `fetched_at`, when its source was read: for a hit, when the cache entry was filled; for a dataset loaded in batches, the oldest batch's. Null for a replay. |
 | `request` | The job's request as JSON: `job`, `strategy`, `as_of_date`, and the job's own fields, such as `portfolios`. |
 | `replay` | A replay only: `of`, the run it replayed, and `portfolios`, the subset it solved, or null for all of them. |
 
-Replay reads `run_id`, `request` and `replay`.
+Replay reads `run_id`, `request` and `replay`. A run that fails before it saves has no snapshot: its logs, filtered on
+its `run_id`, tell what happened.
 
 ## `inputs/`
 
@@ -50,6 +60,8 @@ when it has no rows.
 | `lot_id` | str, null | The tax lot a sale comes from; null for a buy. |
 | `side` | category | `buy` or `sell`. |
 | `par` | int | Face amount traded, whole dollars. |
+| `gain` | float, null | Gain a sale realizes, $, from the clean price; negative for a loss. Null for a buy. |
+| `tax` | float, null | Tax on that gain, $, at the lot's long- or short-term rate. A solve's trades sum to its summary's `tax`. Null for a buy. |
 
 `positions.parquet` (`Position`), one row per bond held after trading:
 

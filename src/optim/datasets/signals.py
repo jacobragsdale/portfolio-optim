@@ -8,7 +8,8 @@ from optim.schema import Cusip, Row
 
 class Signal(Row):
     cusip: Cusip
-    expected_return: float  # annual, pre-tax, decimal
+    expected_return: float
+    """Expected annual return, before tax, as a decimal."""
 
 
 SIGNALS = Dataset("signals", Signal, source="signals", query="/v1/expected-returns", key=("cusip",), cache=CachePolicy(ttl=timedelta(minutes=5)))

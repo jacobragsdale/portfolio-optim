@@ -157,12 +157,13 @@ with the code you have now and, with `--strategy`, another strategy, so two stra
 uv run optim replay snapshots/RUN_ID --strategy strategies/my-variant.json --workers 4
 ```
 
-Without `--strategy`, it replays the run as it was, which shows whether a code change moved any result. Replay reads
-only the snapshot directory. It needs no `.env`, database or Redis, and writes nothing but its own snapshot. It
-applies the strategy's rules, objective, constraints and solve block, saves the results as a new run of the same job
-beside the original, and prints the summary. `--portfolios A1 A2` replays only some portfolios. Each run's
-`summary.parquet` holds one row per solve, so comparing two runs is a join on `portfolio_id`; for a transition, which
-has a row per tax budget, on `portfolio_id` and row order. [Snapshot files](snapshots.md) defines every column.
+Without `--strategy`, it replays the run as it was, which shows whether a code change moved any result. A label such
+as `--label purpose=research` records why in the replay's `run.json`. Replay reads only the snapshot directory. It needs
+no `.env`, database or Redis, and writes nothing but its own snapshot. It applies the strategy's rules, objective,
+constraints and solve block, saves the results as a new run of the same job beside the original, and prints the
+summary. `--portfolios A1 A2` replays only some portfolios. Each run's `summary.parquet` holds one row per solve, so
+comparing two runs is a join on `portfolio_id`; for a transition, which has a row per tax budget, on `portfolio_id` and
+row order. [Snapshot files](snapshots.md) defines every column.
 
 ## How to add a data source
 
@@ -201,6 +202,6 @@ A report, a write to a database or a call to another API after the solves:
    violations as frames), and a client or connection.
 2. If it needs a client or connection, add its settings and open it in `open_context` as for
    [a data source](#how-to-add-a-data-source), and add it to `Context`.
-3. Call it in `run` in `src/optim/jobs/__init__.py`, after `_solve` returns: the snapshot is on disk by then, so a
+3. Call it in `run` in `src/optim/jobs/__init__.py`, after `save_run` returns: the snapshot is on disk by then, so a
    failed output never loses it. An output for one job checks `job.job`. Replays do not call it, so a replay never
    sends a report or writes a row.

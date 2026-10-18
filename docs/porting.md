@@ -141,7 +141,7 @@ To sanity-check the port:
 
    ```python
    from collections.abc import Mapping
-   from datetime import date
+   from datetime import UTC, date, datetime
    from pathlib import Path
 
    import pandas as pd
@@ -152,8 +152,9 @@ To sanity-check the port:
    from optim.datasets.securities import SECURITIES, UNIVERSE
    from optim.datasets.signals import SIGNALS
    from optim.inputs import load_frames
+   from optim.jobs import RunInfo
    from optim.jobs.optimize import OptimizeRequest
-   from optim.outputs.snapshots import save_run
+   from optim.outputs.snapshots import Code, save_run
    from optim.sources import Columns, Param
    from optim.strategy import Strategy
 
@@ -181,8 +182,23 @@ To sanity-check the port:
    portfolio_ids = OLD[PORTFOLIOS.query]["portfolio_id"].tolist()
    strategy = Strategy.model_validate_json(Path("strategies/legacy.json").read_bytes())
    request = OptimizeRequest(strategy=strategy, portfolios=portfolio_ids, as_of_date=AS_OF_DATE)
-   frames = load_frames(loader, portfolio_ids, AS_OF_DATE)
-   save_run(Path("snapshots"), "old-2026-10-16", job="optimize", as_of_date=AS_OF_DATE, request=request, frames=frames, results=[])
+   now = datetime.now(UTC)
+   frames, reads = load_frames(loader, portfolio_ids, AS_OF_DATE)
+   meta = RunInfo(
+       run_id="old-2026-10-16",
+       job="optimize",
+       as_of_date=AS_OF_DATE,
+       started_at=now,
+       loaded_at=now,
+       finished_at=now,
+       code=Code.current(),
+       labels={"purpose": "porting"},
+       workers=1,
+       datasets=reads,
+       request=request,
+       replay=None,
+   )
+   save_run(Path("snapshots"), "old-2026-10-16", meta=meta, frames=frames, results=[])
    ```
 
    The `old/` files stand for however the old data is exported, with exactly the fields of each dataset's row model in

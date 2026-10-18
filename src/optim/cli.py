@@ -8,7 +8,7 @@ uv run --env-file .env optim warm
 uv run --env-file .env optim warm --datasets benchmarks
 uv run --env-file .env optim clear --datasets securities universe
 uv run optim replay snapshots/RUN_ID --workers 4
-uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json
+uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json --label purpose=research
 uv run optim schema > strategy.schema.json
 """
 
@@ -67,7 +67,7 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "replay":  # reads a snapshot only: no settings, connections or cache
         log.info("starting replay", extra={"cli": logs.brief(vars(args))})
         strategy = Strategy.model_validate_json(args.strategy.read_bytes()) if args.strategy else None
-        return _report(replay(ReplayRequest(snapshot=args.snapshot, strategy=strategy, portfolios=args.portfolios), workers=args.workers))
+        return _report(replay(ReplayRequest(snapshot=args.snapshot, strategy=strategy, portfolios=args.portfolios), workers=args.workers, labels=dict(args.labels)))
     settings = Settings()
     log.info("starting %s", args.command, extra={"cli": logs.brief(vars(args)), "settings": settings.model_dump(mode="json")})
     if args.command == "clear":
@@ -88,12 +88,20 @@ def _run(args: argparse.Namespace) -> int:
             msg = f"no job for the {args.command!r} command: add a case for it here"
             raise ValueError(msg)
     with open_context(settings, cache=not args.no_cache) as ctx:
-        return _report(run(ctx, job))
+        return _report(run(ctx, job, labels=dict(args.labels)))
 
 
 def _report(run: Run) -> int:
     sys.stdout.write(f"run {run.run_id}\n{result_frames(run.results)['summary'].to_string(index=False)}\n")
     return 0 if run.ok else 1
+
+
+def _label(text: str) -> tuple[str, str]:
+    key, equals, value = text.partition("=")
+    if not (key and equals):
+        msg = f"expected KEY=VALUE, got {text!r}"
+        raise argparse.ArgumentTypeError(msg)
+    return key, value
 
 
 def _warm(settings: Settings, as_of_date: date, names: Sequence[str] | None) -> int:
@@ -132,7 +140,9 @@ def _parser() -> argparse.ArgumentParser:
     cached = sorted(d.name for d in all_datasets() if d.cache)
     clear_command.add_argument("--datasets", nargs="+", choices=cached, required=True)
 
-    run = argparse.ArgumentParser(add_help=False, parents=[dated])
+    labelled = argparse.ArgumentParser(add_help=False)
+    labelled.add_argument("--label", type=_label, action="append", default=[], dest="labels", metavar="KEY=VALUE", help="recorded in the run's run.json, e.g. purpose=production; repeat for more")
+    run = argparse.ArgumentParser(add_help=False, parents=[dated, labelled])
     run.add_argument("--strategy", type=Path, required=True, help="strategy JSON file")
     run.add_argument("--no-cache", action="store_true", help="read every dataset live")
 
@@ -147,7 +157,7 @@ def _parser() -> argparse.ArgumentParser:
     transition_command.add_argument("--portfolio", required=True)
     transition_command.add_argument("--tax-budgets", type=float, nargs="+", required=True, help="dollars of tax allowed, one solve each")
 
-    replay_command = commands.add_parser("replay", help="run a saved job again, with today's code and any strategy; reads only the snapshot")
+    replay_command = commands.add_parser("replay", parents=[labelled], help="run a saved job again, with today's code and any strategy; reads only the snapshot")
     replay_command.add_argument("snapshot", type=Path, help="the run's snapshot directory")
     replay_command.add_argument("--strategy", type=Path, help="strategy JSON file (default: the strategy the run used)")
     replay_command.add_argument("--portfolios", nargs="+", help="only these portfolios (default: every portfolio in the run)")

@@ -100,6 +100,11 @@ def ms_since(start: float) -> float:
     return round((time.perf_counter() - start) * 1000, 1)
 
 
+def utc_now() -> datetime:
+    """The clock that stamps a run's start, loads and finish, unless a test passes its own."""
+    return datetime.now(UTC)
+
+
 class JsonFormatter(logging.Formatter):
     @override
     def format(self, record: logging.LogRecord) -> str:
