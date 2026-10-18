@@ -2,7 +2,7 @@
 SELECT l.account_id                   AS portfolio_id,
        l.lot_id,
        l.cusip,
-       CAST(l.par AS BIGINT)          AS par,
+       l.par,
        CAST(l.cost_price AS FLOAT)    AS cost_price,
        l.acquired_date                AS acquired
 FROM   tax_lots l

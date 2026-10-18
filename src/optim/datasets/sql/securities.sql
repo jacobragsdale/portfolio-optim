@@ -9,10 +9,11 @@ SELECT s.cusip,
        a.dirty_price                      AS price,
        a.modified_duration                AS duration,
        a.cost_bps,
-       CAST(s.min_piece AS NUMBER(15, 0)) AS min_piece,
+       -- par amounts are not cast to whole numbers: a fractional one must fail validation, not be rounded
+       s.min_piece,
        -- INCREMENT is reserved in Oracle, so the alias is quoted
-       CAST(s.min_increment AS NUMBER(15, 0)) AS "INCREMENT",
+       s.min_increment                    AS "INCREMENT",
        -- the minimum piece, where the security master records no minimum remaining
-       CAST(COALESCE(s.min_remaining, s.min_piece) AS NUMBER(15, 0)) AS min_remaining
+       COALESCE(s.min_remaining, s.min_piece) AS min_remaining
 FROM   securities s
 JOIN   analytics a ON a.cusip = s.cusip AND a.as_of = :as_of_date
