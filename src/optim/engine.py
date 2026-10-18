@@ -15,10 +15,10 @@ from dataclasses import dataclass
 from functools import partial
 
 from optim import logs
-from optim.inputs import Market, Portfolio, SolverInputs
+from optim.inputs import Market, Portfolio
 from optim.optimizer.results import Result, Solved, Unsolved
 from optim.optimizer.solve import solve
-from optim.rules import Rule
+from optim.rules import apply_rules
 from optim.strategy import Strategy
 
 log = logging.getLogger(__name__)
@@ -40,10 +40,7 @@ def solve_task(market: Market, task: SolveTask) -> Result:
     """One portfolio, logged in whichever process solves it. A failure is logged here, where its traceback is whole."""
     portfolio_id, strategy = task.portfolio.details.portfolio_id, task.strategy.name
     try:
-        inputs = market.inputs_for(task.portfolio)
-        for rule in task.strategy.rules:
-            inputs = _apply(rule, inputs)
-        result = solve(inputs, task.strategy)
+        result = solve(apply_rules(task.strategy.rules, market.inputs_for(task.portfolio)), task.strategy)
     except Exception as error:
         log.exception("solve failed", extra={"portfolio_id": portfolio_id, "strategy": strategy})
         return Unsolved(portfolio_id, strategy, f"error: {error!r}")
@@ -59,25 +56,6 @@ def solve_task(market: Market, task: SolveTask) -> Result:
         case Unsolved():
             log.warning("could not solve %s: %s", portfolio_id, result.status, extra={"portfolio_id": portfolio_id, "strategy": strategy})
     return result
-
-
-def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
-    after = rule.apply(inputs)
-    was, now = inputs.securities, after.securities
-    dropped = was.loc[was["buyable"] & ~now["buyable"], "cusip"]
-    changed = int((was["expected_return"] != now["expected_return"]).sum())
-    log.debug(
-        "rule applied",
-        extra={
-            "portfolio_id": inputs.portfolio.portfolio_id,
-            "rule": rule,
-            "buyable": int(now["buyable"].sum()),
-            "dropped": len(dropped),
-            "dropped_examples": dropped.head(20).tolist(),
-            "returns_changed": changed,
-        },
-    )
-    return after
 
 
 def solve_all(market: Market, tasks: Sequence[SolveTask], *, workers: int) -> list[Result]:

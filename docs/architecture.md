@@ -18,8 +18,8 @@ thousand portfolios per query. `load_inputs` runs both at once, and every batch 
 [Loading at the pace of each source](#loading-at-the-pace-of-each-source). The job then builds one `SolveTask` per portfolio (a portfolio plus a
 `Strategy`) and hands the tasks to `solve_all` in `engine.py`.
 
-In a worker, `solve_task` turns the market and one portfolio into `SolverInputs`, applies the strategy's rules in order, and
-calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
+In a worker, `solve_task` turns the market and one portfolio into `SolverInputs`, applies the strategy's rules in order
+(`apply_rules`), and calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
 constraint broken at the exact trades) or `Unsolved` (the solver status or the error). Back in the parent,
 `outputs.snapshots` writes the run to a directory: the request, every input frame, and every result frame.
 What each solve saw after the rules is not stored: rules are pure, so replay rebuilds it from the input frames, in
