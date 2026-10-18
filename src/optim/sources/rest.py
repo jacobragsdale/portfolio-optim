@@ -35,7 +35,7 @@ def _start(request: httpx.Request) -> None:
 def _check(response: httpx.Response) -> None:
     response.read()  # so `ms` runs to the last byte; the caller gets the same body
     request = response.request
-    log.debug("http", extra={"method": request.method, "url": str(request.url), "status": response.status_code, "ms": ms_since(request.extensions["optim_start"])})
+    log.info("http", extra={"method": request.method, "url": str(request.url), "status": response.status_code, "ms": ms_since(request.extensions["optim_start"])})
     try:
         response.raise_for_status()
     except httpx.HTTPStatusError as error:

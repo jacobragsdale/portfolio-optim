@@ -36,7 +36,7 @@ def solve(inputs: SolverInputs, strategy: Strategy) -> Result:
         msg = f"expected HiGHS's solver stats, got {type(info).__name__}"
         raise TypeError(msg)
     gap = info.mip_gap if how.integer else None
-    log.debug(
+    log.info(
         "solver finished",
         extra={
             "portfolio_id": portfolio_id,

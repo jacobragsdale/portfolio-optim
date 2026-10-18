@@ -1,7 +1,7 @@
 """Logging. Each record is one JSON object per line on stderr, for agents and Azure Monitor; `OPTIM_LOG_FORMAT=text`
 prints lines for a person instead. INFO tells a run's story: what loaded, each portfolio's result and trades, what was
-saved and sent. `OPTIM_LOG_LEVEL=DEBUG` adds a record for every load (with its cache outcome), query, HTTP call, rule
-and LP solve, with timings in `*ms` fields.
+saved and sent, and a record for every load (with its cache outcome), query, HTTP call and LP solve, with timings in
+`*ms` fields. `OPTIM_LOG_LEVEL=DEBUG` adds a record for every rule.
 
 To log, use stdlib logging and put data in `extra`. Each key becomes a JSON field, and frames, series, numpy values,
 dates and pydantic models serialize as they are:
@@ -82,7 +82,7 @@ def bound() -> dict[str, object]:
 
 
 @contextmanager
-def timed(logger: logging.Logger, event: str, *, level: int = logging.DEBUG, **fields: object) -> Generator[dict[str, object]]:
+def timed(logger: logging.Logger, event: str, *, level: int = logging.INFO, **fields: object) -> Generator[dict[str, object]]:
     """Log `event` when the block ends, with `fields`, any the block adds to the dict it gets, and `ms`. A block that
     raises logs nothing here: its exception tells that story."""
     start = time.perf_counter()

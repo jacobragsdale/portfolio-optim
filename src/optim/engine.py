@@ -83,7 +83,7 @@ def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
 def solve_all(market: Market, tasks: Sequence[SolveTask], *, workers: int) -> list[Result]:
     """Solve every task in a pool of up to `workers` processes; results come back in task order."""
     workers = min(workers, len(tasks))
-    with logs.timed(log, "solved portfolios", level=logging.INFO, portfolios=len(tasks), workers=workers) as fields:
+    with logs.timed(log, "solved portfolios", portfolios=len(tasks), workers=workers) as fields:
         # one worker, the common intraday case, solves in this process: no pool start-up cost
         results = _in_pools(market, tasks, workers) if workers > 1 else [_settle(task, partial(solve_task, market, task)) for task in tasks]
         not_ok = [r.portfolio_id for r in results if not (isinstance(r, Solved) and r.ok)]

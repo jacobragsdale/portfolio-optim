@@ -48,7 +48,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     signal.signal(signal.SIGTERM, _stopped)
     try:
         logs.setup()
-        with logs.timed(log, f"finished {args.command}", level=logging.INFO) as fields:
+        with logs.timed(log, f"finished {args.command}") as fields:
             fields["exit_code"] = code = _run(args)
     except Exception:
         log.exception("%s failed", args.command, extra={"cli": logs.brief(vars(args))})

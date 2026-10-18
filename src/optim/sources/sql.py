@@ -54,7 +54,7 @@ class SqlSource:
             names = [str(column[0]).lower() for column in cursor.description or ()]
             rows = cursor.fetchall()
         timings = {"connect_ms": connected, "execute_ms": round(executed - connected, 1), "fetch_ms": round(ms_since(start) - executed, 1)}
-        log.debug("query", extra={"query": query, "rows": len(rows)} | timings)
+        log.info("query", extra={"query": query, "rows": len(rows)} | timings)
         return columns_from_rows(names, rows)
 
 

@@ -54,7 +54,7 @@ def _by_portfolio(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:
 
 A job reads a warmed entry only if it loads the dataset with exactly the parameters the hook returned. Any other
 parameters are another key. A warmed dataset that misses logs a warning with its parameters, so a mismatch shows in
-the run's logs, and at DEBUG every load logs its parameters and whether it hit the cache.
+the run's logs, and every load logs its parameters and whether it hit the cache.
 `load_batched` caches each batch under its own key, so it only reads an entry back for the same batch of ids. A deploy
 that changes a dataset's SQL or row schema changes its keys, so run `optim warm` after it. `optim clear --datasets
 NAME ...` deletes every entry of the named datasets, whatever their parameters, say after a data correction; until

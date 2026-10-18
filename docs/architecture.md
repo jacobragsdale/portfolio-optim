@@ -175,9 +175,9 @@ Every record is one JSON object per line on stderr, because the main reader is a
 same lines; `OPTIM_LOG_FORMAT=text` is for a person at a terminal. Logging lives in the shared parts, not in jobs or
 rules: the loader, the SQL and HTTP adapters, the engine and the solver each log what passes through them, so a new
 dataset, rule or entry point is logged without a line of logging code. At INFO a run tells its story: what loaded, each
-portfolio's result and trades, and the snapshot. `OPTIM_LOG_LEVEL=DEBUG` adds a record for every load
-(with its cache outcome), query (connect, execute and fetch times), HTTP call, rule (what it made unbuyable) and solve
-(size, settings, status, gap, and build, compile and solver times).
+portfolio's result and trades, and the snapshot, with a record for every load (with its cache outcome), query
+(connect, execute and fetch times), HTTP call and solve (size, settings, status, gap, and build, compile and solver
+times). `OPTIM_LOG_LEVEL=DEBUG` adds a record for every rule (what it made unbuyable).
 
 Every record of a run carries its `run_id`, including the run's failure, so one filter finds the whole run, even one
 that died before writing its snapshot. The snapshot itself is `OPTIM_SNAPSHOT_DIR/<run_id>`.
