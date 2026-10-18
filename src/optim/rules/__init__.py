@@ -34,7 +34,7 @@ def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
     log.debug(
         "rule applied",
         extra={
-            "portfolio_id": inputs.portfolio.portfolio_id,
+            "portfolio_id": inputs.portfolio.details.portfolio_id,
             "rule": rule,
             "buyable": int(now["buyable"].sum()),
             "dropped": len(dropped),

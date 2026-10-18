@@ -41,9 +41,7 @@ class SolverInputs:
     """Everything one solve sees. Rules return edited copies; nothing is mutated in place."""
 
     as_of_date: date
-    portfolio: PortfolioDetails
-    lots: pd.DataFrame
-    loss_sales: pd.DataFrame
+    portfolio: Portfolio  # its details, lots and loss sales
     securities: pd.DataFrame  # see `build_market`; rules edit `buyable` and `expected_return`
     target: pd.Series  # weight by cusip: the benchmark, or a model portfolio to move toward
 
@@ -65,10 +63,11 @@ class Market:
         if details.benchmark_id not in self.targets:
             msg = f"portfolio {details.portfolio_id}: benchmark {details.benchmark_id} is not loaded"
             raise LookupError(msg)
-        # Every portfolio in a process reads the same frames. Shallow copies cost nothing under copy-on-write, and keep a
-        # rule that edits a frame in place from changing what the next portfolio sees.
+        # Every portfolio in a process reads the same market, and each solve of a portfolio its frames. Shallow copies cost
+        # nothing under copy-on-write, and keep a rule that edits a frame in place from changing what the next solve sees.
+        own = {name: value.copy(deep=False) for name, value in vars(portfolio).items() if isinstance(value, pd.DataFrame)}
         target = self.targets[details.benchmark_id]
-        return SolverInputs(self.as_of_date, details, portfolio.lots.copy(deep=False), portfolio.loss_sales.copy(deep=False), self.securities.copy(deep=False), target.copy(deep=False))
+        return SolverInputs(self.as_of_date, replace(portfolio, **own), self.securities.copy(deep=False), target.copy(deep=False))
 
 
 def load_frames(loader: Loader, portfolio_ids: Sequence[str], as_of_date: date) -> dict[str, pd.DataFrame]:

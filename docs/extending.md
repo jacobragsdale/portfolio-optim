@@ -24,8 +24,8 @@ To load a new table, for example issuer credit scores from Oracle:
    `TaskGroup`, so it loads beside lots and loss sales, and return its frame with theirs. `load_batched` sends up to
    1,000 portfolios per query, as many batches at once as the source's limit allows; the SQL unpacks the ids with
    `OPENJSON` or `JSON_TABLE`, as `lots.sql` does, and `loss_sales.sql` binds the business date too. Then carry it to
-   the solve: a field on `Portfolio`, filled in `build_portfolios` as `lots` is, a field on `SolverInputs`, and a line
-   in `Market.inputs_for`.
+   the solve: a field on `Portfolio`, filled in `build_portfolios` as `lots` is. Rules, constraints and terms read it as
+   `inputs.portfolio.<field>` or `m.inputs.portfolio.<field>`.
 
    Snapshots, replay and the all-cash model portfolio need no change: a snapshot saves every frame `load_frames`
    returns, replay prepares them as a live run does, and a model portfolio loads empty portfolio frames. A snapshot

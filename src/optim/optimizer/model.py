@@ -44,7 +44,7 @@ class OptimizationModel:
 
 
 def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
-    s, lots, portfolio = inputs.securities, inputs.lots, inputs.portfolio
+    s, lots, portfolio = inputs.securities, inputs.portfolio.lots, inputs.portfolio.details
     # Variables only for what can be bought or is held. A target bond outside that set is a constant in tracking
     # error, so the model shrinks from the whole benchmark to the tradable set without changing the answer.
     in_model = (s["buyable"] | s["cusip"].isin(lots["cusip"])).to_numpy()

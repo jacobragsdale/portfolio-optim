@@ -23,7 +23,7 @@ warnings.filterwarnings("ignore", message="Solution may be inaccurate", category
 
 def solve(inputs: SolverInputs, strategy: Strategy) -> Result:
     start = time.perf_counter()
-    portfolio_id, how = inputs.portfolio.portfolio_id, strategy.solve
+    portfolio_id, how = inputs.portfolio.details.portfolio_id, strategy.solve
     m = build_model(inputs, integer=how.integer)
     named = {"bounds": m.bounds} | {f"{i}:{c.kind}": c.build(m) for i, c in enumerate(strategy.constraints)}
     objective = sum((term.expression(m) for term in strategy.objective), start=cp.Constant(0.0))
