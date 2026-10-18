@@ -50,5 +50,6 @@ end to end. `snapshots/` is not in git, and a snapshot written before a schema c
 
 ## Porting another optimizer
 
-Follow [docs/porting.md](docs/porting.md): inventory the old code first, map each behaviour to its place here, then
-compare results on the same data.
+Follow [docs/porting.md](docs/porting.md): inventory the old code in a porting log first, decide for each behaviour
+whether to port, change or drop it, then sanity-check outcomes on the same day's data. The old optimizer is a list of
+requirements, not results to match trade for trade.

@@ -1,42 +1,57 @@
 # Porting another optimizer
 
-Bring an existing optimizer's behaviour into this one: its data, rules, limits and preferences. Old code mixes these
-together; here each has one place. Port in three passes: an inventory of what the old code does, the port itself, and
-a comparison of results on the same day's data.
+Bring an existing optimizer into this engine, best effort: recover the business requirements its code encodes, decide
+for each behaviour whether to port it, change it or drop it, and record every decision in a porting log. The old
+system is a list of requirements, not the answer to match: once the port runs, the log shows what to revisit from first
+principles.
 
 ## How to port an optimizer
 
 Prerequisites:
 
-- Read access to the old code, its SQL and its configuration.
-- One business day of the old system's inputs (bonds, offerings, signals, benchmarks, portfolios, lots, loss sales)
-  and its trades for two or three portfolios. Without these, the port cannot be checked.
+- Read access to the old code, its SQL and its configuration, and someone who can say what each rule was for.
+- One business day of the old system's inputs (bonds, offerings, signals, benchmarks, portfolios, lots, loss sales),
+  and its trades for a few portfolios, for the [sanity check](#how-to-sanity-check-the-port).
 
 To port an optimizer:
 
-1. Write the inventory: one row per behaviour, before writing any code. Use the
-   [inventory template](#inventory-template).
-2. Mark each row port, drop or ask, using [where old code goes](#where-old-code-goes) and
-   [what is not ported](#what-is-not-ported). Get every ask answered by whoever owns the old system before step 3.
-3. Port the data. For each input, alias the old columns to the field names of a row model in `src/optim/datasets/`, or
-   add a dataset ([how to add a dataset](extending.md#how-to-add-a-dataset)). Data cleaning becomes a field
-   annotation or a dataset `check`, so bad data fails the load instead of being patched silently.
-4. Port each behaviour to its place, following [extending.md](extending.md) for rules, constraints and objective
-   terms. Reuse an existing class with new parameters before writing a new one: `group_limit` with `overrides` covers
-   most concentration limits.
-5. Write the old system's settings as a strategy file in `strategies/`, such as `strategies/legacy.json`.
+1. Read [what to keep, replace and adapt](#what-to-keep-replace-and-adapt): which parts of this repository are the
+   engine, and which are examples to replace with the old optimizer's data and logic.
+2. Write the porting log, one row per behaviour, before writing any code. Use the
+   [porting log template](#porting-log-template), and search the places where old code hides behaviour.
+3. Decide each row, and write down why:
+   - **port**: a requirement, such as a client's restriction or a tax rule. Keep what it does.
+   - **change**: keep the intent, build it differently. A fix applied to trades after the solve becomes a constraint,
+     so the solve knows about it.
+   - **drop**: the engine already does it, or it was a workaround: see [what is not ported](#what-is-not-ported).
+   - **ask**: nobody can say what it is for. Get an answer before step 5, or drop it and say so in the log.
+4. Port the data. Replace the example datasets and their SQL in `src/optim/datasets/` with the old system's sources:
+   alias the old columns to a row model's field names, or add a dataset
+   ([how to add a dataset](extending.md#how-to-add-a-dataset)). Data cleaning becomes a field annotation or a dataset
+   `check`, so bad data fails the load instead of being patched silently.
+5. Port each **port** and **change** row to its place in [where old code goes](#where-old-code-goes), following
+   [extending.md](extending.md). Reuse an existing class with new parameters before writing a new one: `group_limit`
+   with `overrides` covers most concentration limits.
+6. Write each behaviour's test as it lands: build a few rows per dataset, as `tests/test_inputs.py` does, and assert on
+   what the rule, constraint or term returns. Put the test's name in the log.
+7. Write the old system's settings as a strategy file in `strategies/`, such as `strategies/legacy.json`.
    `uv run optim schema` prints every kind and its parameters.
-6. Compare results on the old system's data, as in [how to compare with the old system](#how-to-compare-with-the-old-system).
-   Every difference is a missed behaviour, a different input, or an intended change; record which in the inventory.
+8. [Sanity-check the port](#how-to-sanity-check-the-port) on the old system's data. Record each large difference in
+   the log as a missed behaviour (fix it), a different input, or an intended change.
 
-## Inventory template
+The port is done when every row of the log has a decision and, unless dropped, a place and a test, and a replay of
+the old day's data solves every portfolio or explains why not. The **change** and **drop** rows, and the intended
+differences, are where to start improving the strategy.
+
+## Porting log template
 
 ```markdown
-| # | Behaviour | Old location | Kind | Goes to | Decision | Notes |
-|---|---|---|---|---|---|---|
-| 1 | Skip bonds rated below A- | `filters.py:88` | eligibility | `min_rating` rule | port | |
-| 2 | Cash floor 1% | `config.yaml: min_cash` | limit | `cash_range` constraint | port | |
-| 3 | Sends orders to the OMS | `orders.py` | output | none | drop | not ported |
+| # | Behaviour | Old location | Kind | Decision | Goes to | Why | Test |
+|---|---|---|---|---|---|---|---|
+| 1 | Skips bonds rated below A- | `filters.py:88` | eligibility | port | `min_rating` rule | client requirement | `test_min_rating` |
+| 2 | Drops buys under $10k after the solve | `post.py:31` | post-solve fix | change | constraint on `m.buy` and `m.buying` | the solve should know | `test_min_buy` |
+| 3 | Retries with turnover loosened when infeasible | `run.py:240` | fallback | drop | none | hides infeasibility | |
+| 4 | Sends orders to the OMS | `orders.py` | output | drop | none | not ported | |
 ```
 
 `Kind` is a row of [where old code goes](#where-old-code-goes). Old code hides behaviour outside its optimizer, so
@@ -48,6 +63,17 @@ search these too:
 - Branches on a portfolio, client, account or strategy id.
 - Changes made to the trades after the solve: rounding, minimum sizes, dropped small trades.
 - Retries and fallbacks when a solve fails, such as loosening a constraint.
+
+## What to keep, replace and adapt
+
+| Part | Paths under `src/optim/` | In a port |
+|---|---|---|
+| Engine | `data/`, `sources/`, `context.py`, `settings.py`, `engine.py`, `jobs/`, `outputs/`, `cli.py`, `logs.py`, `strategy.py`, `optimizer/solve.py`, `optimizer/rounding.py`, `optimizer/results.py` | Keep. Add sources, jobs and outputs as [extending.md](extending.md) shows. |
+| Examples | `datasets/`, `datasets/sql/`, and `strategies/` at the top level | Replace with the old system's data and settings, in the same pattern. |
+| Domain | `inputs.py` (`build_market`: joins and house policy), `rules/`, `optimizer/objective.py`, `optimizer/constraints/`, `optimizer/model.py`, `schema.py` | Keep what the old optimizer also needs, change what differs, add what is missing. |
+
+`optimizer/model.py` holds the variables every constraint and term is written against: buys per bond, sells per tax
+lot, weights, cash, tax and cost. Change it only for a behaviour no constraint or term can express.
 
 ## Where old code goes
 
@@ -65,7 +91,7 @@ search these too:
 | Drops small trades after the solve | The bond's `min_piece` (par); a dollar minimum is a new constraint on `m.buy` and `m.buying` | `datasets/sql/securities.sql`, `optimizer/constraints/` |
 | Sets values shared by a group of portfolios, such as a client's | Fields in one strategy file per group | `strategies/` |
 | Sets values that differ for every portfolio | A column on `PortfolioDetails` | `datasets/portfolios.py` |
-| Writes reports or database rows | An output, after `save_run` | `outputs/` |
+| Writes reports or database rows | An output, called in `run` once the snapshot is saved | `outputs/` |
 | Runs on a schedule | An Airflow-started Job | `deploy/job.yaml` |
 
 A rule reads only `SolverInputs`. If a rule needs data the inputs lack, add a dataset and a column first.
@@ -80,10 +106,13 @@ A rule reads only `SolverInputs`. If a rule needs data the inputs lack, add a da
 - Solve retries that loosen a constraint. A portfolio that cannot be solved is reported unsolved, with the
   constraints it breaks before any trade.
 
-## How to compare with the old system
+## How to sanity-check the port
 
-`optim replay` solves the portfolios in a snapshot with any strategy, and needs no database. To compare, write the old
-system's inputs as a snapshot, replay it with the ported strategy, and diff the trades.
+Run the old system's inputs through the port and compare outcomes per portfolio. A large difference points at a
+behaviour the port missed, or changed on purpose; it is not an error in itself. Exact trades rarely match: two correct
+optimizers can trade differently on the same inputs, because an integer problem often has several best answers.
+
+To sanity-check the port:
 
 1. Save the old inputs as a snapshot with a script like this one. It runs them through the same loading and
    validation as a live run, so data the old system accepted but this one refuses fails here, naming the column and
@@ -135,7 +164,7 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
    The `old/` files stand for however the old data is exported. Each frame must have exactly its row model's fields,
    listed in [snapshot files](#snapshot-files).
 
-2. Replay it with the ported strategy:
+2. Replay it with the ported strategy, which the snapshot's request holds:
 
    ```sh
    uv run optim replay snapshots/old-2026-10-16 --workers 4
@@ -144,7 +173,10 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
    The run prints a summary row per portfolio and saves its snapshot as `snapshots/RUN_ID`, where `RUN_ID` is the id
    on its first line. An unsolved portfolio's status names the constraints it breaks before any trade.
 
-3. Diff the trades with the old system's, by bond:
+3. Compare each portfolio's outcomes in `snapshots/RUN_ID/summary.parquet` with the old system's, where it reports
+   them: turnover, tax, cost, income and cash, and the number of trades. A large gap points at the behaviour to look
+   for: tax at lot selection and wash sales, turnover at limits, income at signals and eligibility.
+4. Optional: for a portfolio with a large gap, diff its trades with the old system's, by bond:
 
    ```python
    import pandas as pd
@@ -156,9 +188,7 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
    print(diff[diff["par_old"] != diff["par_new"]])
    ```
 
-Exact trades rarely match, since solvers and rounding differ. Compare `summary.parquet` too: turnover, tax, cost,
-income and cash per portfolio should be close. A large gap in one of them points at the behaviour to look for: tax at
-lot selection and wash sales, turnover at limits, income at signals and eligibility.
+5. Record each difference in the porting log: a missed behaviour to fix, a different input, or an intended change.
 
 ## Snapshot files
 
