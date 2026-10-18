@@ -1,9 +1,9 @@
 """Command line. Choose the environment file explicitly:
 
-uv run --env-file .env optim optimize --strategy strategies/core.json --accounts A1 A2
-uv run --env-file .env optim optimize --strategy strategies/core.json --accounts @accounts.txt --submit
+uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios A1 A2
+uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios @portfolios.txt
 uv run --env-file .env optim model --strategy strategies/track-benchmark.json --benchmark IG-5Y
-uv run --env-file .env optim transition --strategy strategies/track-benchmark.json --account A1 --tax-budgets 0 25000 100000
+uv run --env-file .env optim transition --strategy strategies/track-benchmark.json --portfolio A1 --tax-budgets 0 25000 100000
 uv run --env-file .env optim warm
 uv run --env-file .env optim warm --datasets benchmarks
 uv run --env-file .env optim clear --datasets securities universe
@@ -14,6 +14,8 @@ uv run optim schema > strategy.schema.json
 import argparse
 import json
 import logging
+import os
+import signal
 import sys
 from collections.abc import Sequence
 from datetime import date, datetime
@@ -43,23 +45,31 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "schema":
         sys.stdout.write(json.dumps(Strategy.model_json_schema(), indent=2) + "\n")
         return 0
-    logs.setup()
+    signal.signal(signal.SIGTERM, _stopped)
     try:
+        logs.setup()
         with logs.timed(log, f"finished {args.command}", level=logging.INFO) as fields:
             fields["exit_code"] = code = _run(args)
     except Exception:
-        log.exception("%s failed", args.command, extra={"cli": vars(args)})
+        log.exception("%s failed", args.command, extra={"cli": logs.brief(vars(args))})
         return 1
     return code
 
 
+def _stopped(signum: int, _frame: object) -> None:
+    """Kubernetes stops a Job with SIGTERM, on a deadline, eviction or deletion: log it, then die by it as usual."""
+    log.error("stopped by %s before finishing", signal.Signals(signum).name)
+    signal.signal(signum, signal.SIG_DFL)
+    os.kill(os.getpid(), signum)
+
+
 def _run(args: argparse.Namespace) -> int:
     if args.command == "replay":  # reads a snapshot only: no settings, connections or cache
-        log.info("starting replay", extra={"cli": vars(args)})
+        log.info("starting replay", extra={"cli": logs.brief(vars(args))})
         strategy = Strategy.model_validate_json(args.strategy.read_bytes())
-        return _report(replay(ReplayRequest(strategy=strategy, snapshot=args.snapshot, accounts=args.accounts), workers=args.workers))
+        return _report(replay(ReplayRequest(strategy=strategy, snapshot=args.snapshot, portfolios=args.portfolios), workers=args.workers))
     settings = Settings()
-    log.info("starting %s", args.command, extra={"cli": vars(args), "settings": settings.model_dump(mode="json")})
+    log.info("starting %s", args.command, extra={"cli": logs.brief(vars(args)), "settings": settings.model_dump(mode="json")})
     if args.command == "clear":
         return _clear(settings, args.datasets)
     as_of: date = args.as_of or datetime.now(MARKET_TIME).date()
@@ -70,11 +80,11 @@ def _run(args: argparse.Namespace) -> int:
     with open_context(settings, cache=not args.no_cache) as ctx:
         match args.command:
             case "optimize":
-                run = optimize(ctx, OptimizeRequest(strategy=strategy, accounts=args.accounts, as_of=as_of, submit=args.submit))
+                run = optimize(ctx, OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of=as_of))
             case "model":
                 run = model_portfolio(ctx, ModelPortfolioRequest(strategy=strategy, benchmark_id=args.benchmark, notional=args.notional, as_of=as_of))
             case _:
-                run = transition(ctx, TransitionRequest(strategy=strategy, account_id=args.account, tax_budgets=args.tax_budgets, as_of=as_of))
+                run = transition(ctx, TransitionRequest(strategy=strategy, portfolio_id=args.portfolio, tax_budgets=args.tax_budgets, as_of=as_of))
     return _report(run)
 
 
@@ -123,21 +133,20 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--strategy", type=Path, required=True, help="strategy JSON file")
     run.add_argument("--no-cache", action="store_true", help="read every dataset live")
 
-    optimize_command = commands.add_parser("optimize", parents=[run], help="rebalance accounts")
-    optimize_command.add_argument("--accounts", nargs="+", required=True, help="account ids, or @file with one per line")
-    optimize_command.add_argument("--submit", action="store_true", help="send orders to the OMS (default: dry run)")
+    optimize_command = commands.add_parser("optimize", parents=[run], help="rebalance portfolios")
+    optimize_command.add_argument("--portfolios", nargs="+", required=True, help="portfolio ids, or @file with one per line")
 
     model_command = commands.add_parser("model", parents=[run], help="build a model portfolio from cash")
     model_command.add_argument("--benchmark", required=True)
     model_command.add_argument("--notional", type=float, default=100_000_000.0)
 
-    transition_command = commands.add_parser("transition", parents=[run], help="tax cost vs. tracking for one account")
-    transition_command.add_argument("--account", required=True)
+    transition_command = commands.add_parser("transition", parents=[run], help="tax cost vs. tracking for one portfolio")
+    transition_command.add_argument("--portfolio", required=True)
     transition_command.add_argument("--tax-budgets", type=float, nargs="+", required=True, help="dollars of tax allowed, one solve each")
 
-    replay_command = commands.add_parser("replay", help="re-solve a saved run with another strategy; reads only the snapshot and never orders")
+    replay_command = commands.add_parser("replay", help="re-solve a saved run with another strategy; reads only the snapshot")
     replay_command.add_argument("snapshot", type=Path, help="the run's snapshot directory")
     replay_command.add_argument("--strategy", type=Path, required=True, help="strategy JSON file")
-    replay_command.add_argument("--accounts", nargs="+", help="only these accounts (default: every account in the run)")
+    replay_command.add_argument("--portfolios", nargs="+", help="only these portfolios (default: every portfolio in the run)")
     replay_command.add_argument("--workers", type=int, default=1, help="solver processes (default: 1)")
     return parser

@@ -1,35 +1,30 @@
-"""Rebalance accounts, and submit their orders."""
+"""Rebalance portfolios."""
 
-import uuid
+from datetime import date
 
 from pydantic import Field
 
+from optim import logs
 from optim.context import Context
 from optim.engine import Task, solve_all
 from optim.inputs import load_market, load_portfolios
 from optim.jobs import Run
-from optim.outputs.oms import submit_orders
-from optim.outputs.orders import orders_for
 from optim.outputs.snapshots import save_run
-from optim.schema import Date, Strict
+from optim.schema import Model
 from optim.strategy import Strategy
 
 
-class OptimizeRequest(Strict):
+class OptimizeRequest(Model):
     strategy: Strategy
-    accounts: list[str] = Field(min_length=1)
-    as_of: Date  # accepts an ISO string, which strict mode refuses for `date` in Python mode
-    submit: bool = False  # a dry run unless set
+    portfolios: list[str] = Field(min_length=1)
+    as_of: date
 
 
 def optimize(ctx: Context, request: OptimizeRequest) -> Run:
-    """Orders go out only for results that rounding left intact, and only after the run's snapshot is saved."""
-    run_id = str(uuid.uuid7())
+    run_id = ctx.new_run_id()
+    logs.bind(run_id=run_id)
     market = load_market(ctx.loader, request.as_of)
-    portfolios = load_portfolios(ctx.loader, request.accounts)
+    portfolios = load_portfolios(ctx.loader, request.portfolios, request.as_of)
     results = solve_all(market, [Task(p, request.strategy) for p in portfolios], workers=ctx.workers)
-    orders = orders_for(run_id, results)
-    save_run(ctx.snapshot_dir, run_id, job="optimize", request=request, market=market, portfolios=portfolios, results=results, orders=orders)
-    if request.submit and orders:
-        submit_orders(ctx.oms, orders)
+    save_run(ctx.snapshot_dir, run_id, job="optimize", request=request, market=market, portfolios=portfolios, results=results)
     return Run(run_id, results)

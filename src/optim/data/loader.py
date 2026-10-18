@@ -4,10 +4,12 @@ them in Redis."""
 import hashlib
 import json
 import logging
+import threading
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
+from functools import partial
 from itertools import batched
 
 import pandas as pd
@@ -15,12 +17,13 @@ import redis
 
 from optim.cache import RedisCache
 from optim.data.frames import empty_frame, validate_columns
-from optim.logs import timed, to_json
+from optim.logs import brief, timed, to_json
 from optim.schema import Row
 from optim.sources import Columns, Param, Source, SourceName
 from optim.sources.sql import read_sql
 
 log = logging.getLogger(__name__)
+_REDIS_DOWN_LOCK = threading.Lock()  # so the first loader thread to find Redis down is the one that says so
 
 
 @dataclass(frozen=True)
@@ -59,7 +62,7 @@ class Dataset:
 
     def to_frame(self, columns: Columns) -> pd.DataFrame:
         """Raw columns to this dataset's validated, typed frame, with its key and cross-row rules checked."""
-        frame = validate_columns(self.row, columns, name=self.name)
+        frame = validate_columns(self.row, columns, name=self.name, key=self.key)
         if (duplicated := frame.duplicated(list(self.key))).any():
             examples = frame.loc[duplicated, list(self.key)].head(3).to_dict("records")
             msg = f"{self.name}: duplicate {self.key}, e.g. {examples}"
@@ -77,14 +80,15 @@ class Loader:
     sources: Mapping[SourceName, Source]
     cache: RedisCache | None = None
     refresh: bool = False  # set by `warm`: read live, overwrite the cache, and fail if Redis does
+    _redis_down: threading.Event = field(default_factory=threading.Event, init=False, repr=False, compare=False)  # see `_cached`
 
     def load(self, dataset: Dataset, **params: Param) -> pd.DataFrame:
         try:
-            with timed(log, "loaded", dataset=dataset.name, params=_brief(params)) as fields:
+            with timed(log, "loaded", dataset=dataset.name, params=brief(params)) as fields:
                 frame, fields["cache"] = self._read(dataset, params)
                 fields["rows"] = len(frame)
         except Exception as error:
-            error.add_note(f"while loading dataset {dataset.name!r} ({dataset.query}) from {dataset.source} with {to_json(_brief(params))}")
+            error.add_note(f"while loading dataset {dataset.name!r} ({dataset.query}) from {dataset.source} with {to_json(brief(params))}")
             raise
         return frame
 
@@ -96,26 +100,40 @@ class Loader:
         key = _cache_key(dataset, params)
         if self.refresh:
             frame = self._fetch(dataset, params)
+            if frame.empty:
+                msg = f"{dataset.name} returned no rows; an empty entry would hide the data for {policy.ttl} once it lands"
+                raise ValueError(msg)
             cache.set(key, frame, policy.ttl)
             return frame, "refresh"
-        try:
-            hit = cache.get(key)
-        except redis.RedisError:  # an outage reads as a miss, and the policy decides what happens next
-            log.warning("could not read %s from the cache", dataset.name, exc_info=True)
-            hit = None
-        if hit is not None:
+        if (hit := self._cached(dataset, partial(cache.get, key))) is not None:
             return hit, "hit"
-        if not policy.live_on_miss:
-            msg = f"{dataset.name} is not cached for {to_json(_brief(params))} and its policy forbids reading it live; run `optim warm`"
+        if not policy.live_on_miss:  # a miss, Redis down included, and the policy decides what happens next
+            msg = f"{dataset.name} is not in the cache for {to_json(brief(params))}, and its policy forbids reading it live: check that Redis is up and `optim warm` ran"
             raise LookupError(msg)
-        if policy.warm:  # warm should have filled it: the warm failed, or this load's params differ from the hook's
-            log.warning("%s is warmed but missed the cache; reading it live", dataset.name, extra={"params": _brief(params)})
+        if policy.warm and not self._redis_down.is_set():  # warm should have filled it: the warm failed, or this load's params differ from the hook's
+            log.warning("%s is warmed but missed the cache; reading it live", dataset.name, extra={"params": brief(params)})
         frame = self._fetch(dataset, params)
-        try:
-            cache.set(key, frame, policy.ttl)
-        except redis.RedisError:
-            log.warning("could not cache %s", dataset.name, exc_info=True)
+        if not frame.empty:  # usually a feed that has not landed yet: cached, it would hide the data for a whole ttl
+            self._cached(dataset, partial(cache.set, key, frame, policy.ttl))
         return frame, "miss"
+
+    def _cached[T](self, dataset: Dataset, call: Callable[[], T]) -> T | None:
+        """A cache read or write that cannot fail the run, since the cache only saves time: an error is logged and reads as
+        a miss, and the live read then overwrites a bad entry. The first time Redis is unavailable, the cache is off for the
+        rest of the run, so an outage costs one timeout, not two per load."""
+        if self._redis_down.is_set():
+            return None
+        try:
+            return call()
+        except redis.ConnectionError, redis.TimeoutError:  # AuthenticationError is a ConnectionError
+            with _REDIS_DOWN_LOCK:
+                first = not self._redis_down.is_set()
+                self._redis_down.set()
+            if first:
+                log.warning("Redis is unavailable; reading every dataset live for the rest of this run", exc_info=True)
+        except Exception:  # a corrupt entry, a key holding another type, Redis out of memory: only this key misses
+            log.warning("could not use the cache for %s; reading it live", dataset.name, exc_info=True)
+        return None
 
     def warm(self, datasets: Iterable[Dataset], as_of: date) -> bool:
         """`optim warm`: read each dataset live with every params its warm hook returns, and overwrite those entries. A
@@ -126,7 +144,7 @@ class Loader:
             futures = {pool.submit(loader.load, d, **params): (d.name, params) for d, params in loads}
         failed = [(name, params, error) for future, (name, params) in futures.items() if (error := future.exception())]
         for name, params, error in failed:
-            log.error("could not warm %s", name, extra={"params": _brief(params)}, exc_info=error)
+            log.error("could not warm %s", name, extra={"params": brief(params)}, exc_info=error)
         log.info("warmed %d of %d entries", len(futures) - len(failed), len(futures))
         return not failed
 
@@ -145,11 +163,6 @@ class Loader:
         columns = self.sources[dataset.source].fetch(dataset.query, params)
         with timed(log, "validated", dataset=dataset.name):
             return dataset.to_frame(columns)
-
-
-def _brief(params: Mapping[str, Param]) -> dict[str, Param]:
-    """Params for logs and errors: a long id list as its size and first few ids."""
-    return {k: f"{len(v)} ids: {', '.join(v[:3])}, ..." if isinstance(v, tuple) and len(v) > 3 else v for k, v in params.items()}
 
 
 def _cache_key(dataset: Dataset, params: Mapping[str, Param]) -> str:

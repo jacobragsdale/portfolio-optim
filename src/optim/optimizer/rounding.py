@@ -13,7 +13,7 @@ TOLERANCE = 1e-6  # in weights: $1 per $1mm of portfolio value
 
 def snap_integers(problem: cp.Problem) -> None:
     """Integer and 0/1 variables to exact integers. Solvers return values such as 2.9999999, within their tolerance;
-    snapped, the trades are exact, and `violations` checks exactly what would be ordered."""
+    snapped, the trades are exact, and `violations` checks exactly what would be traded."""
     for variable in problem.variables():
         if variable.size and (variable.attributes["integer"] or variable.attributes["boolean"]):  # cvxpy cannot set an empty one
             variable.value = np.round(value_of(variable))

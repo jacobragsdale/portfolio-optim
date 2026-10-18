@@ -11,15 +11,15 @@ import pandas as pd
 import pydantic_core
 
 from optim.data.frames import empty_frame, to_models
-from optim.datasets.accounts import Account, Lot
-from optim.inputs import Market, Portfolio
+from optim.datasets.portfolios import LossSale, Lot, PortfolioDetails
+from optim.inputs import Market, Portfolio, by_portfolio
 from optim.optimizer.results import Result, Solved, Unsolved
-from optim.schema import Strict
+from optim.schema import Model
 
 log = logging.getLogger(__name__)
 
 
-def save_run(root: Path, run_id: str, *, job: str, request: Strict, market: Market, portfolios: Sequence[Portfolio], results: Sequence[Result], **extra: object) -> Path:
+def save_run(root: Path, run_id: str, *, job: str, request: Model, market: Market, portfolios: Sequence[Portfolio], results: Sequence[Result], **extra: object) -> Path:
     meta = {"run_id": run_id, "job": job, "as_of": market.as_of, "request": request, **extra}
     return save_snapshot(root, run_id, meta=meta, frames=input_frames(market, portfolios) | result_frames(results))
 
@@ -29,10 +29,9 @@ def load_run(path: Path) -> tuple[Market, list[Portfolio]]:
     as_of = date.fromisoformat(json.loads((path / "run.json").read_bytes())["as_of"])
     targets = pd.read_parquet(path / "targets.parquet")
     market = Market(as_of, pd.read_parquet(path / "securities.parquet"), {str(b): group.set_index("cusip")["weight"] for b, group in targets.groupby("benchmark_id")})
-    lots = pd.read_parquet(path / "lots.parquet")
-    by_account = {str(account_id): group.reset_index(drop=True) for account_id, group in lots.groupby("account_id")}
-    accounts = to_models(Account, pd.read_parquet(path / "accounts.parquet"))
-    return market, [Portfolio(a, by_account.get(a.account_id, empty_frame(Lot))) for a in accounts]
+    lots, loss_sales = by_portfolio(pd.read_parquet(path / "lots.parquet")), by_portfolio(pd.read_parquet(path / "loss_sales.parquet"))
+    details = to_models(PortfolioDetails, pd.read_parquet(path / "portfolios.parquet"))
+    return market, [Portfolio(d, lots.get(d.portfolio_id, empty_frame(Lot)), loss_sales.get(d.portfolio_id, empty_frame(LossSale))) for d in details]
 
 
 def save_snapshot(root: Path, run_id: str, *, meta: Mapping[str, object], frames: Mapping[str, pd.DataFrame]) -> Path:
@@ -52,8 +51,9 @@ def input_frames(market: Market, portfolios: Sequence[Portfolio]) -> dict[str, p
     return {
         "securities": market.securities,
         "targets": pd.concat(market.targets, names=["benchmark_id", "cusip"]).rename("weight").reset_index(),  # `load_run` reads these names
-        "accounts": pd.DataFrame([p.account.model_dump() for p in portfolios]),
+        "portfolios": pd.DataFrame([p.details.model_dump() for p in portfolios]),
         "lots": pd.concat([p.lots for p in portfolios], ignore_index=True),
+        "loss_sales": pd.concat([p.loss_sales for p in portfolios], ignore_index=True),
     }
 
 
@@ -61,18 +61,17 @@ def result_frames(results: Sequence[Result]) -> dict[str, pd.DataFrame]:
     solved = [r for r in results if isinstance(r, Solved)]
     return {
         "trades": _concat([r.trades.assign(strategy=r.strategy) for r in solved]),
-        "positions": _concat([r.positions.assign(account_id=r.account_id, strategy=r.strategy) for r in solved]),
+        "positions": _concat([r.positions.assign(portfolio_id=r.portfolio_id, strategy=r.strategy) for r in solved]),
         "summary": pd.DataFrame([_summary_row(r) for r in results]),
-        "solver_inputs": _concat([r.solver_inputs.assign(account_id=r.account_id, strategy=r.strategy) for r in results if r.solver_inputs is not None]),
     }
 
 
 def _summary_row(result: Result) -> dict[str, object]:
     match result:
         case Solved():
-            return {"account_id": result.account_id, "strategy": result.strategy, "status": result.status, **result.summary, "seconds": result.seconds}
+            return {"portfolio_id": result.portfolio_id, "strategy": result.strategy, "status": result.status, **result.summary, "seconds": result.seconds}
         case Unsolved():
-            return {"account_id": result.account_id, "strategy": result.strategy, "status": result.status}
+            return {"portfolio_id": result.portfolio_id, "strategy": result.strategy, "status": result.status}
 
 
 def _concat(frames: list[pd.DataFrame]) -> pd.DataFrame:

@@ -4,7 +4,7 @@ source owns its settings model; nested fields use a double underscore, as in `OP
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, RedisDsn
+from pydantic import Field, RedisDsn, Secret
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from optim.sources.mssql import MssqlSettings
@@ -17,7 +17,6 @@ class Settings(BaseSettings):
         env_prefix="OPTIM_",
         env_nested_delimiter="__",
         env_parse_none_str="none",  # `OPTIM_REDIS_URL=none` turns Redis off explicitly; leaving it unset is an error
-        strict=True,
         extra="forbid",
         frozen=True,
         validate_default=True,
@@ -28,7 +27,6 @@ class Settings(BaseSettings):
     oracle: OracleSettings
     mssql: MssqlSettings
     signals: ApiSettings
-    oms: ApiSettings
-    redis_url: RedisDsn | None  # the dataset cache every Job shares; without it, every dataset is read live
+    redis_url: Secret[RedisDsn] | None  # the dataset cache every Job shares; without it, every dataset is read live. Secret: an Azure URL holds the access key
     snapshot_dir: Path
     workers: Annotated[int, Field(ge=1)]  # solver processes per run; 1 solves in the calling process

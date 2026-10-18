@@ -19,11 +19,12 @@ To load a new table, for example issuer credit scores from Oracle:
    call and merge `frames["issuer_scores"]` into `securities` with `validate="many_to_one"` or `"one_to_one"`. A rule
    or constraint can then read the new column from `inputs.securities` or `model.securities`.
 
-   Per-account data goes in `load_portfolios` through `loader.load_batched`, which sends up to 1,000 accounts per
-   query; the SQL unpacks the ids with `OPENJSON` or `JSON_TABLE`, as `lots.sql` does. Split the frame by `account_id`
-   as `lots` is, then carry it to the solve: a field on `Portfolio` and on `Inputs`, a line in `Market.inputs_for`, and
-   an empty frame for the all-cash account in `jobs/model_portfolio.py`. Add it to `input_frames` in
-   `outputs/snapshots.py` too: a run whose snapshot lacks it still solves, but cannot be replayed.
+   Per-portfolio data goes in `load_portfolios` through `loader.load_batched`, which sends up to 1,000 portfolios per
+   query; the SQL unpacks the ids with `OPENJSON` or `JSON_TABLE`, as `lots.sql` does, and `loss_sales.sql` binds the
+   business date too. Split the frame with `by_portfolio`, as `lots` and `loss_sales` are, then carry it to the solve: a
+   field on `Portfolio` and on `Inputs`, a line in `Market.inputs_for`, and an empty frame for the all-cash portfolio in
+   `jobs/model_portfolio.py`. Add it to `input_frames` in `outputs/snapshots.py` and read it back in `load_run`: a run
+   whose snapshot lacks it still solves, but cannot be replayed.
 
 ## How to cache a dataset
 
@@ -58,7 +59,8 @@ the run's logs, and at DEBUG every load logs its parameters and whether it hit t
 that changes a dataset's SQL or row schema changes its keys, so run `optim warm` after it. `optim clear --datasets
 NAME ...` deletes every entry of the named datasets, whatever their parameters, say after a data correction; until
 they are filled again, runs read them live, or fail where `live_on_miss=False`. If one warm load fails, the
-rest still land, and the Job exits 1. Runs without Redis (`OPTIM_REDIS_URL=none`) or with `--no-cache` read every
+rest still land, and the Job exits 1; a load that returns no rows counts as failed, since runs never cache an empty
+result. Runs without Redis (`OPTIM_REDIS_URL=none`) or with `--no-cache` read every
 dataset live, whatever its policy.
 
 ## How to add a rule
@@ -79,7 +81,7 @@ Strategy files can use the rule as soon as it is in the union.
 2. Write a `Strict` class with a `kind` field, its parameters, and `build(self, m: Model) -> list[cp.Constraint]`.
 3. Write the constraint against the model's expressions: `m.weights`, `m.cash`, `m.turnover`, `m.tax`, or a column of
    `m.securities` times the weights, such as `m.securities["duration"].to_numpy() @ m.weights`. `m.inputs` holds the
-   account and its lots. Divide dollar quantities by `m.value` so the constraint is in weights and shares the tolerance
+   portfolio and its lots. Divide dollar quantities by `m.value` so the constraint is in weights and shares the tolerance
    of the re-check after the solve.
 4. If you need a quantity the model lacks, add it to `Model` in `src/optim/optimizer/model.py` and compute it once in
    `build_model`.
@@ -126,7 +128,7 @@ Each strategy's `"solve"` block says how its portfolios are solved:
 - `integer`: `true`, the default, trades exactly the sizes the market trades. Each bond's `min_piece`, `increment` and
   `min_remaining` come from `datasets/sql/securities.sql`. `false` solves an LP and rounds its trades afterwards. That
   is tens to hundreds of times faster, but rounding can break a binding constraint, and a result with a broken
-  constraint is never ordered.
+  constraint makes the run exit nonzero.
 - `time_limit_s`: per portfolio. An integer solve that reaches it keeps the best solution it found, logs a warning,
   and reports how far that may be from the best possible as `gap` in the run's summary. If it found none, the portfolio
   is unsolved, with status `user_limit`.
@@ -138,23 +140,24 @@ Each strategy's `"solve"` block says how its portfolios are solved:
 
 ## How to compare strategies on a saved run
 
-Every run's snapshot holds the market, accounts and lots it loaded. `optim replay` solves them again with another
+Every run's snapshot holds the market, portfolios and lots it loaded. `optim replay` solves them again with another
 strategy, so two strategies can be compared on the same data:
 
 ```sh
 uv run optim replay snapshots/RUN_ID --strategy strategies/my-variant.json --workers 4
 ```
 
-Replay reads only the snapshot directory. It needs no `.env`, database or Redis, and it never submits orders. It
+Replay reads only the snapshot directory. It needs no `.env`, database or Redis, and writes nothing but its own snapshot. It
 applies the new strategy's rules, objective, constraints and solve block, saves the results as a new run beside the
-original, and prints the summary. `--accounts A1 A2` replays only some accounts. Each run's `summary.parquet` holds one
-row per portfolio, so comparing two runs is a join on `account_id`.
+original, and prints the summary. `--portfolios A1 A2` replays only some portfolios. Each run's `summary.parquet` holds one
+row per portfolio, so comparing two runs is a join on `portfolio_id`.
 
 ## How to add a data source
 
-1. Add a module to `src/optim/sources/`, such as `pricing.py`, with a settings model (a `Strict` subclass) and a
+1. Add a module to `src/optim/sources/`, such as `pricing.py`, with a settings model (a `Model` subclass) and a
    `connect` function. A database with a DB-API driver returns a `Sql` over a connection factory; anything else
-   returns a class with `fetch(self, query, params) -> Columns`. Put a timeout on every call.
+   returns a class with `fetch(self, query, params) -> Columns`. Put a timeout on every call, the login included:
+   Oracle's thin driver bounds only the TCP connect, so `oracle.py` runs its login in a thread it stops waiting for.
 2. Add the source's name to `SourceName` in `src/optim/sources/__init__.py`.
 3. Add its settings to `Settings` in `src/optim/settings.py`, and its variables to `.env.example`.
 4. Open it in `open_context` in `src/optim/context.py`. If it holds a pool or client, enter it on the `ExitStack` so it
@@ -164,7 +167,19 @@ If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSetting
 
 ## How to add an entry point
 
-1. Add a module to `src/optim/jobs/` with a request model (a `Strict` subclass) and a function taking
-   `(ctx: Context, request: YourRequest)`. Load with `load_market` and `load_portfolios`, build `Task`s, call
-   `solve_all`, and save the run with `save_run` before acting on the results.
+1. Add a module to `src/optim/jobs/` with a request model (a `Model` subclass) and a function taking
+   `(ctx: Context, request: YourRequest)`. First take a run id from `ctx.new_run_id()` and `logs.bind(run_id=...)`
+   it, so every record of the run carries it. Load with `load_market` and `load_portfolios`, build `Task`s, call
+   `solve_all`, and save the run with `save_run` before any other output.
 2. Add a subcommand to `_parser()` in `src/optim/cli.py` that builds the request, and a `case` for it in `main`.
+
+## How to add an output
+
+A report, a write to a database or a call to another API after the solves:
+
+1. Add a module to `src/optim/outputs/`, such as `reports.py`, with a function that takes what it needs: the `run_id`,
+   the results (`result_frames(results)` gives the trades, positions and summary as frames), and a client or
+   connection.
+2. If it needs a client or connection, add its settings and open it in `open_context` as for
+   [a data source](#how-to-add-a-data-source), and add it to `Context`.
+3. Call it from each job that should produce it, after `save_run`, so a failed output never loses the run's snapshot.

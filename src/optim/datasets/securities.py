@@ -1,13 +1,13 @@
 """Bonds, from Oracle: reference data and analytics for everything we can hold or buy, and the universe on offer
 today. Both may be up to 15 minutes old."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Annotated, Literal
 
 from pydantic import Field
 
 from optim.data.loader import CachePolicy, Dataset
-from optim.schema import Cusip, Date, Par, Price, Rating, Row
+from optim.schema import Cusip, Par, Price, Rating, Row
 
 
 class Security(Row):
@@ -16,7 +16,7 @@ class Security(Row):
     sector: str
     rating: Rating
     tax_status: Literal["taxable", "state_exempt"]  # state_exempt: no state tax on interest, as for Treasuries
-    maturity: Date
+    maturity: date
     price: Price  # dirty
     duration: Annotated[float, Field(ge=0)]  # modified, years
     cost_bps: Annotated[float, Field(ge=0)]  # estimated one-way trading cost

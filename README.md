@@ -3,7 +3,7 @@
 A tax-aware optimizer for taxable fixed income portfolios held in tax lots. It loads holdings,
 the buy universe, signals, benchmarks and security analytics from Oracle, SQL Server and REST. It applies pre-solve
 rules, then solves each portfolio with cvxpy and HiGHS, in parallel processes: as an integer program that trades exact
-lot sizes, or as a faster LP whose trades are rounded. Every run is saved as a snapshot, and orders go to the OMS.
+lot sizes, or as a faster LP whose trades are rounded. Every run is saved as a snapshot.
 
 ## Quick start
 
@@ -14,15 +14,15 @@ uv sync
 ```
 
 To run against real systems, copy `.env.example` to `.env` and fill in every variable, then run a strategy for one
-account:
+portfolio:
 
 ```sh
-uv run --env-file .env optim optimize --strategy strategies/core.json --accounts ACCOUNT_ID
+uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios PORTFOLIO_ID
 ```
 
-`ACCOUNT_ID` is an account in the SQL Server `accounts` table that `src/optim/datasets/sql/accounts.sql` queries. The
-run prints one summary row per portfolio and writes a snapshot under `OPTIM_SNAPSHOT_DIR`. It submits no orders until
-you add `--submit`. `uv run optim --help` lists the other commands: `model`, `transition`, `replay`, `warm`, `clear` and
+`PORTFOLIO_ID` is an `account_id` in the SQL Server `accounts` table that `src/optim/datasets/sql/portfolios.sql`
+queries. The
+run prints one summary row per portfolio and writes a snapshot under `OPTIM_SNAPSHOT_DIR`. `uv run optim --help` lists the other commands: `model`, `transition`, `replay`, `warm`, `clear` and
 `schema`.
 
 To try a strategy without access to those systems, replay a saved run with it. Replay reads only the run's snapshot:
@@ -50,22 +50,23 @@ family of rules or constraints, an entry point.
 | Path | Holds |
 |---|---|
 | `jobs/` | The entry points, one module each: `optimize`, `model_portfolio`, `transition`, `replay`. Each defines its request model. |
-| `datasets/` | Every dataset by subject (accounts, securities, signals, benchmarks): row schema, query and cache rule. SQL is in `datasets/sql/`. |
+| `datasets/` | Every dataset by subject (portfolios, securities, signals, benchmarks): row schema, query and cache rule. SQL is in `datasets/sql/`. |
 | `inputs.py` | How datasets combine into the `Market` all portfolios share and the `Inputs` one solve sees. |
 | `rules/` | Pre-solve rules, by family: `eligibility`, `tax`. |
 | `optimizer/` | The solve: `model`, `objective` terms, `constraints/` by family, `solve`, `rounding` to exact trades, `results`. |
 | `strategy.py`, `engine.py` | The strategy JSON contract; solving tasks in-process or in a process pool. |
-| `outputs/` | `orders`, submission to the `oms`, and run `snapshots`. |
+| `outputs/` | What a run writes after its solves: run `snapshots`. |
 | `sources/` | `oracle`, `mssql` and `rest` adapters, each with its settings model, over the shared `sql` adapter. |
 | `cache.py` | The Redis dataset cache that every Job shares. |
 | `data/` | The loader: row validation into typed frames (`frames`), and fetching, batching and caching (`loader`). |
 | `context.py`, `settings.py`, `cli.py` | Wiring: the connections a process opens, its environment config, and the command line. |
 | `logs.py` | Structured logging: JSON lines, timings, and exceptions with their root cause. |
-| `schema.py` | The strict pydantic base and shared field types. |
+| `schema.py` | The pydantic base models and shared field types. |
 
 ## Further reading
 
 - [How the optimizer is put together](docs/architecture.md): how a run flows, and why it is built that way.
+- [Performance](docs/performance.md): measured run time, CPU and memory, from 1 to 1,000 portfolios, for sizing Jobs.
 - [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source or entry point;
   configure a solve; compare strategies on a saved run.
 

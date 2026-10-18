@@ -7,6 +7,7 @@ refused rather than silently half-validated.
 """
 
 import functools
+from collections.abc import Callable, Sequence
 from datetime import date
 from types import NoneType
 from typing import Annotated, Literal, get_args, get_origin
@@ -15,21 +16,26 @@ import pandas as pd
 from pydantic import TypeAdapter, ValidationError
 from pydantic.fields import FieldInfo
 
-from optim.schema import STRICT, Row
+from optim.schema import Row
 from optim.sources import Columns
 
 type Dtype = str | pd.CategoricalDtype
 
 
-def validate_columns(row: type[Row], columns: Columns, *, name: str) -> pd.DataFrame:
-    """Validate raw columns against `row` and build a typed frame. Errors name `name`, the column and the row."""
+def validate_columns(row: type[Row], columns: Columns, *, name: str, key: Sequence[str] = ()) -> pd.DataFrame:
+    """Validate raw columns against `row` and build a typed frame. Errors name `name`, the column, and the bad row by its
+    `key` columns, since a query's row numbers mean nothing to whoever must fix the data."""
     if not columns:  # an empty JSON response carries no column names
         return empty_frame(row)
     schema = _schema(row)
     if columns.keys() != schema.keys():
         msg = f"{name}: expected columns {sorted(schema)}, got {sorted(columns)}"
         raise ValueError(msg)
-    return pd.DataFrame({column: _column(f"{name}.{column}", columns[column], *schema[column]) for column in schema})
+
+    def which(i: int) -> str:
+        return ", ".join(f"{k} {columns[k][i]!r}" for k in key) or f"row {i}"
+
+    return pd.DataFrame({column: _column(f"{name}.{column}", columns[column], *schema[column], which) for column in schema})
 
 
 def empty_frame(row: type[Row]) -> pd.DataFrame:
@@ -37,17 +43,17 @@ def empty_frame(row: type[Row]) -> pd.DataFrame:
 
 
 def to_models[R: Row](row: type[R], frame: pd.DataFrame) -> list[R]:
-    """A validated frame's rows as models, for small frames you want typed attributes on (one per account)."""
+    """A validated frame's rows as models, for small frames you want typed attributes on (one per portfolio)."""
     records = frame.astype(object).where(frame.notna(), None).to_dict("records")
     return [row.model_validate(record) for record in records]
 
 
-def _column(label: str, values: list[object], adapter: TypeAdapter[list[object]], dtype: Dtype) -> pd.Series:
+def _column(label: str, values: list[object], adapter: TypeAdapter[list[object]], dtype: Dtype, which: Callable[[int], str]) -> pd.Series:
     try:
         return pd.Series(adapter.validate_python(values), dtype=dtype)
     except ValidationError as error:
         first = error.errors()[0]
-        msg = f"{label} row {first['loc'][0]}: {first['msg']} (got {first['input']!r}); {error.error_count()} bad values"
+        msg = f"{label} at {which(int(first['loc'][0]))}: {first['msg']} (got {first['input']!r}); {error.error_count()} bad values"
         raise ValueError(msg) from None  # the first error and the count; chaining all of them can flood a log
 
 
@@ -62,7 +68,7 @@ def _schema(row: type[Row]) -> dict[str, tuple[TypeAdapter[list[object]], Dtype]
 
 def _column_adapter(field: FieldInfo) -> TypeAdapter[list[object]]:
     """Validates a whole column: the field's type and constraints, applied to every element."""
-    return TypeAdapter(list[Annotated[field.annotation, field]], config=STRICT)  # ty: ignore[invalid-type-form] -- built from the row schema at runtime
+    return TypeAdapter(list[Annotated[field.annotation, field]], config=Row.model_config)  # ty: ignore[invalid-type-form] -- built from the row schema at runtime
 
 
 def _dtype(annotation: object) -> Dtype:

@@ -21,7 +21,7 @@ from optim.inputs import Inputs
 
 @dataclass(frozen=True)
 class Model:
-    inputs: Inputs  # what the rules produced: the account, its lots, `as_of`; its `securities` is the whole market
+    inputs: Inputs  # what the rules produced: the portfolio, its lots, `as_of`; its `securities` is the whole market
     securities: pd.DataFrame  # in variable order: the bonds that can be bought or are held
     lots: pd.DataFrame  # in variable order
     lot_rows: np.ndarray  # the securities row of each lot
@@ -44,7 +44,7 @@ class Model:
 
 
 def build_model(inputs: Inputs, *, integer: bool) -> Model:
-    s, lots, account = inputs.securities, inputs.lots, inputs.account
+    s, lots, portfolio = inputs.securities, inputs.lots, inputs.portfolio
     # Variables only for what can be bought or is held. A target bond outside that set is a constant in tracking
     # error, so the model shrinks from the whole benchmark to the tradable set without changing the answer.
     in_model = (s["buyable"] | s["cusip"].isin(lots["cusip"])).to_numpy()
@@ -52,16 +52,16 @@ def build_model(inputs: Inputs, *, integer: bool) -> Model:
     sec = s.loc[in_model].reset_index(drop=True)
     lot_rows = pd.Index(sec["cusip"]).get_indexer(pd.Index(lots["cusip"]))
     if (lot_rows < 0).any():
-        msg = f"account {account.account_id} holds bonds with no analytics: {lots.loc[lot_rows < 0, 'cusip'].head().tolist()}"
+        msg = f"portfolio {portfolio.portfolio_id} holds bonds with no analytics: {lots.loc[lot_rows < 0, 'cusip'].head().tolist()}"
         raise LookupError(msg)
 
     n, k = len(sec), len(lots)
     holds = sp.csr_array((np.ones(k), (lot_rows, np.arange(k))), shape=(n, k))  # security x lot
     price = sec["price"].to_numpy() / 100  # $ per $1 par
     lot_par = lots["par"].to_numpy(dtype=float)
-    value = float(account.cash + price @ (holds @ lot_par))
+    value = float(portfolio.cash + price @ (holds @ lot_par))
     if value <= 0:
-        msg = f"account {account.account_id} has nothing to invest"
+        msg = f"portfolio {portfolio.portfolio_id} has nothing to invest"
         raise ValueError(msg)
 
     offer = np.where(sec["buyable"], sec["offer_par"].fillna(0), 0).astype(float)
@@ -69,7 +69,7 @@ def build_model(inputs: Inputs, *, integer: bool) -> Model:
     sold = holds @ trades.sell
     par = holds @ lot_par + trades.buy - sold
     cost = (price * sec["cost_bps"].to_numpy() / 1e4) @ (trades.buy + sold)
-    cash = account.cash + price @ (sold - trades.buy) - cost
+    cash = portfolio.cash + price @ (sold - trades.buy) - cost
     gain = price[lot_rows] - lots["cost_price"].to_numpy() / 100  # per $1 par
     long_term = (lots["acquired"] + pd.DateOffset(years=1) < pd.Timestamp(inputs.as_of)).to_numpy()  # held over a year
     return Model(
@@ -89,7 +89,7 @@ def build_model(inputs: Inputs, *, integer: bool) -> Model:
         untracked=float(target[~in_model].sum()),
         cash=cash,
         turnover=price @ (trades.buy + sold),
-        tax=(np.where(long_term, account.lt_gain_rate, account.st_gain_rate) * gain) @ trades.sell,
+        tax=(np.where(long_term, portfolio.lt_gain_rate, portfolio.st_gain_rate) * gain) @ trades.sell,
         cost=cost,
         income=(sec["expected_return"].to_numpy() * price) @ par,
         bounds=[*trades.sizes, cash / value >= 0],

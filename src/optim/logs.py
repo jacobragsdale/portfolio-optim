@@ -12,6 +12,9 @@ dates and pydantic models serialize as they are:
 Keys that clash with `LogRecord` attributes (`name`, `module`, `filename`, ...) raise. Keep records small: AKS splits
 lines over 16KB, so bulk data belongs in the run's snapshot, which the logs point to. To time a block, use `timed`.
 
+A job binds its run's id first, with `bind(run_id=...)`. Every record after that carries it, solver workers' records
+included, so filtering on `run_id` finds a whole run.
+
 Exceptions need nothing: the CLI and the engine log them once, with the notes added on the way up, the root cause, and
 the line in this package where it surfaced. Where a frame knows what the message does not, such as which dataset was
 loading, it adds that with `error.add_note(...)`.
@@ -20,7 +23,7 @@ loading, it adds that with `error.add_note(...)`.
 import logging
 import time
 import traceback
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,16 +32,18 @@ from typing import Literal, override
 import numpy as np
 import pandas as pd
 import pydantic_core
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _PACKAGE = Path(__file__).parent
 _STANDARD = {*vars(logging.makeLogRecord({})), "message", "asctime"}  # LogRecord's own attributes, not `extra` fields
+_bound: dict[str, object] = {}  # fields on every record this process logs; see `bind`
 
 
 class LogSettings(BaseSettings):
     """Read on its own, before `Settings`, so that a bad environment is logged like any other error."""
 
-    model_config = SettingsConfigDict(env_prefix="OPTIM_LOG_", strict=True, extra="forbid", frozen=True)
+    model_config = SettingsConfigDict(env_prefix="OPTIM_LOG_", extra="forbid", frozen=True)
 
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     format: Literal["json", "text"] = "json"
@@ -46,12 +51,34 @@ class LogSettings(BaseSettings):
 
 def setup() -> None:
     """Configure this process: the CLI calls it first, and each solver worker as it starts. `optim` loggers log at the
-    configured level; libraries log only warnings and up."""
-    settings = LogSettings()
+    configured level; libraries log only warnings and up. Bad `OPTIM_LOG_*` settings raise after configuring the
+    defaults, so that the error is logged as JSON like any other."""
+    try:
+        settings = LogSettings()
+    except ValidationError:
+        _configure(LogSettings.model_construct())
+        raise
+    _configure(settings)
+
+
+def _configure(settings: LogSettings) -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(JsonFormatter() if settings.format == "json" else TextFormatter())
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
+    logging.captureWarnings(True)  # library warnings, such as cvxpy's, as JSON records rather than raw stderr lines
     logging.getLogger("optim").setLevel(settings.level)
+
+
+def bind(**fields: object) -> None:
+    """Add `fields` to every record this process logs from now on. The engine binds the same fields in each solver
+    worker it starts."""
+    # ponytail: process-wide, as the CLI runs one job per process; concurrent runs in one process need a contextvar
+    _bound.update(fields)
+
+
+def bound() -> dict[str, object]:
+    """The fields `bind` added, for a solver worker to bind in its own process."""
+    return dict(_bound)
 
 
 @contextmanager
@@ -61,6 +88,11 @@ def timed(logger: logging.Logger, event: str, *, level: int = logging.DEBUG, **f
     start = time.perf_counter()
     yield fields
     logger.log(level, event, extra=fields | {"ms": ms_since(start)})
+
+
+def brief(fields: Mapping[str, object]) -> dict[str, object]:
+    """Fields for a record or a message: a long list of ids as its size and first few, since AKS splits long lines."""
+    return {k: f"{len(v)} ids: {', '.join(map(str, v[:3]))}, ..." if isinstance(v, list | tuple) and len(v) > 3 else v for k, v in fields.items()}
 
 
 def ms_since(start: float) -> float:
@@ -115,7 +147,7 @@ def to_json(value: object) -> str:
 
 
 def _extras(record: logging.LogRecord) -> dict[str, object]:
-    return {key: value for key, value in vars(record).items() if key not in _STANDARD}
+    return _bound | {key: value for key, value in vars(record).items() if key not in _STANDARD}
 
 
 def _fallback(value: object) -> object:

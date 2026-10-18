@@ -10,7 +10,8 @@ SELECT s.cusip,
        a.modified_duration                AS duration,
        a.cost_bps,
        CAST(s.min_piece AS NUMBER(15, 0)) AS min_piece,
-       CAST(s.increment AS NUMBER(15, 0)) AS increment,
+       -- INCREMENT is reserved in Oracle, so the alias is quoted
+       CAST(s.min_increment AS NUMBER(15, 0)) AS "INCREMENT",
        -- the minimum piece, where the security master records no minimum remaining
        CAST(COALESCE(s.min_remaining, s.min_piece) AS NUMBER(15, 0)) AS min_remaining
 FROM   securities s

@@ -1,6 +1,6 @@
-"""What a solve sees, and how datasets combine into it: a `Market` shared by every portfolio in a run, each account's
+"""What a solve sees, and how datasets combine into it: a `Market` shared by every portfolio in a run, each
 `Portfolio`, and the per-solve `Inputs` that rules edit. A new per-security dataset is merged in `load_market`; a new
-per-account one is loaded in `load_portfolios`."""
+per-portfolio one is loaded in `load_portfolios`."""
 
 import logging
 import time
@@ -12,8 +12,8 @@ import pandas as pd
 
 from optim.data.frames import empty_frame, to_models
 from optim.data.loader import Loader
-from optim.datasets.accounts import ACCOUNTS, LOTS, Account, Lot
 from optim.datasets.benchmarks import BENCHMARKS
+from optim.datasets.portfolios import LOSS_SALES, LOTS, PORTFOLIOS, LossSale, Lot, PortfolioDetails
 from optim.datasets.securities import SECURITIES, UNIVERSE
 from optim.datasets.signals import SIGNALS
 from optim.logs import ms_since
@@ -23,8 +23,9 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Portfolio:
-    account: Account
-    lots: pd.DataFrame  # this account's tax lots (`Lot` columns)
+    details: PortfolioDetails
+    lots: pd.DataFrame  # its tax lots (`Lot` columns)
+    loss_sales: pd.DataFrame  # bonds it sold at a loss in the last 30 days (`LossSale` columns)
 
 
 @dataclass(frozen=True)
@@ -32,8 +33,9 @@ class Inputs:
     """Everything one solve sees. Rules return edited copies; nothing is mutated in place."""
 
     as_of: date
-    account: Account
+    portfolio: PortfolioDetails
     lots: pd.DataFrame
+    loss_sales: pd.DataFrame
     securities: pd.DataFrame  # `Security` columns + offer_par, expected_return, buyable; rules edit the last two
     target: pd.Series  # weight by cusip: the benchmark, or a model portfolio to move toward
 
@@ -51,22 +53,26 @@ class Market:
     targets: Mapping[str, pd.Series]  # benchmark_id -> weight by cusip
 
     def inputs_for(self, portfolio: Portfolio) -> Inputs:
-        account = portfolio.account
-        if account.benchmark_id not in self.targets:
-            msg = f"account {account.account_id}: benchmark {account.benchmark_id} is not loaded"
+        details = portfolio.details
+        if details.benchmark_id not in self.targets:
+            msg = f"portfolio {details.portfolio_id}: benchmark {details.benchmark_id} is not loaded"
             raise LookupError(msg)
         # Every portfolio in a process reads the same frames. Shallow copies cost nothing under copy-on-write, and keep a
         # rule that edits a frame in place from changing what the next portfolio sees.
-        target = self.targets[account.benchmark_id]
-        return Inputs(self.as_of, account, portfolio.lots.copy(deep=False), self.securities.copy(deep=False), target.copy(deep=False))
+        target = self.targets[details.benchmark_id]
+        return Inputs(self.as_of, details, portfolio.lots.copy(deep=False), portfolio.loss_sales.copy(deep=False), self.securities.copy(deep=False), target.copy(deep=False))
 
 
 def load_market(loader: Loader, as_of: date) -> Market:
     start = time.perf_counter()
     frames = loader.load_all(SECURITIES, UNIVERSE, SIGNALS, BENCHMARKS, as_of=as_of)
     analytics, universe, benchmarks = frames["securities"], frames["universe"], frames["benchmarks"]
+    if empty := [name for name, frame in frames.items() if frame.empty]:  # an empty signals reply would leave nothing buyable, and still trade
+        msg = f"{', '.join(empty)} returned no rows for {as_of}: is it a business day, and has every feed landed? Solving without them would trade on part of the market"
+        raise ValueError(msg)
 
-    if (unpriced := ~universe["cusip"].isin(analytics["cusip"])).any():
+    # get_indexer, not isin: pandas 3 builds a pyarrow scalar per value for isin on strings, ~300ms per 100k cusips
+    if (unpriced := pd.Index(analytics["cusip"]).get_indexer(pd.Index(universe["cusip"])) < 0).any():
         log.warning("%d offerings have no analytics and cannot be bought", unpriced.sum(), extra={"cusips": universe.loc[unpriced, "cusip"].head(20).tolist()})
     securities = (
         analytics.merge(universe, on="cusip", how="left", validate="one_to_one")
@@ -77,7 +83,7 @@ def load_market(loader: Loader, as_of: date) -> Market:
         )
     )
     # A target we cannot price would silently shift benchmark duration and tracking, so fail loudly.
-    if (orphans := ~benchmarks["cusip"].isin(securities["cusip"])).any():
+    if (orphans := pd.Index(securities["cusip"]).get_indexer(pd.Index(benchmarks["cusip"])) < 0).any():
         msg = f"{orphans.sum()} benchmark constituents have no analytics, e.g. {benchmarks.loc[orphans].head(3).to_dict('records')}"
         raise ValueError(msg)
     targets = {str(benchmark_id): group.set_index("cusip")["weight"] for benchmark_id, group in benchmarks.groupby("benchmark_id")}
@@ -85,16 +91,22 @@ def load_market(loader: Loader, as_of: date) -> Market:
     return Market(as_of, securities, targets)
 
 
-def load_portfolios(loader: Loader, account_ids: Sequence[str]) -> list[Portfolio]:
-    """Load accounts and lots in batches, in the order given."""
+def load_portfolios(loader: Loader, portfolio_ids: Sequence[str], as_of: date) -> list[Portfolio]:
+    """Load portfolios, lots and the loss sales of the 30 days to `as_of` in batches, in the order given."""
     start = time.perf_counter()
-    account_ids = list(dict.fromkeys(account_ids))
-    accounts = {a.account_id: a for a in to_models(Account, loader.load_batched(ACCOUNTS, "accounts", account_ids))}
-    if missing := [i for i in account_ids if i not in accounts]:
-        msg = f"{len(missing)} unknown accounts, e.g. {missing[:5]}"
+    portfolio_ids = list(dict.fromkeys(portfolio_ids))
+    details = {d.portfolio_id: d for d in to_models(PortfolioDetails, loader.load_batched(PORTFOLIOS, "portfolios", portfolio_ids))}
+    if missing := [i for i in portfolio_ids if i not in details]:
+        msg = f"{len(missing)} unknown portfolios, e.g. {missing[:5]}"
         raise LookupError(msg)
-    lots = loader.load_batched(LOTS, "accounts", account_ids)
-    by_account = {str(account_id): group.reset_index(drop=True) for account_id, group in lots.groupby("account_id")}
-    no_lots = empty_frame(Lot)
-    log.info("loaded portfolios", extra={"accounts": len(account_ids), "lots": len(lots), "ms": ms_since(start)})
-    return [Portfolio(accounts[i], by_account.get(i, no_lots)) for i in account_ids]
+    lots = loader.load_batched(LOTS, "portfolios", portfolio_ids)
+    loss_sales = loader.load_batched(LOSS_SALES, "portfolios", portfolio_ids, as_of=as_of)
+    log.info("loaded portfolios", extra={"portfolios": len(portfolio_ids), "lots": len(lots), "loss_sales": len(loss_sales), "ms": ms_since(start)})
+    lots_of, sales_of = by_portfolio(lots), by_portfolio(loss_sales)
+    no_lots, no_sales = empty_frame(Lot), empty_frame(LossSale)
+    return [Portfolio(details[i], lots_of.get(i, no_lots), sales_of.get(i, no_sales)) for i in portfolio_ids]
+
+
+def by_portfolio(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
+    """A per-portfolio frame, such as lots, split by `portfolio_id` for `Portfolio`."""
+    return {str(portfolio_id): group.reset_index(drop=True) for portfolio_id, group in frame.groupby("portfolio_id")}

@@ -11,13 +11,13 @@ import httpx
 from pydantic import HttpUrl, TypeAdapter
 
 from optim.logs import ms_since
-from optim.schema import Strict
+from optim.schema import Model
 from optim.sources import TIMEOUT_S, Columns, Param, columns_from_records
 
 log = logging.getLogger(__name__)
 
 
-class ApiSettings(Strict):
+class ApiSettings(Model):
     url: HttpUrl
 
 

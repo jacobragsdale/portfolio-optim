@@ -1,34 +1,48 @@
 """Oracle through python-oracledb in thin mode, which needs no client libraries. Queries bind `:name`."""
 
-from collections.abc import Generator
-from contextlib import contextmanager
+import threading
+from collections.abc import Callable
+from concurrent.futures import Future, wait
 from functools import partial
 
 import oracledb
 from pydantic import SecretStr
 
-from optim.schema import Strict
+from optim.schema import Model
 from optim.sources import TIMEOUT_S
 from optim.sources.sql import Sql
 
+CONNECT_TIMEOUT_S = 30
 
-class OracleSettings(Strict):
+
+class OracleSettings(Model):
     dsn: str
     user: str
     password: SecretStr
 
 
-@contextmanager
-def connect(settings: OracleSettings) -> Generator[Sql]:
-    """A pooled source. The pool closes on exit."""
-    pool = oracledb.create_pool(user=settings.user, password=settings.password.get_secret_value(), dsn=settings.dsn, min=1, max=8)
-    try:
-        yield Sql(partial(_acquire, pool))
-    finally:
-        pool.close()
+def connect(settings: OracleSettings) -> Sql:
+    """A connection per query, as for SQL Server: a run makes a handful. Not a pool: its background thread joins a
+    connection attempt that never ends, so a hung database would keep the process from exiting."""
+    return Sql(partial(_connect, settings))
 
 
-def _acquire(pool: oracledb.ConnectionPool) -> oracledb.Connection:
-    connection = pool.acquire()
+def _connect(settings: OracleSettings) -> oracledb.Connection:
+    """A connection with a deadline on every round trip. Thin mode bounds only the TCP connect: a database that accepts
+    TCP but never answers the login would hang the run, so the login runs in a thread that the run stops waiting for."""
+    login = partial(oracledb.connect, user=settings.user, password=settings.password.get_secret_value(), dsn=settings.dsn)
+    connected: Future[oracledb.Connection] = Future()
+    threading.Thread(target=_resolve, args=(connected, login), daemon=True).start()
+    if not wait([connected], timeout=CONNECT_TIMEOUT_S).done:
+        msg = f"Oracle at {settings.dsn} accepted a connection but did not log in within {CONNECT_TIMEOUT_S}s: the listener or the database is hung"
+        raise TimeoutError(msg)
+    connection = connected.result()
     connection.call_timeout = TIMEOUT_S * 1000  # milliseconds, per round trip
     return connection
+
+
+def _resolve[T](future: Future[T], call: Callable[[], T]) -> None:
+    try:
+        future.set_result(call())
+    except Exception as error:  # noqa: BLE001 -- handed to the waiting caller, which raises it
+        future.set_exception(error)

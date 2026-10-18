@@ -12,7 +12,7 @@ from optim.schema import Strict
 
 class Solve(Strict):
     """How to solve. An integer solve trades exactly the sizes the market trades. An LP solve is much faster, but its
-    trades are rounded afterwards, which can break a binding constraint, and such a result is never ordered."""
+    trades are rounded afterwards, which can break a binding constraint, and such a result makes the run exit nonzero."""
 
     integer: bool = True
     solver: Literal["HIGHS"] = "HIGHS"  # any solver cvxpy supports, such as a licensed COPT, once it is installed
