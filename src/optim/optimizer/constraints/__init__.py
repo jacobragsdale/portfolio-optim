@@ -1,5 +1,5 @@
 """Constraints, grouped by what they limit. Each is a pydantic class whose fields are its JSON parameters and whose
-`build` returns cvxpy constraints written in weights against the `Model`.
+`build` returns cvxpy constraints written in weights against the `OptimizationModel`.
 
 `Constraint` is the union that strategy JSON is validated against, so every constraint class must be added to it.
 """

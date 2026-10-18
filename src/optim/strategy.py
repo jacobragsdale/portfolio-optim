@@ -7,10 +7,10 @@ from pydantic import Field
 from optim.optimizer.constraints import Constraint
 from optim.optimizer.objective import Cost, ExpectedReturn, Tax, Term
 from optim.rules import Rule
-from optim.schema import Strict
+from optim.schema import StrictModel
 
 
-class Solve(Strict):
+class SolveSettings(StrictModel):
     """How to solve. An integer solve trades exactly the sizes the market trades. An LP solve is much faster, but its
     trades are rounded afterwards, which can break a binding constraint, and such a result makes the run exit nonzero."""
 
@@ -24,11 +24,11 @@ def _expected_return_net_of_tax_and_cost() -> list[Term]:
     return [ExpectedReturn(), Tax(), Cost()]
 
 
-class Strategy(Strict):
+class Strategy(StrictModel):
     """How to optimize: rules applied in order before the solve, the objective's terms, constraints, and how to solve."""
 
     name: str
     rules: list[Rule] = Field(default_factory=list)
     objective: list[Term] = Field(default_factory=_expected_return_net_of_tax_and_cost)
     constraints: list[Constraint] = Field(default_factory=list)
-    solve: Solve = Solve()
+    solve: SolveSettings = SolveSettings()

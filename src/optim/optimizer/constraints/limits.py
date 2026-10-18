@@ -8,21 +8,21 @@ import pandas as pd
 import scipy.sparse as sp
 from pydantic import Field
 
-from optim.optimizer.model import Model
-from optim.schema import Strict, Weight
+from optim.optimizer.model import OptimizationModel
+from optim.schema import StrictModel, Weight
 
 
-class PositionLimit(Strict):
+class PositionLimit(StrictModel):
     """No bond above `max_weight` of the portfolio."""
 
     kind: Literal["position_limit"] = "position_limit"
     max_weight: Weight
 
-    def build(self, m: Model) -> list[cp.Constraint]:
+    def build(self, m: OptimizationModel) -> list[cp.Constraint]:
         return [m.weights <= self.max_weight]
 
 
-class GroupLimit(Strict):
+class GroupLimit(StrictModel):
     """Cap the weight of each issuer, sector or rating. `overrides` sets the cap for named groups."""
 
     kind: Literal["group_limit"] = "group_limit"
@@ -30,7 +30,7 @@ class GroupLimit(Strict):
     max_weight: Weight
     overrides: dict[str, Weight] = Field(default_factory=dict)
 
-    def build(self, m: Model) -> list[cp.Constraint]:
+    def build(self, m: OptimizationModel) -> list[cp.Constraint]:
         groups, members = indicator(m.securities[self.by])
         if not len(groups):
             return []

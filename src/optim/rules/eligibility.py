@@ -5,48 +5,48 @@ from typing import Literal
 import pandas as pd
 from pydantic import Field
 
-from optim.inputs import Inputs
-from optim.schema import Rating, Strict
+from optim.inputs import SolverInputs
+from optim.schema import Rating, StrictModel
 
 
-class MinRating(Strict):
+class MinRating(StrictModel):
     """Buy only bonds rated `rating` or better."""
 
     kind: Literal["min_rating"] = "min_rating"
     rating: Rating
 
-    def apply(self, inputs: Inputs) -> Inputs:
+    def apply(self, inputs: SolverInputs) -> SolverInputs:
         return inputs.restrict(inputs.securities["rating"] <= self.rating)
 
 
-class ExcludeIssuers(Strict):
+class ExcludeIssuers(StrictModel):
     """Never buy these issuers (restricted list, credit watch)."""
 
     kind: Literal["exclude_issuers"] = "exclude_issuers"
     issuers: list[str]
 
-    def apply(self, inputs: Inputs) -> Inputs:
+    def apply(self, inputs: SolverInputs) -> SolverInputs:
         return inputs.restrict(~inputs.securities["issuer"].isin(self.issuers))
 
 
-class MaturityRange(Strict):
+class MaturityRange(StrictModel):
     """Buy only bonds maturing between `min_years` and `max_years` from today."""
 
     kind: Literal["maturity_range"] = "maturity_range"
     min_years: float = Field(default=0, ge=0)
     max_years: float = Field(gt=0)
 
-    def apply(self, inputs: Inputs) -> Inputs:
+    def apply(self, inputs: SolverInputs) -> SolverInputs:
         years = (inputs.securities["maturity"] - pd.Timestamp(inputs.as_of)).dt.days / 365.25
         return inputs.restrict(years.between(self.min_years, self.max_years))
 
 
-class TopSignals(Strict):
+class TopSignals(StrictModel):
     """Keep only the `n` best buy candidates by expected return, to bound the solve size."""
 
     kind: Literal["top_signals"] = "top_signals"
     n: int = Field(gt=0)
 
-    def apply(self, inputs: Inputs) -> Inputs:
+    def apply(self, inputs: SolverInputs) -> SolverInputs:
         s = inputs.securities
         return inputs.restrict(s["expected_return"].where(s["buyable"]).rank(ascending=False, method="first") <= self.n)

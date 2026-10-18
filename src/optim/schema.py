@@ -14,7 +14,7 @@ class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True, revalidate_instances="always", allow_inf_nan=False)
 
 
-class Strict(Model):
+class StrictModel(Model):
     """Base for the strategy JSON that traders and agents write. JSON has a type for every field, so `"0.05"` or `true`
     where a weight belongs is a misread contract, not data to coerce."""
 

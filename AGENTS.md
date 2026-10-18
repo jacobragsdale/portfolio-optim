@@ -16,9 +16,9 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 | `jobs/` | One entry point per module: `optimize`, `model_portfolio`, `transition`, `replay`. Each is load, solve, save. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. |
 | `data/loader.py` | Fetching, validation, batching and the Redis cache, for every dataset. |
-| `inputs.py` | `Market` (shared by a run), `Portfolio`, and `Inputs` (what one solve sees). |
+| `inputs.py` | `Market` (shared by a run), `Portfolio`, and `SolverInputs` (what one solve sees). |
 | `engine.py` | Solving tasks in this process or a process pool. |
-| `rules/` | Pre-solve rules: edit `Inputs` (what may be bought, expected returns). |
+| `rules/` | Pre-solve rules: edit `SolverInputs` (what may be bought, expected returns). |
 | `optimizer/model.py` | Variables and expressions: buys per bond, sells per tax lot, weights, cash, tax, cost. |
 | `optimizer/objective.py`, `optimizer/constraints/` | Objective terms and constraints, built against the model. |
 | `optimizer/solve.py`, `rounding.py`, `results.py` | Solve one portfolio, make trades exact, re-check every constraint. |

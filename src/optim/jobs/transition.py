@@ -7,7 +7,7 @@ from pydantic import Field
 
 from optim import logs
 from optim.context import Context
-from optim.engine import Task, solve_all
+from optim.engine import SolveTask, solve_all
 from optim.inputs import load_market, load_portfolios
 from optim.jobs import Run
 from optim.optimizer.constraints.tax import MaxTax
@@ -28,7 +28,7 @@ def transition(ctx: Context, request: TransitionRequest) -> Run:
     logs.bind(run_id=run_id)
     market = load_market(ctx.loader, request.as_of)
     portfolios = load_portfolios(ctx.loader, [request.portfolio_id], request.as_of)
-    tasks = [Task(portfolios[0], _with_tax_budget(request.strategy, budget)) for budget in request.tax_budgets]
+    tasks = [SolveTask(portfolios[0], _with_tax_budget(request.strategy, budget)) for budget in request.tax_budgets]
     results = solve_all(market, tasks, workers=ctx.workers)
     save_run(ctx.snapshot_dir, run_id, job="transition", request=request, market=market, portfolios=portfolios, results=results)
     return Run(run_id, results)

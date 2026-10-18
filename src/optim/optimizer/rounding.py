@@ -6,7 +6,7 @@ from collections.abc import Mapping
 import cvxpy as cp
 import numpy as np
 
-from optim.optimizer.model import Model, value_of
+from optim.optimizer.model import OptimizationModel, value_of
 
 TOLERANCE = 1e-6  # in weights: $1 per $1mm of portfolio value
 
@@ -19,7 +19,7 @@ def snap_integers(problem: cp.Problem) -> None:
             variable.value = np.round(value_of(variable))
 
 
-def round_to_lots(m: Model) -> None:
+def round_to_lots(m: OptimizationModel) -> None:
     """An LP solve's trades to tradable amounts, rounding toward cash: buys down, sells up. That keeps limits and the
     cash floor intact; turnover, tax and duration can still move past their bounds, which `violations` reports."""
     # ponytail: a heuristic; when the constraints it breaks matter, solve with "integer": true

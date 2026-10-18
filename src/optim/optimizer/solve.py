@@ -9,7 +9,7 @@ import cvxpy as cp
 import highspy
 import numpy as np
 
-from optim.inputs import Inputs
+from optim.inputs import SolverInputs
 from optim.logs import ms_since
 from optim.optimizer.model import build_model
 from optim.optimizer.results import Result, Solved, Unsolved
@@ -21,7 +21,7 @@ log = logging.getLogger(__name__)
 warnings.filterwarnings("ignore", message="Solution may be inaccurate", category=UserWarning)
 
 
-def solve(inputs: Inputs, strategy: Strategy) -> Result:
+def solve(inputs: SolverInputs, strategy: Strategy) -> Result:
     start = time.perf_counter()
     portfolio_id, how = inputs.portfolio.portfolio_id, strategy.solve
     m = build_model(inputs, integer=how.integer)

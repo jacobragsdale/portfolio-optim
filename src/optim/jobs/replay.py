@@ -7,7 +7,7 @@ from pathlib import Path
 from pydantic import Field
 
 from optim import logs
-from optim.engine import Task, solve_all
+from optim.engine import SolveTask, solve_all
 from optim.jobs import Run
 from optim.outputs.snapshots import load_run, save_run
 from optim.schema import Model
@@ -31,6 +31,6 @@ def replay(request: ReplayRequest, *, workers: int) -> Run:
             msg = f"{len(missing)} portfolios are not in {request.snapshot}, e.g. {missing[:5]}"
             raise LookupError(msg)
         portfolios = [p for p in portfolios if p.details.portfolio_id in request.portfolios]
-    results = solve_all(market, [Task(p, request.strategy) for p in portfolios], workers=workers)
+    results = solve_all(market, [SolveTask(p, request.strategy) for p in portfolios], workers=workers)
     save_run(request.snapshot.parent, run_id, job="replay", request=request, market=market, portfolios=portfolios, results=results)
     return Run(run_id, results)

@@ -22,7 +22,7 @@ To load a new table, for example issuer credit scores from Oracle:
    Per-portfolio data goes in `load_portfolios` through `loader.load_batched`, which sends up to 1,000 portfolios per
    query; the SQL unpacks the ids with `OPENJSON` or `JSON_TABLE`, as `lots.sql` does, and `loss_sales.sql` binds the
    business date too. Split the frame with `by_portfolio`, as `lots` and `loss_sales` are, then carry it to the solve: a
-   field on `Portfolio` and on `Inputs`, a line in `Market.inputs_for`, and an empty frame for the all-cash portfolio in
+   field on `Portfolio` and on `SolverInputs`, a line in `Market.inputs_for`, and an empty frame for the all-cash portfolio in
    `jobs/model_portfolio.py`. Add it to `input_frames` in `outputs/snapshots.py` and read it back in `load_run`: a run
    whose snapshot lacks it still solves, but cannot be replayed.
 
@@ -66,8 +66,8 @@ dataset live, whatever its policy.
 ## How to add a rule
 
 1. Pick the module in `src/optim/rules/` for the rule's family (`eligibility`, `tax`), or add one.
-2. Write a `Strict` class with a `kind: Literal["your_rule"] = "your_rule"` field, its parameters as fields, and
-   `apply(self, inputs: Inputs) -> Inputs`.
+2. Write a `StrictModel` class with a `kind: Literal["your_rule"] = "your_rule"` field, its parameters as fields, and
+   `apply(self, inputs: SolverInputs) -> SolverInputs`.
 3. Narrow buying with `inputs.restrict(allowed)`, or return `replace(inputs, securities=inputs.securities.assign(...))`
    to adjust a column. Never drop rows.
 4. Add the class to the `Rule` union in `src/optim/rules/__init__.py`.
@@ -78,12 +78,12 @@ Strategy files can use the rule as soon as it is in the union.
 
 1. Pick the module in `src/optim/optimizer/constraints/` for the constraint's family (`limits`, `risk`, `trading`,
    `tax`), or add one.
-2. Write a `Strict` class with a `kind` field, its parameters, and `build(self, m: Model) -> list[cp.Constraint]`.
+2. Write a `StrictModel` class with a `kind` field, its parameters, and `build(self, m: OptimizationModel) -> list[cp.Constraint]`.
 3. Write the constraint against the model's expressions: `m.weights`, `m.cash`, `m.turnover`, `m.tax`, or a column of
    `m.securities` times the weights, such as `m.securities["duration"].to_numpy() @ m.weights`. `m.inputs` holds the
    portfolio and its lots. Divide dollar quantities by `m.value` so the constraint is in weights and shares the tolerance
    of the re-check after the solve.
-4. If you need a quantity the model lacks, add it to `Model` in `src/optim/optimizer/model.py` and compute it once in
+4. If you need a quantity the model lacks, add it to `OptimizationModel` in `src/optim/optimizer/model.py` and compute it once in
    `build_model`.
 5. Add the class to the `Constraint` union in `src/optim/optimizer/constraints/__init__.py`.
 
@@ -93,13 +93,13 @@ constraint can also declare its own 0/1 variables and tie them to what it limits
 trading: a weight can only be above zero where its flag is 1, and no weight exceeds 1.
 
 ```python
-class MaxHoldings(Strict):
+class MaxHoldings(StrictModel):
     """Hold at most `n` bonds after trading. Needs an integer solve."""
 
     kind: Literal["max_holdings"] = "max_holdings"
     n: int = Field(gt=0)
 
-    def build(self, m: Model) -> list[cp.Constraint]:
+    def build(self, m: OptimizationModel) -> list[cp.Constraint]:
         held = cp.Variable(len(m.securities), boolean=True)
         return [m.weights <= held, cp.sum(held) <= self.n]
 ```
@@ -109,8 +109,8 @@ class MaxHoldings(Strict):
 A strategy's objective is the sum of its terms, listed under `"objective"`. Without that key, a strategy maximizes
 expected return less tax and trading costs.
 
-1. Write a `Strict` class in `src/optim/optimizer/objective.py` with a `kind` field, its parameters, and
-   `expression(self, m: Model) -> cp.Expression`.
+1. Write a `StrictModel` class in `src/optim/optimizer/objective.py` with a `kind` field, its parameters, and
+   `expression(self, m: OptimizationModel) -> cp.Expression`.
 2. Return what the term adds to the objective as a fraction of portfolio value: divide dollars by `m.value`. A reward
    is positive and a penalty negative, as in `Tax`.
 3. Keep the term linear, or piecewise linear like `cp.norm1`, which cvxpy turns into extra variables and rows: HiGHS
@@ -155,7 +155,7 @@ row per portfolio, so comparing two runs is a join on `portfolio_id`.
 ## How to add a data source
 
 1. Add a module to `src/optim/sources/`, such as `pricing.py`, with a settings model (a `Model` subclass) and a
-   `connect` function. A database with a DB-API driver returns a `Sql` over a connection factory; anything else
+   `connect` function. A database with a DB-API driver returns a `SqlSource` over a connection factory; anything else
    returns a class with `fetch(self, query, params) -> Columns`. Put a timeout on every call, the login included:
    Oracle's thin driver bounds only the TCP connect, so `oracle.py` runs its login in a thread it stops waiting for.
 2. Add the source's name to `SourceName` in `src/optim/sources/__init__.py`.
@@ -163,13 +163,13 @@ row per portfolio, so comparing two runs is a join on `portfolio_id`.
 4. Open it in `open_context` in `src/optim/context.py`. If it holds a pool or client, enter it on the `ExitStack` so it
    closes.
 
-If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSettings`, `rest.client` and `Rest`.
+If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSettings`, `rest.client` and `RestSource`.
 
 ## How to add an entry point
 
 1. Add a module to `src/optim/jobs/` with a request model (a `Model` subclass) and a function taking
    `(ctx: Context, request: YourRequest)`. First take a run id from `ctx.new_run_id()` and `logs.bind(run_id=...)`
-   it, so every record of the run carries it. Load with `load_market` and `load_portfolios`, build `Task`s, call
+   it, so every record of the run carries it. Load with `load_market` and `load_portfolios`, build `SolveTask`s, call
    `solve_all`, and save the run with `save_run` before any other output.
 2. Add a subcommand to `_parser()` in `src/optim/cli.py` that builds the request, and a `case` for it in `main`.
 

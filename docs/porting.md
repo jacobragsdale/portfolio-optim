@@ -67,7 +67,7 @@ search these too:
 | Writes reports or database rows | An output, after `save_run` | `outputs/` |
 | Runs on a schedule | An Airflow-started Job | `deploy/job.yaml` |
 
-A rule reads only `Inputs`. If a rule needs data the inputs lack, add a dataset and a column first.
+A rule reads only `SolverInputs`. If a rule needs data the inputs lack, add a dataset and a column first.
 
 ## What is not ported
 

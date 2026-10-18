@@ -40,7 +40,7 @@ class Connection(Protocol):
 
 
 @dataclass(frozen=True)
-class Sql:
+class SqlSource:
     connect: Callable[[], Connection]
 
     def fetch(self, query: str, params: Mapping[str, Param]) -> Columns:

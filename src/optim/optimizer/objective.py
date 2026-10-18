@@ -9,49 +9,49 @@ from typing import Annotated, Literal
 import cvxpy as cp
 from pydantic import Field
 
-from optim.optimizer.model import Model
-from optim.schema import Strict
+from optim.optimizer.model import OptimizationModel
+from optim.schema import StrictModel
 
 
-class ExpectedReturn(Strict):
+class ExpectedReturn(StrictModel):
     """Expected after-tax income over the horizon, as the rules left `expected_return`."""
 
     kind: Literal["expected_return"] = "expected_return"
     horizon_years: float = Field(default=1.0, gt=0)
 
-    def expression(self, m: Model) -> cp.Expression:
+    def expression(self, m: OptimizationModel) -> cp.Expression:
         income: cp.Expression = self.horizon_years * m.income / m.value
         return income
 
 
-class Tax(Strict):
+class Tax(StrictModel):
     """Tax the trades realize. Harvested losses count as negative tax, so they add to the objective."""
 
     kind: Literal["tax"] = "tax"
     aversion: float = Field(default=1.0, ge=0)  # 1: a dollar of tax costs a dollar of return
 
-    def expression(self, m: Model) -> cp.Expression:
+    def expression(self, m: OptimizationModel) -> cp.Expression:
         tax: cp.Expression = -self.aversion * m.tax / m.value
         return tax
 
 
-class Cost(Strict):
+class Cost(StrictModel):
     """Estimated trading costs."""
 
     kind: Literal["cost"] = "cost"
 
-    def expression(self, m: Model) -> cp.Expression:
+    def expression(self, m: OptimizationModel) -> cp.Expression:
         cost: cp.Expression = -m.cost / m.value
         return cost
 
 
-class TrackingL1(Strict):
+class TrackingL1(StrictModel):
     """Distance from the target: the L1 norm of the weight differences. Adds a variable and two rows per security."""
 
     kind: Literal["tracking_l1"] = "tracking_l1"
     penalty: float = Field(gt=0)  # per unit of L1 distance
 
-    def expression(self, m: Model) -> cp.Expression:
+    def expression(self, m: OptimizationModel) -> cp.Expression:
         tracking: cp.Expression = -self.penalty * cp.norm1(m.weights - m.target)
         return tracking
 

@@ -6,7 +6,7 @@ from typing import Self
 import numpy as np
 import pandas as pd
 
-from optim.optimizer.model import Model, value_of
+from optim.optimizer.model import OptimizationModel, value_of
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class Solved:
         return "ok" if self.ok else f"rounding broke {sorted(self.violations)}"
 
     @classmethod
-    def from_model(cls, m: Model, *, portfolio_id: str, strategy: str, objective: float, gap: float | None, violations: dict[str, float], seconds: float) -> Self:
+    def from_model(cls, m: OptimizationModel, *, portfolio_id: str, strategy: str, objective: float, gap: float | None, violations: dict[str, float], seconds: float) -> Self:
         """Read the result off a model whose variables hold the exact trades."""
         return cls(portfolio_id, strategy, _trades(m, portfolio_id), _positions(m), _summary(m, objective, gap), violations, seconds)
 
@@ -44,7 +44,7 @@ class Unsolved:
 type Result = Solved | Unsolved
 
 
-def _trades(m: Model, portfolio_id: str) -> pd.DataFrame:
+def _trades(m: OptimizationModel, portfolio_id: str) -> pd.DataFrame:
     buy, sell = value_of(m.buy), value_of(m.sell)
     buys = pd.DataFrame({"cusip": m.securities["cusip"].to_numpy()[buy > 0], "side": "buy", "par": buy[buy > 0]})
     sells = pd.DataFrame({"cusip": m.lots["cusip"].to_numpy()[sell > 0], "lot_id": m.lots["lot_id"].to_numpy()[sell > 0], "side": "sell", "par": sell[sell > 0]})
@@ -52,13 +52,13 @@ def _trades(m: Model, portfolio_id: str) -> pd.DataFrame:
     return trades.astype({"portfolio_id": "str", "cusip": "str", "lot_id": "str", "side": "str", "par": "int64"})[["portfolio_id", "cusip", "lot_id", "side", "par"]]
 
 
-def _positions(m: Model) -> pd.DataFrame:
+def _positions(m: OptimizationModel) -> pd.DataFrame:
     par = value_of(m.par)
     held = par > 0.5
     return pd.DataFrame({"cusip": m.securities["cusip"].to_numpy()[held], "par": par[held].round().astype("int64"), "weight": value_of(m.weights)[held]})
 
 
-def _summary(m: Model, objective: float, gap: float | None) -> dict[str, float]:
+def _summary(m: OptimizationModel, objective: float, gap: float | None) -> dict[str, float]:
     return {
         "objective": objective,  # the solver's optimum before snapping or rounding, as a fraction of value
         **({"gap": gap} if gap is not None else {}),  # how far the integer optimum may be from the best possible

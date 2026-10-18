@@ -16,12 +16,12 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from optim.inputs import Inputs
+from optim.inputs import SolverInputs
 
 
 @dataclass(frozen=True)
-class Model:
-    inputs: Inputs  # what the rules produced: the portfolio, its lots, `as_of`; its `securities` is the whole market
+class OptimizationModel:
+    inputs: SolverInputs  # what the rules produced: the portfolio, its lots, `as_of`; its `securities` is the whole market
     securities: pd.DataFrame  # in variable order: the bonds that can be bought or are held
     lots: pd.DataFrame  # in variable order
     lot_rows: np.ndarray  # the securities row of each lot
@@ -43,7 +43,7 @@ class Model:
     bounds: list[cp.Constraint]  # what every solve needs: the trade sizes the market allows, and no overspending
 
 
-def build_model(inputs: Inputs, *, integer: bool) -> Model:
+def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
     s, lots, portfolio = inputs.securities, inputs.lots, inputs.portfolio
     # Variables only for what can be bought or is held. A target bond outside that set is a constant in tracking
     # error, so the model shrinks from the whole benchmark to the tradable set without changing the answer.
@@ -72,7 +72,7 @@ def build_model(inputs: Inputs, *, integer: bool) -> Model:
     cash = portfolio.cash + price @ (sold - trades.buy) - cost
     gain = price[lot_rows] - lots["cost_price"].to_numpy() / 100  # per $1 par
     long_term = (lots["acquired"] + pd.DateOffset(years=1) < pd.Timestamp(inputs.as_of)).to_numpy()  # held over a year
-    return Model(
+    return OptimizationModel(
         inputs=inputs,
         securities=sec,
         lots=lots,

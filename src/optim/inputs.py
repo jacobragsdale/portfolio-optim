@@ -1,5 +1,5 @@
 """What a solve sees, and how datasets combine into it: a `Market` shared by every portfolio in a run, each
-`Portfolio`, and the per-solve `Inputs` that rules edit. A new per-security dataset is merged in `load_market`; a new
+`Portfolio`, and the per-solve `SolverInputs` that rules edit. A new per-security dataset is merged in `load_market`; a new
 per-portfolio one is loaded in `load_portfolios`."""
 
 import logging
@@ -29,7 +29,7 @@ class Portfolio:
 
 
 @dataclass(frozen=True)
-class Inputs:
+class SolverInputs:
     """Everything one solve sees. Rules return edited copies; nothing is mutated in place."""
 
     as_of: date
@@ -39,7 +39,7 @@ class Inputs:
     securities: pd.DataFrame  # `Security` columns + offer_par, expected_return, buyable; rules edit the last two
     target: pd.Series  # weight by cusip: the benchmark, or a model portfolio to move toward
 
-    def restrict(self, allowed: pd.Series) -> Inputs:
+    def restrict(self, allowed: pd.Series) -> SolverInputs:
         """Narrow what may be bought. Rows stay: a bond you may not buy can still be held, and sold."""
         return replace(self, securities=self.securities.assign(buyable=self.securities["buyable"] & allowed))
 
@@ -52,7 +52,7 @@ class Market:
     securities: pd.DataFrame
     targets: Mapping[str, pd.Series]  # benchmark_id -> weight by cusip
 
-    def inputs_for(self, portfolio: Portfolio) -> Inputs:
+    def inputs_for(self, portfolio: Portfolio) -> SolverInputs:
         details = portfolio.details
         if details.benchmark_id not in self.targets:
             msg = f"portfolio {details.portfolio_id}: benchmark {details.benchmark_id} is not loaded"
@@ -60,7 +60,7 @@ class Market:
         # Every portfolio in a process reads the same frames. Shallow copies cost nothing under copy-on-write, and keep a
         # rule that edits a frame in place from changing what the next portfolio sees.
         target = self.targets[details.benchmark_id]
-        return Inputs(self.as_of, details, portfolio.lots.copy(deep=False), portfolio.loss_sales.copy(deep=False), self.securities.copy(deep=False), target.copy(deep=False))
+        return SolverInputs(self.as_of, details, portfolio.lots.copy(deep=False), portfolio.loss_sales.copy(deep=False), self.securities.copy(deep=False), target.copy(deep=False))
 
 
 def load_market(loader: Loader, as_of: date) -> Market:

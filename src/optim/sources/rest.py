@@ -1,4 +1,4 @@
-"""JSON APIs over HTTP: a client factory for every API we call, and `Rest`, a source for APIs that answer a GET with a
+"""JSON APIs over HTTP: a client factory for every API we call, and `RestSource`, a source for APIs that answer a GET with a
 list of records."""
 
 import logging
@@ -47,7 +47,7 @@ _RECORDS = TypeAdapter(list[dict[str, object]])
 
 
 @dataclass(frozen=True)
-class Rest:
+class RestSource:
     client: httpx.Client
 
     def fetch(self, query: str, params: Mapping[str, Param]) -> Columns:

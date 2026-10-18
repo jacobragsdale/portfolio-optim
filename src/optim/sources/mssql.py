@@ -8,7 +8,7 @@ from pydantic import SecretStr
 
 from optim.schema import Model
 from optim.sources import TIMEOUT_S
-from optim.sources.sql import Sql
+from optim.sources.sql import SqlSource
 
 LOGIN_TIMEOUT_S = 30
 
@@ -17,14 +17,14 @@ class MssqlSettings(Model):
     connection_string: SecretStr
 
 
-def connect(settings: MssqlSettings) -> Sql:
-    return Sql(partial(_connect, settings.connection_string.get_secret_value()))
+def connect(settings: MssqlSettings) -> SqlSource:
+    return SqlSource(partial(_connect, settings.connection_string.get_secret_value()))
 
 
 def new_run_id() -> str:
     """Register a run in the runs table and return its id."""
     # ponytail: a mock until the runs table is wired in. The real one takes the connection and inserts, so it must commit:
-    # mssql-python defaults to autocommit=False, and `Sql.fetch` never commits.
+    # mssql-python defaults to autocommit=False, and `SqlSource.fetch` never commits.
     return str(uuid.uuid7())
 
 

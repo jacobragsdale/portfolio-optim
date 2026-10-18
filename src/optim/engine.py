@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from functools import partial
 
 from optim import logs
-from optim.inputs import Inputs, Market, Portfolio
+from optim.inputs import Market, Portfolio, SolverInputs
 from optim.optimizer.results import Result, Solved, Unsolved
 from optim.optimizer.solve import solve
 from optim.rules import Rule
@@ -31,12 +31,12 @@ os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 
 @dataclass(frozen=True)
-class Task:
+class SolveTask:
     portfolio: Portfolio
     strategy: Strategy
 
 
-def solve_task(market: Market, task: Task) -> Result:
+def solve_task(market: Market, task: SolveTask) -> Result:
     """One portfolio, logged in whichever process solves it. A failure is logged here, where its traceback is whole."""
     portfolio_id, strategy = task.portfolio.details.portfolio_id, task.strategy.name
     try:
@@ -61,7 +61,7 @@ def solve_task(market: Market, task: Task) -> Result:
     return result
 
 
-def _apply(rule: Rule, inputs: Inputs) -> Inputs:
+def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
     after = rule.apply(inputs)
     was, now = inputs.securities, after.securities
     dropped = was.loc[was["buyable"] & ~now["buyable"], "cusip"]
@@ -80,7 +80,7 @@ def _apply(rule: Rule, inputs: Inputs) -> Inputs:
     return after
 
 
-def solve_all(market: Market, tasks: Sequence[Task], *, workers: int) -> list[Result]:
+def solve_all(market: Market, tasks: Sequence[SolveTask], *, workers: int) -> list[Result]:
     """Solve every task in a pool of up to `workers` processes; results come back in task order."""
     workers = min(workers, len(tasks))
     with logs.timed(log, "solved portfolios", level=logging.INFO, portfolios=len(tasks), workers=workers) as fields:
@@ -91,7 +91,7 @@ def solve_all(market: Market, tasks: Sequence[Task], *, workers: int) -> list[Re
     return results
 
 
-def _in_pools(market: Market, tasks: Sequence[Task], workers: int) -> list[Result]:
+def _in_pools(market: Market, tasks: Sequence[SolveTask], workers: int) -> list[Result]:
     """A worker that dies, as when the kernel kills one that ran out of memory, breaks its pool and loses every portfolio
     not yet solved. Those get one new pool, which covers a one-off kill; if that breaks too, they stay unsolved."""
     results = _in_pool(market, tasks, workers)
@@ -108,7 +108,7 @@ def _in_pools(market: Market, tasks: Sequence[Task], workers: int) -> list[Resul
     return [result or Unsolved(task.portfolio.details.portfolio_id, task.strategy.name, "error: its solver process died") for task, result in zip(tasks, results, strict=True)]
 
 
-def _in_pool(market: Market, tasks: Sequence[Task], workers: int) -> list[Result | None]:
+def _in_pool(market: Market, tasks: Sequence[SolveTask], workers: int) -> list[Result | None]:
     """Solve in a new pool; None for a portfolio lost when the pool broke."""
     # ponytail: one machine; for a cluster, ship `market` once (ray.put / client.scatter) and submit the same tasks,
     # each carrying `logs.bound()`, since a cluster's workers outlive a run
@@ -117,7 +117,7 @@ def _in_pool(market: Market, tasks: Sequence[Task], workers: int) -> list[Result
         return [None if isinstance(future.exception(), BrokenProcessPool) else _settle(task, future.result) for task, future in zip(tasks, futures, strict=True)]
 
 
-def _settle(task: Task, outcome: Callable[[], Result]) -> Result:
+def _settle(task: SolveTask, outcome: Callable[[], Result]) -> Result:
     """One portfolio's failure must not block the rest of the batch: it becomes an `Unsolved`, which makes the run exit
     nonzero. `solve_task` catches its own errors; what reaches here failed between processes, as
     when a task cannot be pickled."""
@@ -139,7 +139,7 @@ def _start_worker(market: Market, fields: dict[str, object]) -> None:
     logs.bind(**fields)  # nor its bound fields, such as the run's id
 
 
-def _solve_in_worker(task: Task) -> Result:
+def _solve_in_worker(task: SolveTask) -> Result:
     if _market is None:
         msg = "worker started without a market"
         raise RuntimeError(msg)

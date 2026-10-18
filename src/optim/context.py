@@ -31,7 +31,7 @@ def open_context(settings: Settings, *, cache: bool = True) -> Generator[Context
         sources: dict[SourceName, Source] = {
             "oracle": oracle.connect(settings.oracle),
             "mssql": mssql.connect(settings.mssql),
-            "signals": rest.Rest(stack.enter_context(rest.client(settings.signals))),
+            "signals": rest.RestSource(stack.enter_context(rest.client(settings.signals))),
         }
         redis_cache = stack.enter_context(open_cache(settings.redis_url)) if cache and settings.redis_url else None
         yield Context(Loader(sources, redis_cache), settings.snapshot_dir, settings.workers, mssql.new_run_id)

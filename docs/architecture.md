@@ -14,10 +14,10 @@ is wired in, `mssql.new_run_id` returns a UUIDv7. A replay makes its own id and 
 `load_market` in `inputs.py` fetches the data every portfolio shares: security analytics, the buy universe, signals
 and benchmarks, loaded concurrently and merged into a single securities frame. `load_portfolios` fetches portfolios
 (accounts, to SQL Server), their tax lots and the bonds they sold at a loss in the last 30 days, in batches of a
-thousand portfolios per query. The job then builds one `Task` per portfolio (a portfolio plus a
+thousand portfolios per query. The job then builds one `SolveTask` per portfolio (a portfolio plus a
 `Strategy`) and hands the tasks to `solve_all` in `engine.py`.
 
-In a worker, `solve_task` turns the market and one portfolio into `Inputs`, applies the strategy's rules in order, and
+In a worker, `solve_task` turns the market and one portfolio into `SolverInputs`, applies the strategy's rules in order, and
 calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
 constraint broken at the exact trades) or `Unsolved` (the solver status or the error). Back in the parent,
 `outputs.snapshots` writes the run to a directory: the request, every input frame, and every result frame.
@@ -120,7 +120,7 @@ into a discriminated union on `kind`. A strategy file therefore validates strict
 is rejected, and `optim schema` prints a JSON schema that traders' tools and agents can write against. There is no
 registry to keep in sync: the union is the registry. Learning one of the three teaches the other two.
 
-Rules never drop rows. They narrow what may be bought (`Inputs.restrict`) or adjust what the solver believes
+Rules never drop rows. They narrow what may be bought (`SolverInputs.restrict`) or adjust what the solver believes
 (`expected_return`). A bond that a rule forbids buying may still be held, and the solver must be able to sell it.
 
 ## The model and the solve

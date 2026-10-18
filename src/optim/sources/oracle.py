@@ -10,7 +10,7 @@ from pydantic import SecretStr
 
 from optim.schema import Model
 from optim.sources import TIMEOUT_S
-from optim.sources.sql import Sql
+from optim.sources.sql import SqlSource
 
 CONNECT_TIMEOUT_S = 30
 
@@ -21,10 +21,10 @@ class OracleSettings(Model):
     password: SecretStr
 
 
-def connect(settings: OracleSettings) -> Sql:
+def connect(settings: OracleSettings) -> SqlSource:
     """A connection per query, as for SQL Server: a run makes a handful. Not a pool: its background thread joins a
     connection attempt that never ends, so a hung database would keep the process from exiting."""
-    return Sql(partial(_connect, settings))
+    return SqlSource(partial(_connect, settings))
 
 
 def _connect(settings: OracleSettings) -> oracledb.Connection:
