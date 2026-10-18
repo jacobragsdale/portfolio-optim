@@ -44,72 +44,33 @@ dev = [
 [tool.ruff]
 line-length = 200
 required-version = ">=0.17.1"
-force-exclude = true
+force-exclude = true  # pre-commit passes file names; still honour excludes
 show-fixes = true
-unsafe-fixes = false
 
 [tool.ruff.lint]
-extend-select = [  # Ruff's own defaults stay on; these are additions to them.
-    "E4",  # Keep imports valid and at the top level.
-    "E7",  # Reject ambiguous statements and comparisons.
-    "F",  # Reject star imports and invalid forward-reference annotations.
-    "I",  # Keep imports ordered and grouped consistently.
-    "UP",  # Use syntax appropriate for the target Python version.
-    "B",  # Catch likely bugs and hazardous design patterns.
-    "SIM",  # Replace needlessly complex control flow.
-    "C4",  # Remove wasteful collection constructions.
-    "RUF",  # Apply additional correctness and modernization checks.
-    "PTH",  # Use pathlib instead of legacy os.path calls.
-    "N",  # Enforce standard naming conventions.
-    "A",  # Prevent names from shadowing builtins.
-    "SLF",  # Reject access to another object's private members.
-    "T20",  # Reject print and pprint in favor of logging.
-    "INP",  # Require explicit packages instead of implicit namespaces.
-    "TID",  # Reject parent-relative imports.
-    "ERA",  # Remove commented-out code.
-    "EM",  # Bind exception messages before raising them.
-    "ANN001",  # Require annotations for named function arguments.
-    "ANN002",  # Require annotations for *args.
-    "ANN003",  # Require annotations for **kwargs.
-    "ANN201",  # Require return annotations on public functions.
-    "ANN202",  # Require return annotations on private functions.
-    "ANN204",  # Require return annotations on special methods.
-    "ANN205",  # Require return annotations on static methods.
-    "ANN206",  # Require return annotations on class methods.
-    "LOG",  # Enforce safe logger and exception usage.
-    "G",  # Require lazy, valid log formatting.
-    "ARG",  # Expose unused parameters.
-    "PGH",  # Reject blanket `noqa` and `type: ignore` comments.
-    "RSE",  # Remove unnecessary syntax when raising exceptions.
-    "RET502",  # Reject implicit None returns in functions that return values.
-    "RET503",  # Require an explicit final return in value-returning functions.
-    "PLW",  # Catch suspicious control flow and API usage.
-    "C90",  # Limit cyclomatic complexity.
-    "PERF",  # Flag avoidable allocations and slow loop patterns.
-    "ASYNC",  # Catch blocking calls and async misuse.
-    "FAST",  # Validate route declarations and dependency annotations.
-    "PD",  # Enforce safer and more efficient dataframe idioms.
-]
+select = ["ALL"]  # every rule; opt out below, with a reason
 ignore = [
-    "ASYNC109",  # Allow deliberate timeout parameters in async APIs.
-    "S",  # Do not run flake8-bandit; its findings are noise outside audited code.
+    "D",  # module docstrings are prose, not pydocstyle sections
+    "CPY",  # no copyright headers
+    "COM812",  # conflicts with the formatter
+    "TC",  # annotations are lazy on 3.14, and pydantic needs its types at runtime
+    "PLR2004",  # 0.5, 1e-6 and friends read better inline than as constants
+    "PLR0913",  # keyword-only arguments are clearer than a parameter object
+    "FBT003",  # stdlib calls such as `captureWarnings(True)` take positional booleans
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# Tests may reach into private members and sit outside a package.
-"**/tests/**" = ["SLF001", "INP001"]
-"**/test_*.py" = ["SLF001", "INP001"]
-"**/conftest.py" = ["SLF001", "INP001"]
+"tests/**" = ["S101", "INP001"]  # pytest asserts; tests/ is not a package
 
 [tool.ruff.lint.isort]
-split-on-trailing-comma = false  # Do not preserve comma-forced import line breaks.
+split-on-trailing-comma = false
 
 [tool.ruff.lint.mccabe]
 max-complexity = 15
 
 [tool.ruff.format]
 docstring-code-format = true
-skip-magic-trailing-comma = true  # Collapse comma-forced multiline constructs when they fit.
+skip-magic-trailing-comma = true
 
 [tool.ty.rules]
 blanket-ignore-comment = "error"
@@ -130,7 +91,6 @@ error-on-warning = true
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config --import-mode=importlib -m 'not integration'"
 testpaths = ["tests"]
-pythonpath = ["."]  # so tests can import shared builders from tests.builders
 xfail_strict = true  # An xfail that starts passing is a failure, not a silent pass.
 filterwarnings = [
     "error",  # pandas 3 chained assignment only warns; the lost write is otherwise invisible.
@@ -140,7 +100,6 @@ filterwarnings = [
 markers = [
     "integration: needs a real database, container, or network; excluded from the default run",
 ]
-# asyncio_mode = "auto"  # Uncomment in repositories with async code (needs pytest-asyncio).
 
 [tool.coverage.run]
 branch = true  # Statement coverage hides the untaken half of every condition.
