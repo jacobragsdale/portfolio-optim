@@ -55,7 +55,8 @@ search these too:
 |---|---|---|
 | Queries a database, file or API | A `Dataset` and its SQL | `datasets/`, `datasets/sql/` |
 | Cleans or checks data | A field annotation or a dataset `check` | `datasets/` |
-| Joins data per bond | A merge in `load_market` | `inputs.py` |
+| Joins data per bond | A merge in `build_market` | `inputs.py` |
+| Decides what missing data means, as a `fillna` or a default does | Prep, if every strategy needs it; otherwise a rule (see [Preparing the inputs](architecture.md#preparing-the-inputs)) | `inputs.py`, `rules/` |
 | Excludes bonds from buying | A rule that calls `inputs.restrict`, such as `exclude_issuers` for a restricted list | `rules/` |
 | Adjusts returns or scores | A rule that edits `expected_return` | `rules/` |
 | Sets a hard limit | A constraint | `optimizer/constraints/` |
@@ -86,7 +87,7 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
 
 1. Save the old inputs as a snapshot with a script like this one. It runs them through the same loading and
    validation as a live run, so data the old system accepted but this one refuses fails here, naming the column and
-   row.
+   row. Prep's checks across datasets, such as a benchmark bond without analytics, run when the snapshot is replayed.
 
    ```python
    from collections.abc import Mapping
@@ -100,7 +101,7 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
    from optim.datasets.portfolios import LOSS_SALES, LOTS, PORTFOLIOS
    from optim.datasets.securities import SECURITIES, UNIVERSE
    from optim.datasets.signals import SIGNALS
-   from optim.inputs import load_market, load_portfolios
+   from optim.inputs import load_frames
    from optim.outputs.snapshots import input_frames, save_snapshot
    from optim.sources import Columns, Param
 
@@ -123,8 +124,8 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
 
    loader = Loader(dict.fromkeys(("oracle", "mssql", "signals"), Old()))
    portfolio_ids = OLD[PORTFOLIOS.query]["portfolio_id"].tolist()
-   market, portfolios = load_market(loader, AS_OF_DATE), load_portfolios(loader, portfolio_ids, AS_OF_DATE)
-   save_snapshot(Path("snapshots"), "old-2026-10-16", meta={"as_of_date": AS_OF_DATE}, frames=input_frames(market, portfolios))
+   frames = load_frames(loader, portfolio_ids, AS_OF_DATE)
+   save_snapshot(Path("snapshots"), "old-2026-10-16", meta={"as_of_date": AS_OF_DATE}, frames=input_frames(frames))
    ```
 
    The `old/` files stand for however the old data is exported. Each frame must have exactly its row model's fields,
@@ -157,17 +158,12 @@ lot selection and wash sales, turnover at limits, income at signals and eligibil
 
 ## Snapshot files
 
-`optim replay` reads these files from a snapshot directory. Each frame has exactly the fields of its row model; the
-models are in `src/optim/datasets/`.
+`optim replay` reads these files from a snapshot directory, and prepares the solves from them as a live run does.
 
 | File | Columns |
 |---|---|
 | `run.json` | An object with `as_of_date`, the business date as `YYYY-MM-DD`. Other keys are ignored. |
-| `securities.parquet` | `Security` fields, then `offer_par` (null when not offered), `expected_return` (pre-tax; 0 without a signal) and `buyable` (offered and has a signal). |
-| `targets.parquet` | `benchmark_id`, `cusip`, `weight`. Weights per benchmark sum to 1. |
-| `portfolios.parquet` | `PortfolioDetails` fields. |
-| `lots.parquet` | `Lot` fields. |
-| `loss_sales.parquet` | `LossSale` fields. |
+| `inputs/<dataset>.parquet` | One file per dataset, named as its `Dataset` is, with exactly its row model's fields, as loaded: `securities` (`Security`), `universe` (`Offering`), `signals` (`Signal`), `benchmarks` (`BenchmarkWeight`), `portfolios` (`PortfolioDetails`), `lots` (`Lot`) and `loss_sales` (`LossSale`). The models are in `src/optim/datasets/`. |
 
 A run's snapshot also holds its results. `trades.parquet` has `portfolio_id`, `cusip`, `lot_id` (sells only), `side`
 (`buy` or `sell`) and `par`. `positions.parquet` has post-trade `cusip`, `par` and `weight` per portfolio.

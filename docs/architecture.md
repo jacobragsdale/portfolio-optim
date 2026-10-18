@@ -1,8 +1,9 @@
 # How the optimizer is put together
 
-Every entry point runs the same four stages: load, solve, save, outputs. Loading, saving and outputs do I/O and run once, in
-the parent process. Solving is pure computation on data already in memory, and runs once per portfolio, in parallel
-worker processes. Most of the design follows from keeping those two kinds of work apart.
+Every entry point runs the same stages: load, prepare, solve, save, outputs. Loading, saving and outputs do I/O and run
+once, in the parent process. Preparing and solving are pure computation on data already in memory: the market is
+prepared once, in the parent, and each portfolio is prepared and solved in parallel worker processes. Most of the design
+follows from keeping those two kinds of work apart.
 
 ## One run, end to end
 
@@ -11,20 +12,23 @@ step takes a run id and binds it to the logs, so every record of the run carries
 included. The id also names the run's snapshot. Ids are meant to come from a runs table in SQL Server; until that table
 is wired in, `mssql.new_run_id` returns a UUIDv7. A replay makes its own id and is not registered.
 
-`load_market` in `inputs.py` fetches the data every portfolio shares: security analytics, the buy universe, signals
-and benchmarks, loaded concurrently and merged into a single securities frame. `load_portfolios` fetches portfolios
-(accounts, to SQL Server), their tax lots and the bonds they sold at a loss in the last 30 days, in batches of a
-thousand portfolios per query. `load_inputs` runs both at once, and every batch is sent at once too: see
-[Loading at the pace of each source](#loading-at-the-pace-of-each-source). The job then builds one `SolveTask` per portfolio (a portfolio plus a
-`Strategy`) and hands the tasks to `solve_all` in `engine.py`.
+`load_frames` in `inputs.py` loads every dataset the run reads, one validated frame each. For the business date, it
+loads the data every portfolio shares: security analytics, the buy universe, signals and benchmarks. It also loads
+portfolios (accounts, to SQL Server), their tax lots and the bonds they sold at a loss in the last 30 days, in batches
+of a thousand portfolios per query. Everything loads at once, every batch included: see
+[Loading at the pace of each source](#loading-at-the-pace-of-each-source). `build_inputs` then prepares the frames
+into the `Market` that every portfolio shares and one `Portfolio` each: see [Preparing the inputs](#preparing-the-inputs).
+The job builds one `SolveTask` per portfolio (a portfolio plus a `Strategy`) and hands the tasks to `solve_all` in
+`engine.py`.
 
 In a worker, `solve_task` turns the market and one portfolio into `SolverInputs`, applies the strategy's rules in order
 (`apply_rules`), and calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
 constraint broken at the exact trades) or `Unsolved` (the solver status or the error). Back in the parent,
-`outputs.snapshots` writes the run to a directory: the request, every input frame, and every result frame.
-What each solve saw after the rules is not stored: rules are pure, so replay rebuilds it from the input frames, in
-about 30 ms per portfolio. Storing it held 0.26 MB per portfolio in the parent, and 3.2 MB for a 19,000-bond solve,
-which capped a Job at a few thousand portfolios.
+`outputs.snapshots` writes the run to a directory: the request, every dataset as it was loaded, and every result frame.
+Nothing derived from the datasets is stored: prep and rules are pure, so replay rebuilds what each solve saw with the
+same code, in about 0.1 s for the market and 30 ms per portfolio. A change to prep therefore shows on replay, as a
+change to a rule does. Storing what each solve saw held 0.26 MB per portfolio in the parent, and 3.2 MB for a
+19,000-bond solve, which capped a Job at a few thousand portfolios.
 Anything else the run produces, such as a report, rows in a database or an API call, comes after the snapshot is on
 disk, so a failed output never loses the run.
 
@@ -125,6 +129,34 @@ Batched queries bind a list of ids as one JSON array string, which the SQL unpac
 formatting. Type what `OPENJSON` returns, as `WITH (id VARCHAR(64) '$')`: its untyped values are NVARCHAR, and
 comparing them with a VARCHAR key scans the table. For one portfolio among two million lots, that is 54ms against 0.4ms.
 
+## Preparing the inputs
+
+Between the loader and the strategy's rules is prep: what a solve needs that combines datasets and is the same for
+every strategy. Whether logic is prep or a rule turns on who chooses it, not on how much of the data it covers:
+
+|  | Every strategy needs it | The strategy chooses it |
+|---|---|---|
+| **The whole market** | `build_market`, once a run, in the parent | a rule, such as `min_rating` or `top_signals` |
+| **One portfolio** | `build_portfolios`, and `Market.inputs_for` in the worker | a rule, such as `after_tax` or `no_wash_sales` |
+
+Logic about one dataset alone, such as a range or a check across its rows, belongs to its `Dataset` instead.
+
+The test is that a strategy with no rules must still solve correctly and safely, and whatever that needs is prep.
+`build_market` joins analytics, the universe and signals into one row per bond with analytics. A bond is `buyable`
+when it is offered, which is a fact, and has a signal, which is house policy: never buy a bond we have no view on. A
+bond without a signal expects no excess return, since the solver needs a number for every bond it holds. Rules can
+only narrow `buyable`, so a safeguard in prep holds for every strategy, where the same safeguard as a rule would be
+lost from any strategy file that left it out.
+
+Prep fails the run when shared data is wrong: a market dataset with no rows, a benchmark bond without analytics, or a
+portfolio id that is not found. A problem with one portfolio's data fails only that portfolio, in the worker: a
+benchmark that is not loaded, or a held bond without analytics.
+
+Prep fills gaps without erasing facts a rule may need. After the fill, a rule cannot tell no signal from a signal of
+zero; if one needs to, keep a column such as `has_signal` rather than a value that hides it.
+
+Prep runs on replay too, and its tests build frames by hand: `tests/test_inputs.py` needs no loader or database.
+
 ## Strategies are JSON, and the JSON schema is the code
 
 A `Strategy` is a list of rules, a list of objective terms, a list of constraints, and a `solve` block that says how
@@ -180,8 +212,8 @@ The entry points differ only in what they feed the engine. `optimize` solves rea
 portfolio is the same solve for a synthetic all-cash portfolio that pays no tax. Transition analysis solves one portfolio
 once per tax budget, adding a `MaxTax` constraint each time, and reads the results as a frontier of tax paid against
 distance from the target. Because transitions are just more tasks, their frontier points solve in parallel like any
-batch. `replay` loads a saved run's market and portfolios from its snapshot instead of the sources, and solves them
-with another strategy. It is how a strategy is tried without database access, and how two strategies are compared on
+batch. `replay` reads the datasets a run saved instead of the sources, prepares them with the same code, and solves
+them with another strategy. It is how a strategy is tried without database access, and how two strategies are compared on
 the same data.
 
 ## Logs are written for agents

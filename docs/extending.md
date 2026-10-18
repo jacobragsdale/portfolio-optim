@@ -15,17 +15,21 @@ To load a new table, for example issuer credit scores from Oracle:
 4. Declare the dataset beside its row model:
    `ISSUER_SCORES = Dataset("issuer_scores", IssuerScore, source="oracle", query="datasets/sql/issuer_scores.sql", key=("issuer",))`.
    Without a `cache`, it is read live on every load. To cache it, see the next section.
-5. Load it in `src/optim/inputs.py`. Per-security data goes in `load_market`: add it to the `loader.load_all(...)`
-   call and merge `frames["issuer_scores"]` into `securities` with `validate="many_to_one"` or `"one_to_one"`. A rule
-   or constraint can then read the new column from `inputs.securities` or `model.securities`.
+5. Load it and prepare it in `src/optim/inputs.py`. Per-security data is loaded once a run: add the dataset to
+   `MARKET`, which also fails the run if it returns no rows. Merge `frames["issuer_scores"]` in `build_market` with
+   `validate="many_to_one"` or `"one_to_one"`. A rule or constraint can then read the new column from
+   `inputs.securities` or `model.securities`.
 
-   Per-portfolio data goes in `load_portfolios`: submit a `loader.load_batched` call to its `TaskGroup`, so it
-   loads beside lots and loss sales. `load_batched` sends up to 1,000 portfolios per query, as many batches at once as
-   the source's limit allows; the SQL unpacks the ids with `OPENJSON` or `JSON_TABLE`, as `lots.sql` does, and `loss_sales.sql` binds the
-   business date too. Split the frame with `by_portfolio`, as `lots` and `loss_sales` are, then carry it to the solve: a
-   field on `Portfolio` and on `SolverInputs`, a line in `Market.inputs_for`, and an empty frame for the all-cash portfolio in
-   `jobs/model_portfolio.py`. Add it to `input_frames` in `outputs/snapshots.py` and read it back in `load_run`: a run
-   whose snapshot lacks it still solves, but cannot be replayed.
+   Per-portfolio data is loaded in batches: in `_load_portfolios`, submit a `loader.load_batched` call to its
+   `TaskGroup`, so it loads beside lots and loss sales, and return its frame with theirs. `load_batched` sends up to
+   1,000 portfolios per query, as many batches at once as the source's limit allows; the SQL unpacks the ids with
+   `OPENJSON` or `JSON_TABLE`, as `lots.sql` does, and `loss_sales.sql` binds the business date too. Then carry it to
+   the solve: a field on `Portfolio`, filled in `build_portfolios` as `lots` is, a field on `SolverInputs`, and a line
+   in `Market.inputs_for`.
+
+   Snapshots, replay and the all-cash model portfolio need no change: a snapshot saves every frame `load_frames`
+   returns, replay prepares them as a live run does, and a model portfolio loads empty portfolio frames. A snapshot
+   saved before the dataset existed cannot be replayed.
 
 ## How to cache a dataset
 
@@ -145,8 +149,8 @@ Each strategy's `"solve"` block says how its portfolios are solved:
 
 ## How to compare strategies on a saved run
 
-Every run's snapshot holds the market, portfolios and lots it loaded. `optim replay` solves them again with another
-strategy, so two strategies can be compared on the same data:
+Every run's snapshot holds every dataset it loaded. `optim replay` prepares them with the same code as a live run and
+solves them again with another strategy, so two strategies can be compared on the same data:
 
 ```sh
 uv run optim replay snapshots/RUN_ID --strategy strategies/my-variant.json --workers 4
@@ -175,8 +179,9 @@ If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSetting
 
 1. Add a module to `src/optim/jobs/` with a request model (a `Model` subclass) and a function taking
    `(ctx: Context, request: YourRequest)`. First take a run id from `ctx.new_run_id()` and `logs.bind(run_id=...)`
-   it, so every record of the run carries it. Load with `load_inputs` (or `load_market` alone), build `SolveTask`s, call
-   `solve_all`, and save the run with `save_run` before any other output.
+   it, so every record of the run carries it. Load with `load_frames` and prepare with `build_inputs`, build
+   `SolveTask`s, call `solve_all`, and save the run with `save_run`, passing it the loaded frames, before any other
+   output.
 2. Add a subcommand to `_parser()` in `src/optim/cli.py` that builds the request, and a `case` for it in `main`.
 
 ## How to add an output

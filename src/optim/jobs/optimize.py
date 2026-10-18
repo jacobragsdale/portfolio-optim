@@ -7,7 +7,7 @@ from pydantic import Field
 from optim import logs
 from optim.context import Context
 from optim.engine import SolveTask, solve_all
-from optim.inputs import load_inputs
+from optim.inputs import build_inputs, load_frames
 from optim.jobs import Run
 from optim.outputs.snapshots import save_run
 from optim.schema import Model
@@ -23,7 +23,8 @@ class OptimizeRequest(Model):
 def optimize(ctx: Context, request: OptimizeRequest) -> Run:
     run_id = ctx.new_run_id()
     logs.bind(run_id=run_id)
-    market, portfolios = load_inputs(ctx.loader, request.portfolios, request.as_of_date)
+    frames = load_frames(ctx.loader, request.portfolios, request.as_of_date)
+    market, portfolios = build_inputs(frames, request.portfolios, request.as_of_date)
     results = solve_all(market, [SolveTask(p, request.strategy) for p in portfolios], workers=ctx.workers)
-    save_run(ctx.snapshot_dir, run_id, job="optimize", request=request, market=market, portfolios=portfolios, results=results)
+    save_run(ctx.snapshot_dir, run_id, job="optimize", request=request, as_of_date=request.as_of_date, frames=frames, results=results)
     return Run(run_id, results)

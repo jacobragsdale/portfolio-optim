@@ -50,7 +50,7 @@ family of rules or constraints, an entry point.
 |---|---|
 | `jobs/` | The entry points, one module each: `optimize`, `model_portfolio`, `transition`, `replay`. Each defines its request model. |
 | `datasets/` | Every dataset by subject (portfolios, securities, signals, benchmarks): row schema, query and cache rule. SQL is in `datasets/sql/`. |
-| `inputs.py` | How datasets combine into the `Market` all portfolios share and the `SolverInputs` one solve sees. |
+| `inputs.py` | Loading every dataset a run reads, and preparing them into the `Market` all portfolios share and the `SolverInputs` one solve sees. |
 | `rules/` | Pre-solve rules, by family: `eligibility`, `tax`. |
 | `optimizer/` | The solve: `model`, `objective` terms, `constraints/` by family, `solve`, `rounding` to exact trades, `results`. |
 | `strategy.py`, `engine.py` | The strategy JSON contract; solving tasks in-process or in a process pool. |

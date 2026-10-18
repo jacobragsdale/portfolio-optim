@@ -20,8 +20,9 @@ The seeding and measuring scripts are not in this repository.
 
 ## Batch size
 
-The stage times come from the run's own records: `loaded market`, `loaded portfolios`, `solved portfolios` and
-`saved snapshot`. Startup is the rest of the wall time: the interpreter, imports, settings and exit.
+The stage times come from the run's own records: `loaded market` and `built market` (the market's prep, about 0.1 s),
+`loaded portfolios`, `solved portfolios` and `saved snapshot`. Startup is the rest of the wall time: the interpreter,
+imports, settings and exit.
 
 | Portfolios | Wall | Startup | Market | Portfolios and lots | Solve | Snapshot | Portfolios a minute |
 |---|---|---|---|---|---|---|---|
@@ -82,7 +83,8 @@ Each solve returns its result to the parent, which keeps it until the snapshot i
 | `summary`, `violations` | | under 1 KB | the log, the snapshot's summary, the exit code |
 
 Pickling a result in the worker and unpickling it in the parent takes 0.2 ms. What a solve saw after the rules is not
-returned: replay rebuilds it from the snapshot, 0.6 s to load a 1,000-portfolio snapshot, then 31 ms per portfolio.
+returned: replay rebuilds it from the snapshot, 0.6 s to load a 1,000-portfolio snapshot and 0.1 s to prepare its
+market, then 31 ms per portfolio.
 
 ## Concurrent Jobs
 

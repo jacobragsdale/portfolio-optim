@@ -16,7 +16,7 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 | `jobs/` | One entry point per module: `optimize`, `model_portfolio`, `transition`, `replay`. Each is load, solve, save. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. |
 | `data/loader.py`, `data/cache.py` | Fetching, validation, batching and the Redis cache, for every dataset. |
-| `inputs.py` | `Market` (shared by a run), `Portfolio`, and `SolverInputs` (what one solve sees). |
+| `inputs.py` | `load_frames` (every dataset a run reads), then prep: `Market` (shared by a run), `Portfolio`, and `SolverInputs` (what one solve sees). |
 | `engine.py` | Solving tasks in this process or a process pool. |
 | `rules/` | Pre-solve rules: edit `SolverInputs` (what may be bought, expected returns). |
 | `optimizer/model.py` | Variables and expressions: buys per bond, sells per tax lot, weights, cash, tax, cost. |
@@ -30,6 +30,9 @@ All paths are under `src/optim/`.
 ## Rules to keep
 
 - Workers do no I/O. The parent loads, the workers compute, and the parent saves; replay and snapshots depend on it.
+- Snapshots hold each dataset as loaded, never a frame derived from one, and everything after the loader is pure, so
+  replay reruns prep and rules. Logic that combines datasets and every strategy needs is prep, in `inputs.py`; logic a
+  strategy chooses is a rule. See [Preparing the inputs](docs/architecture.md#preparing-the-inputs).
 - Rules never drop rows. A bond you may not buy can still be held and sold; a held bond without its row fails the solve.
 - Constraints and objective terms are in weights (fractions of pre-trade value): divide dollars by `m.value`. The
   re-check after every solve uses one tolerance in weights.

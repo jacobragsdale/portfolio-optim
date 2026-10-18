@@ -72,15 +72,16 @@ def _column_adapter(field: FieldInfo) -> TypeAdapter[list[object]]:
 
 
 def _dtype(annotation: object) -> Dtype:
-    """str -> str, float -> float64, int -> int64 (Int64 if optional), bool, date -> datetime64, Literal -> ordered
-    category in declared order (so `rating <= "A-"` means "A- or better")."""
+    """str -> str, float -> float64, int -> int64 (Int64 if optional), bool, date -> datetime64[ms], Literal -> ordered
+    category in declared order (so `rating <= "A-"` means "A- or better"). Dates are in ms, not s, because Parquet, which
+    the cache and snapshots write, has no seconds unit: a frame read back would differ from the one loaded."""
     optional = NoneType in get_args(annotation)
     base = next(arg for arg in get_args(annotation) if arg is not NoneType) if optional else annotation
     if get_origin(base) is Annotated:  # `Price | None`: constraints sit inside the union
         base = get_args(base)[0]
     if get_origin(base) is Literal:
         return pd.CategoricalDtype(list(get_args(base)), ordered=True)
-    dtypes: dict[object, Dtype] = {str: "str", float: "float64", int: "Int64" if optional else "int64", bool: "boolean" if optional else "bool", date: "datetime64[s]"}
+    dtypes: dict[object, Dtype] = {str: "str", float: "float64", int: "Int64" if optional else "int64", bool: "boolean" if optional else "bool", date: "datetime64[ms]"}
     if base not in dtypes:
         msg = f"no pandas dtype for {annotation!r}; add one in optim.data.frames._dtype"
         raise TypeError(msg)
