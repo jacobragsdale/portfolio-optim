@@ -114,7 +114,7 @@ def _integer_trades(sec: pd.DataFrame, lot_rows: np.ndarray, lot_par: np.ndarray
     """Exactly what the market trades. A buy is nothing, or whole increments of at least the minimum piece. A lot is sold
     whole, which is how an odd lot goes, or in part: whole increments of at least the minimum piece, leaving at least the
     minimum remaining. Each 0/1 flag is bounded by the trade's own size, so the formulation stays as tight as it can."""
-    # ponytail: assumes the minimum piece is a whole number of increments, as it is for nearly every bond; a minimum
+    # assumes the minimum piece is a whole number of increments, as it is for nearly every bond; a minimum
     # piece plus whole increments is exact for the rest, and measured about 1.7x slower
     increment, min_piece = sec["increment"].to_numpy(dtype=float), sec["min_piece"].to_numpy(dtype=float)
     most_partial = np.maximum(lot_par - sec["min_remaining"].to_numpy(dtype=float)[lot_rows], 0)  # what a partial sale may take

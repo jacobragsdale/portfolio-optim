@@ -72,7 +72,7 @@ def _configure(settings: LogSettings) -> None:
 def bind(**fields: object) -> None:
     """Add `fields` to every record this process logs from now on. The engine binds the same fields in each solver
     worker it starts."""
-    # ponytail: process-wide, as the CLI runs one job per process; concurrent runs in one process need a contextvar
+    # process-wide, as the CLI runs one job per process; concurrent runs in one process need a contextvar
     _bound.update(fields)
 
 

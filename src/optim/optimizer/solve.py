@@ -29,7 +29,7 @@ def solve(inputs: SolverInputs, strategy: Strategy) -> Result:
     objective = sum((term.expression(m) for term in strategy.objective), start=cp.Constant(0.0))
     problem = cp.Problem(cp.Maximize(objective), [c for group in named.values() for c in group])
     built = ms_since(start)
-    # ponytail: `time_limit` and the stats below are HiGHS's; map them when adding another solver
+    # `time_limit` and the stats below are HiGHS's; map them when adding another solver
     problem.solve(solver=how.solver, warm_start=False, time_limit=how.time_limit_s, **how.options)  # warm starts made HiGHS LP re-solves ~6x slower
     size, stats, info = problem.size_metrics, problem.solver_stats, problem.solver_stats.extra_stats
     if not isinstance(info, highspy.HighsInfo):

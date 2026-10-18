@@ -47,7 +47,7 @@ def save_snapshot(root: Path, run_id: str, *, meta: Mapping[str, object], frames
 
 
 def input_frames(market: Market, portfolios: Sequence[Portfolio]) -> dict[str, pd.DataFrame]:
-    # ponytail: writes the whole market every run; store it once per content hash if snapshots grow too fast
+    # writes the whole market every run; store it once per content hash if snapshots grow too fast
     return {
         "securities": market.securities,
         "targets": pd.concat(market.targets, names=["benchmark_id", "cusip"]).rename("weight").reset_index(),  # `load_run` reads these names

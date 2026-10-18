@@ -208,7 +208,7 @@ this package where it surfaced, even when a library raised it.
 
 ## Known limits
 
-These are deliberate shortcuts, marked `ponytail:` in the code.
+These are deliberate shortcuts.
 
 - **Integer solve times.** HiGHS is free, and slower than commercial solvers. Integer solves take seconds to tens of
   seconds per portfolio where an LP takes a fraction of a second. On the synthetic market, a $100mm model portfolio

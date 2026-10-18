@@ -45,7 +45,7 @@ class TaskGroup:
     def __init__(self) -> None:
         self._stop = _stop.get() or threading.Event()
         self._errors: list[BaseException] = []
-        # ponytail: a thread per call, mostly waiting on a source's slot; fine to thousands of batches, a queue beyond
+        # a thread per call, mostly waiting on a source's slot; fine to thousands of batches, a queue beyond
         self._pool = ThreadPoolExecutor(max_workers=sys.maxsize)
 
     def submit[**P, T](self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> Future[T]:

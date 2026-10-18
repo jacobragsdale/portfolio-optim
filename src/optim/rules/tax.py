@@ -30,6 +30,6 @@ class NoWashSales(StrictModel):
     def apply(self, inputs: SolverInputs) -> SolverInputs:
         priced = inputs.lots.merge(inputs.securities[["cusip", "price"]], on="cusip", how="left", validate="many_to_one")
         held_at_loss = priced.loc[priced["price"] < priced["cost_price"], "cusip"]
-        # ponytail: blocks buys only; a loss sold within 30 days after buying the bond is a wash sale too, and the tax
+        # blocks buys only; a loss sold within 30 days after buying the bond is a wash sale too, and the tax
         # term still counts it. Zero the loss on lots of bonds with a lot acquired in the last 30 days if that matters.
         return inputs.restrict(~inputs.securities["cusip"].isin([*held_at_loss, *inputs.loss_sales["cusip"]]))

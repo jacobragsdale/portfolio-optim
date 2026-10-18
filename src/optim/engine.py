@@ -110,7 +110,7 @@ def _in_pools(market: Market, tasks: Sequence[SolveTask], workers: int) -> list[
 
 def _in_pool(market: Market, tasks: Sequence[SolveTask], workers: int) -> list[Result | None]:
     """Solve in a new pool; None for a portfolio lost when the pool broke."""
-    # ponytail: one machine; for a cluster, ship `market` once (ray.put / client.scatter) and submit the same tasks,
+    # one machine; for a cluster, ship `market` once (ray.put / client.scatter) and submit the same tasks,
     # each carrying `logs.bound()`, since a cluster's workers outlive a run
     with ProcessPoolExecutor(workers, mp_context=_PROCESSES, initializer=_start_worker, initargs=(market, logs.bound())) as pool:
         futures = [pool.submit(_solve_in_worker, task) for task in tasks]

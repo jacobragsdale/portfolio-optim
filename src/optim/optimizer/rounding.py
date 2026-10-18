@@ -22,7 +22,7 @@ def snap_integers(problem: cp.Problem) -> None:
 def round_to_lots(m: OptimizationModel) -> None:
     """An LP solve's trades to tradable amounts, rounding toward cash: buys down, sells up. That keeps limits and the
     cash floor intact; turnover, tax and duration can still move past their bounds, which `violations` reports."""
-    # ponytail: a heuristic; when the constraints it breaks matter, solve with "integer": true
+    # a heuristic; when the constraints it breaks matter, solve with "integer": true
     buy, sell = m.buy, m.sell
     if not (isinstance(buy, cp.Variable) and isinstance(sell, cp.Variable)):
         msg = "round_to_lots rounds an LP solve; an integer solve is snapped with snap_integers"
