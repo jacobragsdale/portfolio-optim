@@ -12,7 +12,7 @@ import pydantic_core
 
 from optim.data.frames import empty_frame, to_models
 from optim.datasets.portfolios import LossSale, Lot, PortfolioDetails
-from optim.inputs import Market, Portfolio, by_portfolio
+from optim.inputs import Market, Portfolio, by_benchmark, by_portfolio
 from optim.optimizer.results import Result, Solved, Unsolved
 from optim.schema import Model
 
@@ -27,8 +27,7 @@ def save_run(root: Path, run_id: str, *, job: str, request: Model, market: Marke
 def load_run(path: Path) -> tuple[Market, list[Portfolio]]:
     """A saved run's market and portfolios, as its solves read them before the rules, for `optim replay`."""
     as_of_date = date.fromisoformat(json.loads((path / "run.json").read_bytes())["as_of_date"])
-    targets = pd.read_parquet(path / "targets.parquet")
-    market = Market(as_of_date, pd.read_parquet(path / "securities.parquet"), {str(b): group.set_index("cusip")["weight"] for b, group in targets.groupby("benchmark_id")})
+    market = Market(as_of_date, pd.read_parquet(path / "securities.parquet"), by_benchmark(pd.read_parquet(path / "targets.parquet")))
     lots, loss_sales = by_portfolio(pd.read_parquet(path / "lots.parquet")), by_portfolio(pd.read_parquet(path / "loss_sales.parquet"))
     details = to_models(PortfolioDetails, pd.read_parquet(path / "portfolios.parquet"))
     return market, [Portfolio(d, lots.get(d.portfolio_id, empty_frame(Lot)), loss_sales.get(d.portfolio_id, empty_frame(LossSale))) for d in details]

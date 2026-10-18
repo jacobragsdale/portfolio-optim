@@ -86,7 +86,7 @@ def load_market(loader: Loader, as_of_date: date) -> Market:
     if (orphans := pd.Index(securities["cusip"]).get_indexer(pd.Index(benchmarks["cusip"])) < 0).any():
         msg = f"{orphans.sum()} benchmark constituents have no analytics, e.g. {benchmarks.loc[orphans].head(3).to_dict('records')}"
         raise ValueError(msg)
-    targets = {str(benchmark_id): group.set_index("cusip")["weight"] for benchmark_id, group in benchmarks.groupby("benchmark_id")}
+    targets = by_benchmark(benchmarks)
     log.info("loaded market", extra={"as_of_date": as_of_date, "securities": len(securities), "buyable": int(securities["buyable"].sum()), "benchmarks": len(targets), "ms": ms_since(start)})
     return Market(as_of_date, securities, targets)
 
@@ -121,3 +121,8 @@ def load_portfolios(loader: Loader, portfolio_ids: Sequence[str], as_of_date: da
 def by_portfolio(frame: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """A per-portfolio frame, such as lots, split by `portfolio_id` for `Portfolio`."""
     return {str(portfolio_id): group.reset_index(drop=True) for portfolio_id, group in frame.groupby("portfolio_id")}
+
+
+def by_benchmark(weights: pd.DataFrame) -> dict[str, pd.Series]:
+    """Benchmark weights (`BenchmarkWeight` columns) split by `benchmark_id`, as weight by cusip for `Market.targets`."""
+    return {str(benchmark_id): group.set_index("cusip")["weight"] for benchmark_id, group in weights.groupby("benchmark_id")}
