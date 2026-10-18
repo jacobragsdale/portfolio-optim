@@ -29,7 +29,7 @@ To load a new table, for example issuer credit scores from Oracle:
 
 ## How to cache a dataset
 
-Give the `Dataset` a policy, such as `cache=CachePolicy(ttl=timedelta(hours=12), warm=by_date)`. Every Job shares the
+Give the `Dataset` a policy, such as `cache=CachePolicy(ttl=timedelta(hours=12), warm=_by_date)`. Every Job shares the
 cache through Redis. An entry's key is the dataset, its SQL text, its row schema and every parameter it was loaded
 with, so any query can be cached, whatever it binds. The policy has three settings:
 
@@ -41,10 +41,14 @@ with, so any query can be cached, whatever it binds. The policy has three settin
 - `live_on_miss=False`: a run fails instead of reading the source when the entry is missing or Redis is down. Use it
   for queries too heavy to run once per Job. It requires a `warm` hook, because nothing else fills the entry.
 
-A hook takes the loader and the business date, and returns one dict of parameters per entry. `by_date` covers a query
-that binds only `as_of_date`. Anything else is a short function:
+A hook takes the loader and the business date, and returns one dict of parameters per entry. It is a short function
+beside the dataset:
 
 ```python
+def _by_date(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:
+    return [{"as_of_date": as_of_date}]
+
+
 def _by_curve(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:
     return [{"as_of_date": as_of_date, "curve": curve} for curve in ("ust", "sofr")]
 

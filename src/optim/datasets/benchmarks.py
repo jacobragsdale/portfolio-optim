@@ -1,13 +1,14 @@
 """Benchmark constituent weights, from Oracle. They change at the close, so they may be up to 12 hours old."""
 
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import Annotated
 
 import pandas as pd
 from pydantic import Field
 
-from optim.data.loader import CachePolicy, Dataset, by_date
+from optim.data.loader import CachePolicy, Dataset, Loader
 from optim.schema import Cusip, Row
+from optim.sources import Param
 
 
 class BenchmarkWeight(Row):
@@ -23,12 +24,16 @@ def _weights_sum_to_one(frame: pd.DataFrame) -> None:
         raise ValueError(msg)
 
 
+def _by_date(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:  # noqa: ARG001
+    return [{"as_of_date": as_of_date}]
+
+
 BENCHMARKS = Dataset(
     "benchmarks",
     BenchmarkWeight,
     source="oracle",
     query="datasets/sql/benchmarks.sql",
     key=("benchmark_id", "cusip"),
-    cache=CachePolicy(ttl=timedelta(hours=12), warm=by_date),
+    cache=CachePolicy(ttl=timedelta(hours=12), warm=_by_date),
     check=_weights_sum_to_one,
 )

@@ -86,11 +86,6 @@ class CachePolicy:
             raise ValueError(msg)
 
 
-def by_date(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:  # noqa: ARG001
-    """The usual warm hook: one entry for the business date, for a query that binds only `as_of_date`."""
-    return [{"as_of_date": as_of_date}]
-
-
 @dataclass(frozen=True)
 class Dataset:
     """One table: its row schema, where it comes from, its key, and how it is cached."""
