@@ -55,7 +55,7 @@ family of rules or constraints, a job.
 | `jobs/` | One request class per job: `optimize`, `model_portfolio`, `transition`, each with the solves it makes. `run` runs any job, and `replay` runs a saved one again. |
 | `datasets/` | Every dataset by subject (portfolios, securities, signals, benchmarks): row schema, query and cache rule. SQL is in `datasets/sql/`. |
 | `inputs.py` | Loading every dataset a run reads, and preparing them into the `Market` all portfolios share and the `SolverInputs` one solve sees. |
-| `rules/` | Pre-solve rules, by family: `eligibility`, `tax`. |
+| `rules/` | Pre-solve rules a strategy chooses, by family: `eligibility`. What every strategy needs is prep, in `inputs.py`. |
 | `optimizer/` | The solve: `model`, `objective` terms, `constraints/` by family, `solve`, `rounding` to exact trades, `results`. |
 | `strategy.py`, `engine.py` | The strategy JSON contract; solving tasks in-process or in a process pool. |
 | `outputs/` | What a run writes after its solves: run `snapshots`. |

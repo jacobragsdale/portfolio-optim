@@ -72,7 +72,9 @@ dataset live, whatever its policy.
 
 ## How to add a rule
 
-1. Pick the module in `src/optim/rules/` for the rule's family (`eligibility`, `tax`), or add one.
+1. Pick the module in `src/optim/rules/` for the rule's family, such as `eligibility`, or add one. A rule is a
+   choice a strategy makes; what every strategy needs belongs in prep
+   ([preparing the inputs](architecture.md#preparing-the-inputs)).
 2. Write a `StrictModel` class with a `kind: Literal["your_rule"] = "your_rule"` field, its parameters as fields, and
    `apply(self, inputs: SolverInputs) -> SolverInputs`.
 3. Narrow buying with `inputs.restrict(allowed)`, or return `replace(inputs, securities=inputs.securities.assign(...))`

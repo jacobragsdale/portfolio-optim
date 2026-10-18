@@ -3,8 +3,6 @@
   "rules": [
     {"kind": "min_rating", "rating": "A-"},
     {"kind": "maturity_range", "min_years": 1, "max_years": 20},
-    {"kind": "after_tax"},
-    {"kind": "no_wash_sales"},
     {"kind": "top_signals", "n": 2000}
   ],
   "objective": [

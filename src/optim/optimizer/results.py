@@ -80,7 +80,7 @@ class Summary(Row):
     turnover: float | None  # value traded, $
     tax: float | None  # on realized gains, $; negative when harvesting losses
     cost: float | None  # trading costs, $
-    income: float | None  # expected return, $ per year, as the rules left it: after tax with `after_tax`
+    income: float | None  # expected after-tax return, $ per year
     tracking: float | None  # L1 distance of the weights from the target
     seconds: float | None
 

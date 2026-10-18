@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 
+import numpy as np
 import pandas as pd
 
 from optim.data.frames import empty_frame, to_models
@@ -59,6 +60,9 @@ class Market:
     targets: Mapping[str, pd.Series]  # benchmark_id -> weight by cusip
 
     def inputs_for(self, portfolio: Portfolio) -> SolverInputs:
+        """The market as one portfolio sees it, before the strategy's rules: expected returns after the portfolio's tax,
+        and no buys that would make a wash sale. Every strategy needs both: without them the solve would weigh pre-tax
+        income against taxes, and count a loss the wash sale disallows as tax saved."""
         details = portfolio.details
         if details.benchmark_id not in self.targets:
             msg = f"portfolio {details.portfolio_id}: benchmark {details.benchmark_id} is not loaded"
@@ -66,8 +70,27 @@ class Market:
         # Every portfolio in a process reads the same market, and each solve of a portfolio its frames. Shallow copies cost
         # nothing under copy-on-write, and keep a rule that edits a frame in place from changing what the next solve sees.
         own = {name: value.copy(deep=False) for name, value in vars(portfolio).items() if isinstance(value, pd.DataFrame)}
+        securities = _no_wash_sales(_after_tax(self.securities, details), portfolio)
         target = self.targets[details.benchmark_id]
-        return SolverInputs(self.as_of_date, replace(portfolio, **own), self.securities.copy(deep=False), target.copy(deep=False))
+        return SolverInputs(self.as_of_date, replace(portfolio, **own), securities, target.copy(deep=False))
+
+
+def _after_tax(securities: pd.DataFrame, details: PortfolioDetails) -> pd.DataFrame:
+    """Interest pays federal tax, and state tax unless the bond is state-exempt, as Treasuries are. A portfolio that
+    pays no tax, such as a model portfolio, keeps the returns as they are."""
+    rate = np.where(securities["tax_status"] == "state_exempt", details.federal_rate, details.federal_rate + details.state_rate)
+    return securities.assign(expected_return=securities["expected_return"] * (1 - rate))
+
+
+def _no_wash_sales(securities: pd.DataFrame, portfolio: Portfolio) -> pd.DataFrame:
+    """No buys of a bond the portfolio holds at a loss, or sold at a loss in the last 30 days: a buy within 30 days of
+    a loss sale, before or after it, disallows the loss."""
+    lots = portfolio.lots.merge(securities[["cusip", "clean_price"]], on="cusip", how="left", validate="many_to_one")
+    held_at_loss = lots.loc[lots["clean_price"] < lots["cost_price"], "cusip"]
+    # blocks buys only; a loss sold within 30 days after buying the bond is a wash sale too, and the tax term still
+    # counts it. Zero the loss on lots of bonds with a lot acquired in the last 30 days if that matters.
+    blocked = securities["cusip"].isin([*held_at_loss, *portfolio.loss_sales["cusip"]])
+    return securities.assign(buyable=securities["buyable"] & ~blocked)
 
 
 def load_frames(loader: Loader, portfolio_ids: Sequence[str], as_of_date: date) -> dict[str, pd.DataFrame]:
@@ -100,6 +123,8 @@ def build_market(frames: Frames, as_of_date: date) -> Market:
     the `Security` columns, each row has:
 
     - `offer_par`: par on offer today; null when the bond is not offered.
+    - `clean_price`: price less accrued interest, per 100 par. Gains and losses are measured from it: accrued interest
+      is income, not part of a gain.
     - `expected_return`: the signal, annual and pre-tax; 0 without one, since the solver needs a number for every bond
       it holds.
     - `buyable`: offered, and it has a signal. Offered is a fact; needing a signal is house policy, never to buy a bond
@@ -119,7 +144,9 @@ def build_market(frames: Frames, as_of_date: date) -> Market:
         securities = (
             analytics.merge(universe, on="cusip", how="left", validate="one_to_one")
             .merge(signals, on="cusip", how="left", validate="one_to_one")
-            .assign(buyable=lambda s: s["offer_par"].notna() & s["expected_return"].notna(), expected_return=lambda s: s["expected_return"].fillna(0.0))
+            .assign(
+                clean_price=lambda s: s["price"] - s["accrued"], buyable=lambda s: s["offer_par"].notna() & s["expected_return"].notna(), expected_return=lambda s: s["expected_return"].fillna(0.0)
+            )
         )
         # A target we cannot price would silently shift benchmark duration and tracking, so fail loudly.
         if (orphans := pd.Index(securities["cusip"]).get_indexer(pd.Index(benchmarks["cusip"])) < 0).any():

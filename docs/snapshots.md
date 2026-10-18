@@ -76,7 +76,7 @@ failed.
 | `turnover` | float | Value bought plus value sold, $. |
 | `tax` | float | Tax on realized gains, $; negative when harvesting losses. |
 | `cost` | float | Trading costs, $. |
-| `income` | float | Expected return over a year, $, as the strategy's rules left it: after tax when they include `after_tax`. |
+| `income` | float | Expected after-tax return over a year, $. |
 | `tracking` | float | L1 distance of the weights from the target, including target weight outside the model. |
 | `seconds` | float | Time to build, solve and check the portfolio. |
 

@@ -139,7 +139,7 @@ every strategy. Whether logic is prep or a rule turns on who chooses it, not on 
 |  | Every strategy needs it | The strategy chooses it |
 |---|---|---|
 | **The whole market** | `build_market`, once a run, in the parent | a rule, such as `min_rating` or `top_signals` |
-| **One portfolio** | `build_portfolios`, and `Market.inputs_for` in the worker | a rule, such as `after_tax` or `no_wash_sales` |
+| **One portfolio** | `build_portfolios`, and `Market.inputs_for` in the worker | a rule that reads `inputs.portfolio` |
 
 Logic about one dataset alone, such as a range or a check across its rows, belongs to its `Dataset` instead.
 
@@ -149,6 +149,13 @@ when it is offered, which is a fact, and has a signal, which is house policy: ne
 bond without a signal expects no excess return, since the solver needs a number for every bond it holds. Rules can
 only narrow `buyable`, so a safeguard in prep holds for every strategy, where the same safeguard as a rule would be
 lost from any strategy file that left it out.
+
+`Market.inputs_for` does the prep each portfolio needs. Expected returns become after the portfolio's tax on interest:
+federal, and state unless the bond is state-exempt. Without that, the solve would weigh pre-tax income against taxes;
+a portfolio that pays no tax keeps them as they are. And a bond the portfolio holds at a loss, or sold at a loss in the
+last 30 days, cannot be bought: the purchase would make a wash sale, which disallows the loss that the solve counts as
+tax saved. Gains and losses are measured from the clean price, the dirty price less accrued interest, since accrued
+interest is income, not part of a gain.
 
 Prep fails the run when shared data is wrong: a market dataset with no rows, a benchmark bond without analytics, or a
 portfolio id that is not found. A problem with one portfolio's data fails only that portfolio, in the worker: a
@@ -175,9 +182,9 @@ Rules never drop rows. They narrow what may be bought (`SolverInputs.restrict`) 
 ## The model and the solve
 
 The model decides what is bought per security and sold per tax lot. Selling by lot rather than by bond is what makes
-the optimizer tax-aware: given two lots of one bond, it sells the one bought above today's price and keeps the one with
+the optimizer tax-aware: given two lots of one bond, it sells the one bought above today's clean price and keeps the one with
 a gain. The objective is the sum of the strategy's terms, each a fraction of portfolio value; by default, expected
-return over a horizon, after tax when the strategy's rules include `after_tax`, less taxes and trading costs. Constraints are written in weights, fractions of
+return over a horizon, after the portfolio's tax, less taxes and trading costs. Constraints are written in weights, fractions of
 pre-trade value, so they share one scale and one feasibility tolerance. Every constraint builds from numpy and sparse
 scipy arrays. Group limits, for example, are one sparse membership matrix times the weight vector, which keeps cvxpy's
 compile time flat as the universe grows.
@@ -263,7 +270,7 @@ These are deliberate shortcuts.
   below the minimum piece. Rounding erases them in an LP solve, and an integer solve has to search among them. For
   small portfolios, track exposures instead (duration buckets, sector, rating) with group constraints on the
   difference from the target.
-- **Wash sales before a sale.** `no_wash_sales` stops buys of a bond held at a loss, or sold at a loss in the last 30
+- **Wash sales before a sale.** Prep stops buys of a bond held at a loss, or sold at a loss in the last 30
   days. Selling at a loss within 30 days after buying the bond is a wash sale too, and the tax term still counts that
   loss as harvested.
 - **Snapshots** write the whole market every run, to a local directory. Store the market once per content hash if

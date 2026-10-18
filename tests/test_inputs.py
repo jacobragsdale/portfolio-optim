@@ -22,13 +22,12 @@ from optim.jobs.optimize import OptimizeRequest
 from optim.jobs.transition import TransitionRequest
 from optim.optimizer.results import Solved
 from optim.outputs.snapshots import load_run, save_run
-from optim.rules.tax import AfterTax, NoWashSales
 from optim.sources import Columns, Param
 from optim.strategy import Strategy
 
 AS_OF = date(2026, 10, 16)
 A, B, C = "AAAAAAAA1", "BBBBBBBB2", "CCCCCCCC3"
-STRATEGY = Strategy(name="s", rules=[AfterTax(), NoWashSales()])
+STRATEGY = Strategy(name="s")
 
 DEFAULTS: dict[str, dict[str, object]] = {  # one valid row per dataset
     "securities": {
@@ -39,6 +38,7 @@ DEFAULTS: dict[str, dict[str, object]] = {  # one valid row per dataset
         "tax_status": "taxable",
         "maturity": date(2031, 6, 1),
         "price": 100.0,
+        "accrued": 0.5,
         "duration": 4.5,
         "cost_bps": 5.0,
         "min_piece": 1000,

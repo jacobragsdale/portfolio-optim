@@ -121,7 +121,8 @@ Drop an old behaviour that does one of these, unless it does it differently on p
 - Trades exact sizes: whole increments, at least the minimum piece, leaving at least the minimum remaining in a lot.
   An LP solve (`"integer": false`) is rounded to such sizes afterwards.
 - Chooses which tax lots to sell, from each lot's gain and holding period.
-- Blocks buys that would make a wash sale, with the `no_wash_sales` rule.
+- Turns expected returns into each portfolio's after-tax returns, and blocks buys that would make a wash sale, in prep.
+- Measures gains and losses from the clean price: accrued interest is income, not part of a gain.
 - Re-checks every constraint at the exact trades, and saves any breach.
 - Reports a portfolio it cannot solve as unsolved, with the constraints it breaks before any trade.
 - Saves every run's request, inputs and results, so any result can be explained and replayed.
@@ -229,10 +230,11 @@ Old code may use other words for these.
 | Tax lot | One purchase of a bond: par, cost price and acquired date. The optimizer sells by lot. |
 | Long-term | A lot held over a year. Its gain is taxed at `lt_gain_rate`, otherwise `st_gain_rate`. |
 | Wash sale | Buying a bond within 30 days of selling it at a loss, which disallows the loss. |
-| Loss sale | A sale of a bond at a loss in the last 30 days: the `loss_sales` dataset, which `no_wash_sales` reads. |
+| Loss sale | A sale of a bond at a loss in the last 30 days: the `loss_sales` dataset, which prep reads to block wash sales. |
 | Benchmark, target | Weights by bond that a portfolio is measured against, or moves toward. |
 | Weight | Market value as a fraction of the portfolio's pre-trade value, cash included. |
-| Par | Face amount. Prices are per 100 par, and dirty. |
+| Par | Face amount. Prices are per 100 par, and dirty: accrued interest included. |
+| Clean price | The dirty price less accrued interest (`accrued`). Gains and losses are measured from it. |
 | Increment | Trades are whole multiples of it. |
 | Minimum piece | The smallest trade allowed. |
 | Minimum remaining | The smallest amount a partial sale may leave in a lot. |

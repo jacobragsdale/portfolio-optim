@@ -39,7 +39,7 @@ class OptimizationModel:
     turnover: cp.Expression  # value traded, $
     tax: cp.Expression  # tax on realized gains, $; negative when harvesting losses
     cost: cp.Expression  # trading costs, $
-    income: cp.Expression  # expected return, $ per year, as the rules left it: after tax with `after_tax`
+    income: cp.Expression  # expected after-tax return, $ per year
     bounds: list[cp.Constraint]  # what every solve needs: the trade sizes the market allows, and no overspending
 
 
@@ -70,7 +70,7 @@ def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
     par = holds @ lot_par + trades.buy - sold
     cost = (price * sec["cost_bps"].to_numpy() / 1e4) @ (trades.buy + sold)
     cash = portfolio.cash + price @ (sold - trades.buy) - cost
-    gain = price[lot_rows] - lots["cost_price"].to_numpy() / 100  # per $1 par
+    gain = (sec["clean_price"].to_numpy()[lot_rows] - lots["cost_price"].to_numpy()) / 100  # per $1 par: accrued interest is income, not a gain
     long_term = (lots["acquired"] + pd.DateOffset(years=1) < pd.Timestamp(inputs.as_of_date)).to_numpy()  # held over a year
     return OptimizationModel(
         inputs=inputs,

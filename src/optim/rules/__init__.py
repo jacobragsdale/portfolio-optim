@@ -13,11 +13,10 @@ from pydantic import Field
 
 from optim.inputs import SolverInputs
 from optim.rules.eligibility import ExcludeIssuers, MaturityRange, MinRating, TopSignals
-from optim.rules.tax import AfterTax, NoWashSales
 
 log = logging.getLogger(__name__)
 
-Rule = Annotated[MinRating | ExcludeIssuers | MaturityRange | TopSignals | AfterTax | NoWashSales, Field(discriminator="kind")]
+Rule = Annotated[MinRating | ExcludeIssuers | MaturityRange | TopSignals, Field(discriminator="kind")]
 
 
 def apply_rules(rules: Sequence[Rule], inputs: SolverInputs) -> SolverInputs:

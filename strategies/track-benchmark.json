@@ -1,8 +1,7 @@
 {
   "name": "track-benchmark",
   "rules": [
-    {"kind": "min_rating", "rating": "A-"},
-    {"kind": "after_tax"}
+    {"kind": "min_rating", "rating": "A-"}
   ],
   "objective": [
     {"kind": "expected_return", "horizon_years": 1},
