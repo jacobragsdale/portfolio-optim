@@ -3,7 +3,7 @@ strategies and requests share."""
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
 
 
 class Model(BaseModel):
@@ -14,11 +14,19 @@ class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True, revalidate_instances="always", allow_inf_nan=False)
 
 
+def _kind_required(schema: dict[str, JsonValue]) -> None:
+    """`kind` has a default so Python can write `MaxTax(dollars=0)`, but JSON must name it to pick the union member."""
+    properties, required = schema.get("properties"), schema.setdefault("required", [])
+    if isinstance(properties, dict) and "kind" in properties and isinstance(required, list) and "kind" not in required:
+        required.insert(0, "kind")
+
+
 class StrictModel(Model):
     """Base for the strategy JSON that traders and agents write. JSON has a type for every field, so `"0.05"` or `true`
-    where a weight belongs is a misread contract, not data to coerce."""
+    where a weight belongs is a misread contract, not data to coerce. Field docstrings become descriptions in
+    `optim schema`, which is what agents read, so document a field with a docstring under it, not a comment."""
 
-    model_config = ConfigDict(strict=True)
+    model_config = ConfigDict(strict=True, use_attribute_docstrings=True, json_schema_extra=_kind_required)
 
 
 class Row(Model):

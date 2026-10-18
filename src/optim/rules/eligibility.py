@@ -1,9 +1,9 @@
 """Which bonds may be bought: credit, issuer, maturity, and a cap on how many candidates reach the solver."""
 
-from typing import Literal
+from typing import Literal, Self
 
 import pandas as pd
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from optim.inputs import SolverInputs
 from optim.schema import Rating, StrictModel
@@ -35,6 +35,13 @@ class MaturityRange(StrictModel):
     kind: Literal["maturity_range"] = "maturity_range"
     min_years: float = Field(default=0, ge=0)
     max_years: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> Self:
+        if self.min_years > self.max_years:
+            msg = f"min_years {self.min_years} is above max_years {self.max_years}"
+            raise ValueError(msg)
+        return self
 
     def apply(self, inputs: SolverInputs) -> SolverInputs:
         years = (inputs.securities["maturity"] - pd.Timestamp(inputs.as_of)).dt.days / 365.25

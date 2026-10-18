@@ -15,9 +15,12 @@ class SolveSettings(StrictModel):
     trades are rounded afterwards, which can break a binding constraint, and such a result makes the run exit nonzero."""
 
     integer: bool = True
-    solver: Literal["HIGHS"] = "HIGHS"  # any solver cvxpy supports, such as a licensed COPT, once it is installed
-    time_limit_s: float = Field(default=30.0, gt=0)  # a solve that hits it keeps the best solution found, if any
-    options: dict[str, float | int | bool | str] = Field(default_factory=dict)  # passed to the solver, named as its docs name them
+    solver: Literal["HIGHS"] = "HIGHS"
+    """Any solver cvxpy supports, such as a licensed COPT, once it is installed."""
+    time_limit_s: float = Field(default=30.0, gt=0)
+    """A solve that hits it keeps the best solution found, if any."""
+    options: dict[str, float | int | bool | str] = Field(default_factory=dict)
+    """Passed to the solver, named as its docs name them."""
 
 
 def _expected_return_net_of_tax_and_cost() -> list[Term]:

@@ -28,7 +28,8 @@ class Tax(StrictModel):
     """Tax the trades realize. Harvested losses count as negative tax, so they add to the objective."""
 
     kind: Literal["tax"] = "tax"
-    aversion: float = Field(default=1.0, ge=0)  # 1: a dollar of tax costs a dollar of return
+    aversion: float = Field(default=1.0, ge=0)
+    """1 means a dollar of tax costs a dollar of return."""
 
     def expression(self, m: OptimizationModel) -> cp.Expression:
         tax: cp.Expression = -self.aversion * m.tax / m.value
@@ -49,7 +50,8 @@ class TrackingL1(StrictModel):
     """Distance from the target: the L1 norm of the weight differences. Adds a variable and two rows per security."""
 
     kind: Literal["tracking_l1"] = "tracking_l1"
-    penalty: float = Field(gt=0)  # per unit of L1 distance
+    penalty: float = Field(gt=0)
+    """Per unit of L1 distance."""
 
     def expression(self, m: OptimizationModel) -> cp.Expression:
         tracking: cp.Expression = -self.penalty * cp.norm1(m.weights - m.target)
