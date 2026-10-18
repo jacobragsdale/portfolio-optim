@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, TypeAdapter
+from pydantic import ConfigDict, Field, TypeAdapter
 
 from optim import logs
 from optim.context import Context
@@ -50,7 +50,22 @@ def run(ctx: Context, job: Job) -> Run:
 class ReplayRequest(Model):
     snapshot: Path  # the run's snapshot directory
     strategy: Strategy | None = None  # None: the strategy the run used
-    portfolios: list[str] | None = Field(default=None, min_length=1)  # a subset of the run's portfolios; None replays all of them
+    portfolios: list[str] | None = Field(default=None, min_length=1)  # a subset of the run's portfolios; None: those the run solved
+
+
+class Replayed(Model):
+    of: str  # the run a replay replayed
+    portfolios: list[str] | None  # the subset it solved; None: all of them
+
+
+class Saved(Model):
+    """What replay reads of a snapshot's `run.json`."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    run_id: str
+    request: Job
+    replay: Replayed | None = None
 
 
 def replay(request: ReplayRequest, *, workers: int) -> Run:
@@ -60,13 +75,13 @@ def replay(request: ReplayRequest, *, workers: int) -> Run:
     run_id = str(uuid.uuid7())  # replays touch no shared system, so they are not registered in the runs table
     logs.bind(run_id=run_id)
     meta, frames = load_run(request.snapshot)
-    job = JOB.validate_python(meta["request"])
-    if request.strategy is not None:
-        job = JOB.validate_python(job.model_dump() | {"strategy": request.strategy})
+    saved = Saved.model_validate(meta)
+    job = saved.request if request.strategy is None else JOB.validate_python(saved.request.model_dump() | {"strategy": request.strategy})
     tasks = job.tasks(frames)
-    if request.portfolios is not None:
-        tasks = _only(tasks, request.portfolios, request.snapshot)
-    return _solve(request.snapshot.parent, run_id, job, frames, tasks, workers=workers, replay={"of": meta["run_id"], "portfolios": request.portfolios})
+    only = request.portfolios or (saved.replay.portfolios if saved.replay else None)  # a replay of a subset replays that subset
+    if only is not None:
+        tasks = _only(tasks, only, request.snapshot)
+    return _solve(request.snapshot.parent, run_id, job, frames, tasks, workers=workers, replay=Replayed(of=saved.run_id, portfolios=only))
 
 
 def _solve(root: Path, run_id: str, job: Job, frames: Frames, tasks: Sequence[SolveTask], *, workers: int, **extra: object) -> Run:

@@ -13,6 +13,8 @@ import pydantic_core
 from pydantic import TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from optim.data.frames import to_columns
+from optim.datasets import all_datasets
 from optim.optimizer.results import Result, result_frames
 from optim.schema import Model
 
@@ -37,12 +39,24 @@ def save_run(root: Path, run_id: str, *, job: str, request: Model, as_of_date: d
 
 
 def load_run(path: Path) -> tuple[dict[str, object], dict[str, pd.DataFrame]]:
-    """A saved run's `run.json` and the datasets it loaded, by name, for `optim replay`."""
+    """A saved run's `run.json` and the datasets it loaded, by name, for `optim replay`. Each dataset is validated as a
+    load validates it, so a snapshot saved before a schema change, or written by hand, fails here, naming the column."""
     if not (inputs := path / "inputs").is_dir():
         msg = f"{path} has no inputs/ directory: it is not a snapshot, or was saved before snapshots kept each dataset as loaded"
         raise FileNotFoundError(msg)
     meta = _RUN_JSON.validate_json((path / "run.json").read_bytes())
-    return meta, {file.stem: pd.read_parquet(file) for file in sorted(inputs.glob("*.parquet"))}
+    datasets = {dataset.name: dataset for dataset in all_datasets()}
+    frames = {}
+    for file in sorted(inputs.glob("*.parquet")):
+        if file.stem not in datasets:
+            msg = f"{file}: no dataset is named {file.stem!r}"
+            raise ValueError(msg)
+        try:
+            frames[file.stem] = datasets[file.stem].to_frame(to_columns(pd.read_parquet(file)))
+        except ValueError as error:
+            error.add_note(f"while reading {file}")
+            raise
+    return meta, frames
 
 
 def save_snapshot(root: Path, run_id: str, *, meta: Mapping[str, object], frames: Mapping[str, pd.DataFrame]) -> Path:

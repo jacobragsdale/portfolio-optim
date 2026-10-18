@@ -50,8 +50,12 @@ def conform(row: type[Row], frames: Sequence[pd.DataFrame], *, name: str) -> pd.
     if extra := sorted(set(frame.columns) - set(row.model_fields)):
         msg = f"{name}: {row.__name__} has no field for {extra}"
         raise ValueError(msg)
-    frame = frame.reindex(columns=list(row.model_fields))
-    return validate_columns(row, {column: frame[column].astype(object).where(frame[column].notna(), None).tolist() for column in frame.columns}, name=name)
+    return validate_columns(row, to_columns(frame.reindex(columns=list(row.model_fields))), name=name)
+
+
+def to_columns(frame: pd.DataFrame) -> Columns:
+    """A frame's values as raw columns, nulls as None, as a source returns them: to validate a frame read from a file."""
+    return {str(column): frame[column].astype(object).where(frame[column].notna(), None).tolist() for column in frame.columns}
 
 
 def to_models[R: Row](row: type[R], frame: pd.DataFrame) -> list[R]:
