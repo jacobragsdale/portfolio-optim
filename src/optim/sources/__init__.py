@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Annotated, Literal, Protocol
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
 from optim.schema import Model
 
@@ -16,6 +16,8 @@ type Columns = dict[str, list[object]]
 
 class SourceSettings(Model):
     """What every source's settings carry: how hard a run may press it, and how long it may take to answer."""
+
+    model_config = ConfigDict(hide_input_in_errors=True)  # an error would otherwise print the password beside the field it is missing
 
     max_concurrent: Annotated[int, Field(ge=1)]  # calls this process has open to the source at once; the loader holds the rest
     timeout_s: Annotated[int, Field(ge=1)]  # deadline on every call that crosses the network
