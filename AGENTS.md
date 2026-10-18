@@ -29,15 +29,10 @@ All paths are under `src/optim/`.
 
 ## Rules to keep
 
-- Workers do no I/O. The parent loads, the workers compute, and the parent saves.
-- Rules never drop rows. A bond you may not buy can still be held and sold.
-- Constraints and objective terms are in weights (fractions of pre-trade value). Divide dollars by `m.value`.
-- A new rule, constraint or term must be added to its union (`Rule`, `Constraint`, `Term`), or strategy JSON rejects it.
-- Say "portfolio". "Account" appears only in SQL Server column and table names.
-- `Strategy` and its parts use the strict pydantic base (`Strict`); everything else uses the lax `Model` or `Row`.
-- Row field rules go in the annotation (`Annotated[float, Field(ge=0)]`). The loader refuses `@field_validator`.
-- Never submit orders. There is no order management system (OMS) integration.
-- Mark a deliberate shortcut with a `ponytail:` comment that names its limit and the upgrade path.
+- Workers do no I/O. The parent loads, the workers compute, and the parent saves; replay and snapshots depend on it.
+- Rules never drop rows. A bond you may not buy can still be held and sold; a held bond without its row fails the solve.
+- Constraints and objective terms are in weights (fractions of pre-trade value): divide dollars by `m.value`. The
+  re-check after every solve uses one tolerance in weights.
 
 ## Checks
 
