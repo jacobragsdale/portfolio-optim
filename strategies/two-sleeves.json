@@ -1,0 +1,21 @@
+{
+  "name": "two-sleeves",
+  "rules": [
+    {"kind": "min_rating", "rating": "BBB-"}
+  ],
+  "objective": [
+    {"kind": "expected_return", "horizon_years": 1},
+    {"kind": "cost"},
+    {"kind": "turnover_quadratic", "penalty": 0.01},
+    {"kind": "exposure_tracking", "sleeve": "credit", "columns": ["duration"], "penalty": 0.1},
+    {"kind": "ladder_balance", "sleeve": "treasury", "first_year": 1, "last_year": 5, "penalty": 0.1}
+  ],
+  "constraints": [
+    {"kind": "position_limit", "sleeve": "credit", "max_weight": 0.05},
+    {"kind": "group_limit", "sleeve": "credit", "by": "issuer", "max_weight": 0.08},
+    {"kind": "exposure", "sleeve": "credit", "column": "duration", "min": -0.5, "max": 0.5},
+    {"kind": "max_turnover", "max_weight": 0.25},
+    {"kind": "max_trades", "n": 40}
+  ],
+  "solve": {"integer": true, "solver": "COPT", "time_limit_s": 60, "max_gap": 0.005, "options": {"RelGap": 0.001}}
+}

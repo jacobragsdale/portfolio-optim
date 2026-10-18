@@ -49,7 +49,7 @@ def solve_task(market: Market, task: SolveTask) -> Result:
             log.info(
                 "solved %s",
                 portfolio_id,
-                extra={"portfolio_id": portfolio_id, "strategy": strategy, "status": result.status, "seconds": result.seconds}
+                extra={"portfolio_id": portfolio_id, "strategy": strategy, "status": result.status, "seconds": result.seconds, "violations": result.violations}
                 | result.summary
                 | {"trades": result.trades.drop(columns="portfolio_id")},
             )
@@ -64,8 +64,8 @@ def solve_all(market: Market, tasks: Sequence[SolveTask], *, workers: int) -> li
     with logs.timed(log, "solved portfolios", portfolios=len(tasks), workers=workers) as fields:
         # one worker, the common intraday case, solves in this process: no pool start-up cost
         results = _in_pools(market, tasks, workers) if workers > 1 else [_settle(task, partial(solve_task, market, task)) for task in tasks]
-        not_ok = [r.portfolio_id for r in results if not (isinstance(r, Solved) and r.ok)]
-        fields.update(not_ok=len(not_ok), not_ok_examples=not_ok[:20])
+        not_accepted = [r.portfolio_id for r in results if not (isinstance(r, Solved) and r.accepted)]
+        fields.update(not_accepted=len(not_accepted), not_accepted_examples=not_accepted[:20])
     return results
 
 

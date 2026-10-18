@@ -1,4 +1,5 @@
-"""SQL Server through mssql-python, Microsoft's DB-API driver. Queries bind `%(name)s`."""
+"""SQL Server through mssql-python, Microsoft's DB-API driver. Queries bind `%(name)s`. DECIMAL columns arrive as exact
+`Decimal`s."""
 
 import uuid
 from functools import partial
@@ -10,6 +11,11 @@ from optim.sources import SourceSettings
 from optim.sources.sql import SqlSource
 
 LOGIN_TIMEOUT_S = 30
+# The driver runs with autocommit off, so the first query begins the transaction, and every query in it reads the row
+# versions as of that moment. The database must allow it (`ALTER DATABASE ... SET ALLOW_SNAPSHOT_ISOLATION ON`); where it
+# does not, the first read-only transaction fails and says so. Connect to the primary, not an asynchronous readable
+# secondary (`ApplicationIntent=ReadOnly`): working holdings must include the trades just booked.
+BEGIN_READ_ONLY = "SET TRANSACTION ISOLATION LEVEL SNAPSHOT"
 
 
 class MssqlSettings(SourceSettings):
@@ -17,13 +23,14 @@ class MssqlSettings(SourceSettings):
 
 
 def connect(settings: MssqlSettings) -> SqlSource:
-    return SqlSource(partial(_connect, settings.connection_string.get_secret_value(), settings.timeout_s))
+    return SqlSource(partial(_connect, settings.connection_string.get_secret_value(), settings.timeout_s), BEGIN_READ_ONLY, settings.max_rows)
 
 
 def new_run_id() -> str:
     """Register a run in the runs table and return its id."""
-    # TODO(port): a mock until the runs table is wired in. The real one takes the connection and inserts, so it must
-    # commit: mssql-python defaults to autocommit=False, and `SqlSource.fetch` never commits.
+    # TODO(port): a mock until the runs table is wired in; its id may be numeric, as `str(id)`. The real one takes the
+    # connection and inserts, so it must commit: mssql-python defaults to autocommit=False, and `SqlSource.fetch` never
+    # commits.
     return str(uuid.uuid7())
 
 

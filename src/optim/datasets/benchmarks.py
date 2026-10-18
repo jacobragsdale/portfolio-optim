@@ -7,14 +7,15 @@ import pandas as pd
 from pydantic import Field
 
 from optim.data.loader import CachePolicy, Dataset, Loader
-from optim.schema import Cusip, Row
+from optim.schema import Id, Row
 from optim.sources import Param
 
 
 class BenchmarkWeight(Row):
-    benchmark_id: str
-    cusip: Cusip
+    benchmark_id: Id
+    security_id: Id
     weight: Annotated[float, Field(gt=0, le=1)]
+    """Share of the benchmark's market value. A benchmark's weights sum to 1."""
 
 
 def _weights_sum_to_one(frame: pd.DataFrame) -> None:
@@ -33,7 +34,7 @@ BENCHMARKS = Dataset(
     BenchmarkWeight,
     source="oracle",
     query="datasets/sql/benchmarks.sql",
-    key=("benchmark_id", "cusip"),
+    key=("benchmark_id", "security_id"),
     cache=CachePolicy(ttl=timedelta(hours=12), warm=_by_date),
     check=_weights_sum_to_one,
 )

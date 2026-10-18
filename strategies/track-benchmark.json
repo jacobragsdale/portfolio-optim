@@ -5,7 +5,6 @@
   ],
   "objective": [
     {"kind": "expected_return", "horizon_years": 1},
-    {"kind": "tax", "aversion": 1},
     {"kind": "cost"},
     {"kind": "tracking_l1", "penalty": 0.05}
   ],

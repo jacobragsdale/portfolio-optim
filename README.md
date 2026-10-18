@@ -1,9 +1,12 @@
 # portfolio-optim
 
-A tax-aware optimizer for taxable fixed income portfolios held in tax lots. It loads holdings, the buy universe,
-signals, benchmarks and security analytics from Oracle, SQL Server and REST. It applies pre-solve rules, then solves
-each portfolio with cvxpy and HiGHS, in parallel processes: as an integer program that trades exact lot sizes, or as a
-faster LP whose trades are rounded. Every run is saved as a snapshot, and can be replayed from it.
+An optimizer for taxable fixed income SMA portfolios. "Taxable" describes the mandates: the optimizer trades holdings
+by security, and neither selects tax lots nor harvests losses. It loads holdings, sleeves, eligibility lists, trading
+controls, cash flows, signals, benchmarks and security analytics from Oracle, SQL Server and REST. It applies each
+portfolio's controls and the strategy's rules, then solves each portfolio, all its sleeves together, with cvxpy and
+HiGHS or COPT, in parallel processes: as an integer program that trades exact denominations, or as a faster LP or QP
+whose trades are rounded. Every result is rebuilt from its exact trades and checked before it may trade, and every run
+is saved as a snapshot, and can be replayed from it.
 
 The engine is ready; its datasets and business logic are placeholders. The queries, prep, rules, constraints and
 objective terms here are one small example of each, to be replaced by an existing optimizer's
@@ -20,6 +23,7 @@ uv run pytest
 ```
 
 The tests run every stage, from the loader to the snapshot and its replay, on rows built in memory, with no database.
+`uv sync` also installs COPT, which the tests run without a license, size-limited.
 
 To run against real systems, copy `.env.example` to `.env` and fill in every variable, then run a strategy for one
 portfolio:
@@ -29,9 +33,10 @@ uv run --env-file .env optim optimize --strategy strategies/core.json --portfoli
 ```
 
 `PORTFOLIO_ID` is an `account_id` in the SQL Server `accounts` table that `src/optim/datasets/sql/portfolios.sql`
-queries; until the port, those queries name made-up tables. The run prints one summary row per portfolio and writes a
-snapshot under `OPTIM_SNAPSHOT_DIR`. `uv run optim --help` lists the other commands: `replay`, `warm`, `clear` and
-`schema`.
+queries; until the port, those queries name made-up tables. The run prints one summary row per portfolio, whose
+`status` is `accepted` when its trades may trade, and writes a snapshot under `OPTIM_SNAPSHOT_DIR`. `--holdings sod`
+starts from the start of the day's holdings rather than working ones, and `--run-id` names the run with an id issued
+elsewhere. `uv run optim --help` lists the other commands: `hypothetical`, `replay`, `warm`, `clear` and `schema`.
 
 To try a strategy without access to those systems, replay a saved run with it. Replay reads only the run's snapshot,
 and without `--strategy` re-runs the run as it was, with the code you have now:
@@ -47,7 +52,9 @@ docker build --build-arg GIT_SHA=$(git rev-parse HEAD) -t <registry>.azurecr.io/
 ```
 
 The build fails without `GIT_SHA`: every run's snapshot records the commit it ran, and the image, which the Job sets as
-`OPTIM_IMAGE`. The image holds `strategies/` at `/strategies`, so a strategy change ships as a new image.
+`OPTIM_IMAGE`. The image holds `strategies/` at `/strategies`, so a strategy change ships as a new image. It includes
+COPT, which reads its license from the `copt-license` secret that `deploy/job.yaml` mounts, and connects to Oracle in
+thin mode; thick mode also needs Oracle Instant Client in the image and `OPTIM_ORACLE__MODE=thick`.
 
 The image's entrypoint is the `optim` CLI. Every run is an AKS Job that Airflow starts with the command's arguments:
 `deploy/job.yaml` is the Job spec, and `deploy/snapshots-pvc.yaml` the volume that snapshots go to. Schedule
@@ -64,9 +71,10 @@ through them.
 
 ## Further reading
 
-- [How the optimizer is put together](docs/architecture.md): how a run flows, and why it is built that way.
-- [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source or job;
-  configure a solve; compare strategies on a saved run.
+- [How the optimizer is put together](docs/architecture.md): how a run flows, the portfolio model (positions, cash,
+  sleeves, value and controls), when a result may trade, and why it is built that way.
+- [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source, solver, job or
+  output; configure a solve; solve a portfolio with several sleeves; compare strategies on a saved run.
 - [Porting another optimizer](docs/porting.md): bring an existing optimizer's data and logic into this one, best
   effort, with a porting log and a sanity check on the same data.
 - [Snapshot files](docs/snapshots.md): what each run saves, file by file.

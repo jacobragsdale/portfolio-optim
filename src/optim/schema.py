@@ -1,6 +1,7 @@
-"""Pydantic building blocks for every boundary: the base models, and the field types for bonds and rates that rows,
-strategies and requests share."""
+"""Pydantic building blocks for every boundary: the base models, and the field types for securities, holdings and money
+that rows, strategies and requests share."""
 
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StringConstraints
@@ -34,10 +35,16 @@ class Row(Model):
     Field docstrings describe the columns."""
 
 
+Id = Annotated[str, StringConstraints(min_length=1, max_length=64)]  # a key from a source system: security, portfolio, sleeve
+RunId = Annotated[str, StringConstraints(pattern=r"^[0-9A-Za-z][0-9A-Za-z._-]{0,127}$")]  # names a snapshot directory; a runs table's numeric id fits
 Cusip = Annotated[str, StringConstraints(pattern=r"^[0-9A-Z*@#]{8}[0-9]$")]
-Rate = Annotated[float, Field(ge=0, lt=1)]
-Price = Annotated[float, Field(gt=0)]  # per 100 par
-Par = Annotated[int, Field(gt=0)]  # face amount in whole dollars: trades are exact, the solver works in float64
+Isin = Annotated[str, StringConstraints(pattern=r"^[A-Z]{2}[0-9A-Z]{9}[0-9]$")]
+Currency = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]  # ISO 4217
+# Booked values are exact: drivers return them as `Decimal`, and they stay `Decimal` in a dataset, its cache entry and its
+# snapshot. Prep turns them into floats for the solve (see `optim.inputs`).
+Price = Annotated[Decimal, Field(gt=0)]
+Quantity = Annotated[Decimal, Field(gt=0)]  # face amount for a bond, currency units for cash
+Par = Annotated[int, Field(gt=0)]  # a trading denomination, in whole units of quantity
 Weight = Annotated[float, Field(ge=0, le=1)]
 Rating = Literal[
     "AAA", "AA+", "AA", "AA-", "A+", "A", "A-", "BBB+", "BBB", "BBB-",

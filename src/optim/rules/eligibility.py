@@ -1,4 +1,4 @@
-"""Which bonds may be bought: credit and issuer."""
+"""Which securities may be bought: credit and issuer."""
 
 from typing import Literal
 
@@ -7,13 +7,13 @@ from optim.schema import Rating, StrictModel
 
 
 class MinRating(StrictModel):
-    """Buy only bonds rated `rating` or better."""
+    """Buy only securities rated `rating` or better."""
 
     kind: Literal["min_rating"] = "min_rating"
     rating: Rating
 
     def apply(self, inputs: SolverInputs) -> SolverInputs:
-        return inputs.restrict_buys(inputs.securities["rating"] <= self.rating)
+        return inputs.restrict_buys(inputs.lines["rating"] <= self.rating)
 
 
 class ExcludeIssuers(StrictModel):
@@ -23,4 +23,4 @@ class ExcludeIssuers(StrictModel):
     issuers: list[str]
 
     def apply(self, inputs: SolverInputs) -> SolverInputs:
-        return inputs.restrict_buys(~inputs.securities["issuer"].isin(self.issuers))
+        return inputs.restrict_buys(~inputs.lines["issuer"].isin(self.issuers))

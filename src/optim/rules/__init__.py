@@ -1,6 +1,7 @@
-"""Pre-solve rules. Each is a pure function of `SolverInputs`: it narrows what may be bought or sold
-(`SolverInputs.restrict_buys`, `restrict_sales`) or adjusts what the solver believes (`expected_return`). Rules do no
-I/O; a rule that needs more data gets a dataset and a column.
+"""Pre-solve rules: the choices a strategy makes. Each is a pure function of `SolverInputs`: it narrows what may be bought
+or sold, by line (`SolverInputs.restrict_buys`, `restrict_sales`), or adjusts what the solver believes
+(`expected_return`). Rules do no I/O; a rule that needs more data gets a dataset and a column. What every strategy must
+obey, such as a portfolio's controls, is prep, so a strategy that leaves a rule out cannot trade around it.
 
 `Rule` is the union that strategy JSON is validated against, so every rule class must be added to it.
 """
@@ -38,12 +39,12 @@ def apply_rules(rules: Sequence[Rule], inputs: SolverInputs) -> SolverInputs:
 def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
     after = rule.apply(inputs)
     if changed := [name for name, frame in _frames(after).items() if not frame.index.equals(_frames(inputs)[name].index)]:
-        # a dropped bond leaves the target and tracking unpriced, and a dropped lot hides a holding from the solve
+        # a dropped line hides a holding from the solve, or leaves a benchmark constituent unpriced
         msg = f"rule {rule.kind} changed the rows of {', '.join(changed)}: a rule narrows `buyable` or `sellable`, or edits `expected_return`, and keeps every row"
         raise ValueError(msg)
-    if log.isEnabledFor(logging.DEBUG):  # the diff reads every bond, about 0.7 ms a rule on a 150k-bond market
-        was, now = inputs.securities, after.securities
-        dropped = was.loc[was["buyable"] & ~now["buyable"], "cusip"]
+    if log.isEnabledFor(logging.DEBUG):  # the diff reads every line
+        was, now = inputs.lines, after.lines
+        dropped = was.loc[was["buyable"] & ~now["buyable"], "security_id"]
         log.debug(
             "rule applied",
             extra={
@@ -52,7 +53,7 @@ def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
                 "buyable": int(now["buyable"].sum()),
                 "dropped": len(dropped),
                 "dropped_examples": dropped.head(20).tolist(),
-                "sellable": int(after.portfolio.lots["sellable"].sum()),
+                "sellable": int(now["sellable"].sum()),
                 "returns_changed": int((was["expected_return"] != now["expected_return"]).sum()),
             },
         )
@@ -60,4 +61,4 @@ def _apply(rule: Rule, inputs: SolverInputs) -> SolverInputs:
 
 
 def _frames(inputs: SolverInputs) -> dict[str, pd.DataFrame]:
-    return {"securities": inputs.securities} | {name: value for name, value in vars(inputs.portfolio).items() if isinstance(value, pd.DataFrame)}
+    return {"lines": inputs.lines, "securities": inputs.securities} | {name: value for name, value in vars(inputs.portfolio).items() if isinstance(value, pd.DataFrame)}

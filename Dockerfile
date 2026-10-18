@@ -7,16 +7,18 @@ COPY --from=ghcr.io/astral-sh/uv:0.12.7 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/opt/venv
 WORKDIR /src
 # Dependencies first, so a code change rebuilds only the last layer.
+# With COPT, which a strategy can name; it reads its license from COPT_LICENSE_DIR (deploy/job.yaml).
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-dev --no-install-project
+    uv sync --locked --no-dev --extra copt --no-install-project
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --extra copt --no-editable
 
 FROM python:3.14.7-slim-trixie
-# mssql-python's bundled ODBC driver links against these.
+# mssql-python's bundled ODBC driver links against these. Oracle's thick mode would also need Oracle Instant Client and
+# libaio here, and OPTIM_ORACLE__MODE=thick; thin mode, the default, needs neither.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends libltdl7 libkrb5-3 libgssapi-krb5-2 \
     && rm -rf /var/lib/apt/lists/* \

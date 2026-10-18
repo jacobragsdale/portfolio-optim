@@ -266,6 +266,21 @@ wheels = [
 ]
 
 [[package]]
+name = "coptpy"
+version = "8.0.7"
+source = { registry = "https://pypi.org/simple" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c2/8a/f7d503c8606294a1550ce95d355a37a0ac15820ac65a55d3a0e6039017cd/coptpy-8.0.7-cp314-cp314-macosx_10_9_universal2.whl", hash = "sha256:c8a6a998390c412682a1b8e252cc0a68e11f053390bb739697a2be37c60ba5e5", size = 27459788, upload-time = "2026-09-20T14:20:41.316Z" },
+    { url = "https://files.pythonhosted.org/packages/96/9a/65d487c6cd0d13359a17c19f434a98e53adf83768f29e3a367eae7d21790/coptpy-8.0.7-cp314-cp314-manylinux2014_aarch64.whl", hash = "sha256:60be8d5bae6e7856f49b904a4bf0f397c14b1ea6353f98ab943fd3df60bbd86b", size = 16675951, upload-time = "2026-09-20T14:20:46.077Z" },
+    { url = "https://files.pythonhosted.org/packages/53/3d/bcc8047ad24b7b3359ab7d8a1fe38b02602e69f72f8b8f09777b4f0c8226/coptpy-8.0.7-cp314-cp314-manylinux2014_x86_64.whl", hash = "sha256:08a2f75e60b9782d13cc25456697d99aa5a7152f28048207d79882d7abbfa733", size = 24077635, upload-time = "2026-09-20T14:20:50.221Z" },
+    { url = "https://files.pythonhosted.org/packages/34/d3/0afdcd8aa81c2ad752306831fddfc46ad0f933e275c8ef64c55a3dbf22b1/coptpy-8.0.7-cp314-cp314-win_amd64.whl", hash = "sha256:8c308db20b58b411aaff5828b33ee69122d345c0a5ce6e2565e0439abc5c2a03", size = 23981775, upload-time = "2026-09-20T14:21:14.5Z" },
+    { url = "https://files.pythonhosted.org/packages/59/fe/3beefd22da6bf42ba272533193d1ddd8712ebaddcbd202472f44dd466319/coptpy-8.0.7-cp314-cp314t-macosx_10_9_universal2.whl", hash = "sha256:1f4ca22d9634a356214358c351b4b5dd8f8f6fafcf8d189aeb09c9941e4c6428", size = 28800792, upload-time = "2026-09-20T14:20:54.576Z" },
+    { url = "https://files.pythonhosted.org/packages/2b/13/b45862c35bfe12fddf9257f384a7169ee8d89df50f7f7085b885035050db/coptpy-8.0.7-cp314-cp314t-manylinux2014_aarch64.whl", hash = "sha256:7c68c2f6d01c3abe4e3750c890e622914b6053ac185b68ff119091b7803b5f54", size = 16611797, upload-time = "2026-09-20T14:20:57.975Z" },
+    { url = "https://files.pythonhosted.org/packages/16/f8/c29d3e3249562853242965b6f553a240ac05447a15a16a2b6465dc31a799/coptpy-8.0.7-cp314-cp314t-manylinux2014_x86_64.whl", hash = "sha256:507bb2c1649918154db46786a96ba14d0a8809e48f260e2fbd70089be8ac2e2c", size = 24114687, upload-time = "2026-09-20T14:21:03.973Z" },
+    { url = "https://files.pythonhosted.org/packages/12/80/a4f74744d6cecf1ec50d24dba7a4bb37a4c9a76d52d34aab87a06833e302/coptpy-8.0.7-cp314-cp314t-win_amd64.whl", hash = "sha256:5254424e45d28fe775fdd9ce454f3247c5cd18e562ac7bea77f2ed9a8bbb283b", size = 24166134, upload-time = "2026-09-20T14:21:08.653Z" },
+]
+
+[[package]]
 name = "cryptography"
 version = "50.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -885,8 +900,14 @@ dependencies = [
     { name = "scipy" },
 ]
 
+[package.optional-dependencies]
+copt = [
+    { name = "coptpy" },
+]
+
 [package.dev-dependencies]
 dev = [
+    { name = "coptpy" },
     { name = "pandas-stubs" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -898,6 +919,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "coptpy", marker = "extra == 'copt'", specifier = ">=8.0.7" },
     { name = "cvxpy", specifier = ">=1.9.3" },
     { name = "highspy", specifier = ">=1.15.1" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -911,9 +933,11 @@ requires-dist = [
     { name = "redis", specifier = ">=8.1.0" },
     { name = "scipy", specifier = ">=1.18.1" },
 ]
+provides-extras = ["copt"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "coptpy", specifier = ">=8.0.7" },
     { name = "pandas-stubs", specifier = ">=3.0.5.260914" },
     { name = "pre-commit", specifier = ">=4.7.0" },
     { name = "pytest", specifier = ">=9.1.1" },

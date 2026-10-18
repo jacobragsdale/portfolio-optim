@@ -1,129 +1,135 @@
-"""What a solve returns: `Solved`, with trades, positions and a summary at tradable lots, or `Unsolved`. A snapshot saves
-every result as the frames `result_frames` makes, one row model each: `Trade`, `Position`, `Summary`, `Violation`."""
+"""What a solve returns: `Solved`, with trades, positions and a summary rebuilt from the exact trades and the checks that
+decide whether it may trade (`acceptance`), or `Unsolved`. A snapshot saves every result as the frames `result_frames`
+makes, one row model each: `Trade`, `Position`, `Summary`, `Violation`."""
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Literal, Self
+from typing import Literal
 
-import numpy as np
 import pandas as pd
 
 from optim.data.frames import conform
-from optim.optimizer.model import OptimizationModel, value_of
-from optim.schema import Cusip, Par, Row
+from optim.schema import Cusip, Id, Quantity, Row
 
 
 @dataclass(frozen=True)
 class Solved:
     portfolio_id: str
     strategy: str
-    trades: pd.DataFrame  # portfolio_id, cusip, lot_id, side, par, gain and tax (sells only)
-    positions: pd.DataFrame  # cusip, par, weight after trading
-    summary: dict[str, float]  # `Summary`'s numbers: objective, gap for integer solves, value, cash, turnover, tax, cost, income, tracking
-    violations: dict[str, float]  # constraint -> worst excess in weights, at the exact trades
+    trades: pd.DataFrame  # `Trade` columns but `strategy`
+    positions: pd.DataFrame  # `Position` columns but `portfolio_id` and `strategy`
+    summary: dict[str, object]  # `Summary`'s fields after `status`, but `seconds`
+    violations: dict[str, float]  # each failed acceptance check -> how far it is broken
     seconds: float
 
     @property
-    def ok(self) -> bool:
-        """Safe to trade: every constraint holds at the exact trades."""
+    def accepted(self) -> bool:
+        """May trade: every acceptance check passed. A solver's optimum alone is not enough."""
         return not self.violations
 
     @property
     def status(self) -> str:
-        return "ok" if self.ok else f"rounding broke {sorted(self.violations)}"
-
-    @classmethod
-    def from_model(cls, m: OptimizationModel, *, portfolio_id: str, strategy: str, objective: float, gap: float | None, violations: dict[str, float], seconds: float) -> Self:
-        """Read the result off a model whose variables hold the exact trades."""
-        return cls(portfolio_id, strategy, _trades(m, portfolio_id), _positions(m), _summary(m, objective, gap), violations, seconds)
+        return "accepted" if self.accepted else f"rejected: {sorted(self.violations)}"
 
 
 @dataclass(frozen=True)
 class Unsolved:
     portfolio_id: str
     strategy: str
-    status: str  # the solver's status ("infeasible; before any trade it breaks ...", "user_limit") or the error that stopped the solve
+    status: str  # why: the solver's stop ("infeasible; before any trade it breaks ...", "limit with no solution") or the error that stopped the solve
 
 
 type Result = Solved | Unsolved
 
 
 class Trade(Row):
-    portfolio_id: str
+    portfolio_id: Id
     strategy: str
-    cusip: Cusip
-    lot_id: str | None
-    """The tax lot a sale comes from; null for a buy."""
+    sleeve_id: Id
+    security_id: Id
+    cusip: Cusip | None
     side: Literal["buy", "sell"]
-    par: Par
-    """Face amount traded."""
-    gain: float | None
-    """Gain a sale realizes, $, from the price; negative for a loss. Null for a buy."""
-    tax: float | None
-    """Tax on the gain, $, at the lot's long- or short-term rate; negative when harvesting a loss. Null for a buy."""
+    quantity: Quantity
+    """Exact: whole denominations, or for a sale the whole holding as booked."""
+    value: float
+    """Quantity times the security's unit value, $: `(price + accrued) / price_per` each."""
+    liquidates: bool
+    """A sale of the whole holding."""
+    mandatory: bool
+    """A sale a `must_sell` control required."""
 
 
 class Position(Row):
-    """A bond held after trading."""
+    """A line held after trading: one sleeve's holding of one security, cash aside."""
 
-    portfolio_id: str
+    portfolio_id: Id
     strategy: str
-    cusip: Cusip
-    par: Par
-    """Face amount held after trading."""
+    sleeve_id: Id
+    security_id: Id
+    quantity: Quantity
+    """Exact: as held, plus buys, less sales."""
+    value: float
+    """$, at the security's unit value."""
     weight: float
-    """Market value as a fraction of the pre-trade value, cash included."""
+    """Value over the portfolio's base value."""
 
 
 class Summary(Row):
-    """One per solve. Its numbers are null when the solve failed."""
+    """One per solve. Its numbers are null when the solve failed. Dollar amounts are rebuilt from the exact trades."""
 
-    portfolio_id: str
+    portfolio_id: Id
     strategy: str
     status: str
-    """`ok`; what rounding broke; or why it did not solve."""
+    """`accepted`; `rejected: [...]`, naming the failed checks; or why it did not solve."""
+    stop: str | None
+    """Why the solver stopped: `optimal`, `limit` (the time limit, unless options set another), or `imprecise`."""
     objective: float | None
-    """The solver's optimum before snapping or rounding, as a fraction of value."""
+    """The solver's optimum before snapping or rounding, as a fraction of base value."""
     gap: float | None
-    """Integer solves: how far the optimum may be from the best possible, relative to it."""
+    """Integer solves: how far the optimum may be from the best possible, relative, as the solver reports it."""
+    nodes: int | None
+    """Integer solves: branch-and-bound nodes explored."""
     value: float | None
-    """Pre-trade value, cash included, $."""
+    """Pre-trade value, cash included, before cash flows, $."""
+    base: float | None
+    """The value weights are fractions of: the target value, or the value after cash flows, $."""
+    cash_flow: float | None
+    """Cash flows applied, $: positive in, negative out."""
     cash: float | None
-    """Cash after trading, $."""
+    """Cash after trading and cash flows, $."""
     turnover: float | None
     """Value bought plus value sold, $."""
-    tax: float | None
-    """Tax on realized gains, $; negative when harvesting losses."""
     cost: float | None
-    """Trading costs, $."""
+    """Estimated trading costs, $."""
     income: float | None
-    """Expected return over a year, $."""
+    """Expected return over a year after trading, $."""
     tracking: float | None
-    """L1 distance of the weights from the target, including target weight outside the model."""
+    """L1 distance of the weights from the portfolio's benchmark, including constituents outside the model; null without one."""
     seconds: float | None
-    """Time to build, solve and check the portfolio."""
+    """Time to build, solve and review the portfolio."""
 
 
 class Violation(Row):
-    """A constraint broken at the exact trades, as after rounding an LP. The result is saved, and the run exits nonzero."""
+    """An acceptance check a result failed (`optimizer.acceptance`). The result is saved, and the run exits nonzero."""
 
-    portfolio_id: str
+    portfolio_id: Id
     strategy: str
-    constraint: str
-    """As the solve names it: its place in the strategy and its kind, such as `3:max_turnover`."""
+    check: str
+    """`sizes`, `controls`, `cash`, `model`, `solver`, or a constraint by its place in the strategy and its kind, such as
+    `3:max_turnover`."""
     excess: float
-    """The worst excess, in the constraint's own units: weights for most."""
+    """How far it is broken: trades or lines for `sizes` and `controls`, the gap for `solver`, weights for the rest."""
 
 
 def result_frames(results: Sequence[Result]) -> dict[str, pd.DataFrame]:
-    """The results as a snapshot saves them: a row per trade, position, solve and broken constraint."""
+    """The results as a snapshot saves them: a row per trade, position, solve and failed check."""
     solved = [r for r in results if isinstance(r, Solved)]
-    broken = [{"portfolio_id": r.portfolio_id, "strategy": r.strategy, "constraint": name, "excess": excess} for r in solved for name, excess in r.violations.items()]
+    failed = [{"portfolio_id": r.portfolio_id, "strategy": r.strategy, "check": name, "excess": excess} for r in solved for name, excess in r.violations.items()]
     return {
         "trades": conform(Trade, [r.trades.assign(strategy=r.strategy) for r in solved], name="trades"),
         "positions": conform(Position, [r.positions.assign(portfolio_id=r.portfolio_id, strategy=r.strategy) for r in solved], name="positions"),
         "summary": conform(Summary, [pd.DataFrame([_summary_row(r) for r in results])], name="summary"),
-        "violations": conform(Violation, [pd.DataFrame(broken)], name="violations"),
+        "violations": conform(Violation, [pd.DataFrame(failed)], name="violations"),
     }
 
 
@@ -133,34 +139,3 @@ def _summary_row(result: Result) -> dict[str, object]:
             return {"portfolio_id": result.portfolio_id, "strategy": result.strategy, "status": result.status, **result.summary, "seconds": result.seconds}
         case Unsolved():
             return {"portfolio_id": result.portfolio_id, "strategy": result.strategy, "status": result.status}
-
-
-def _trades(m: OptimizationModel, portfolio_id: str) -> pd.DataFrame:
-    buy, sell = value_of(m.buy), value_of(m.sell)
-    sold = sell > 0
-    gain = m.gain[sold] * sell[sold]  # the same terms as `m.tax`, lot by lot, so the trades' tax sums to the summary's
-    buys = pd.DataFrame({"cusip": m.securities["cusip"].to_numpy()[buy > 0], "side": "buy", "par": buy[buy > 0]})
-    sells = pd.DataFrame({"cusip": m.lots["cusip"].to_numpy()[sold], "lot_id": m.lots["lot_id"].to_numpy()[sold], "side": "sell", "par": sell[sold], "gain": gain, "tax": m.gain_rate[sold] * gain})
-    trades = pd.concat([buys, sells], ignore_index=True).assign(portfolio_id=portfolio_id)
-    columns = {"portfolio_id": "str", "cusip": "str", "lot_id": "str", "side": "str", "par": "int64", "gain": "float64", "tax": "float64"}
-    return trades.astype(columns)[list(columns)]
-
-
-def _positions(m: OptimizationModel) -> pd.DataFrame:
-    par = value_of(m.par)
-    held = par > 0.5
-    return pd.DataFrame({"cusip": m.securities["cusip"].to_numpy()[held], "par": par[held].round().astype("int64"), "weight": value_of(m.weights)[held]})
-
-
-def _summary(m: OptimizationModel, objective: float, gap: float | None) -> dict[str, float]:
-    return {
-        "objective": objective,
-        **({"gap": gap} if gap is not None else {}),
-        "value": m.value,
-        "cash": float(value_of(m.cash)),
-        "turnover": float(value_of(m.turnover)),
-        "tax": float(value_of(m.tax)),
-        "cost": float(value_of(m.cost)),
-        "income": float(value_of(m.income)),
-        "tracking": float(np.abs(value_of(m.weights) - m.target).sum()) + m.untracked,
-    }

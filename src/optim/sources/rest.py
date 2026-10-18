@@ -1,9 +1,10 @@
 """JSON APIs over HTTP: a client factory for every API we call, and `RestSource`, a source for APIs that answer a GET with a
-list of records."""
+list of records. HTTP has no transactions: in a read-only scope, each call is still its own read."""
 
 import logging
 import time
 from collections.abc import Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import date
 
@@ -11,7 +12,7 @@ import httpx
 from pydantic import HttpUrl, TypeAdapter
 
 from optim.logs import ms_since
-from optim.sources import Columns, Param, SourceSettings
+from optim.sources import Columns, Param, SourceSettings, TooManyRowsError
 
 log = logging.getLogger(__name__)
 
@@ -48,10 +49,17 @@ _RECORDS = TypeAdapter(list[dict[str, object]])
 @dataclass(frozen=True)
 class RestSource:
     client: httpx.Client
+    max_rows: int
 
     def fetch(self, query: str, params: Mapping[str, Param]) -> Columns:
         response = self.client.get(query, params={k: _query_value(v) for k, v in params.items()})
-        return _columns(_RECORDS.validate_json(response.content), source=query)
+        records = _RECORDS.validate_json(response.content)
+        if len(records) > self.max_rows:
+            raise TooManyRowsError(query, self.max_rows)
+        return _columns(records, source=query)
+
+    def read_only(self) -> nullcontext[RestSource]:
+        return nullcontext(self)
 
 
 def _query_value(value: Param) -> str | int | float | list[str]:

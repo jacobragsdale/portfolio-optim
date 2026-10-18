@@ -1,5 +1,6 @@
 """Datasets, their cache policies, and the `Loader` that fetches them through their sources, validates them and caches
-them in Redis."""
+them in Redis. Loading is raw acquisition: a frame holds what its source returned, validated against its row model and
+nothing more, so booked values stay exact `Decimal`s. Turning them into numbers for the solve is prep (`optim.inputs`)."""
 
 import hashlib
 import json
@@ -7,21 +8,20 @@ import logging
 import sys
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from functools import partial
-from itertools import batched
 from typing import Literal, Self
 
 import pandas as pd
 import redis
 
 from optim.data.cache import RedisCache
-from optim.data.frames import empty_frame, validate_columns
+from optim.data.frames import validate_columns
 from optim.logs import brief, ms_since, timed, to_json, utc_now
 from optim.schema import Model, Row
 from optim.sources import Columns, Param, Source, SourceName
@@ -233,27 +233,34 @@ class Loader:
             futures = {dataset.name: group.submit(self.load, dataset, **params) for dataset in datasets}
         return {name: future.result() for name, future in futures.items()}
 
-    def load_batched(self, dataset: Dataset, param: str, ids: Sequence[str], *, size: int = 1000, **params: Param) -> pd.DataFrame:
-        """Load `ids` in chunks of `size`, one query per chunk, binding each chunk to `param`. The chunks load
-        concurrently, as many at once as the source's limit allows."""
-        with TaskGroup() as group:
-            futures = [group.submit(self.load, dataset, **params, **{param: chunk}) for chunk in batched(ids, size, strict=False)]
-        if not futures:
-            return empty_frame(dataset.row)
-        # each batch's key is checked as it loads; a query that ignores its batch's ids repeats rows across batches
-        return dataset.unique(pd.concat([f.result() for f in futures], ignore_index=True), why=" across batches: does the query filter on its batch's ids?")
+    @contextmanager
+    def read_only(self, source: SourceName) -> Generator[Loader]:
+        """A loader whose loads from `source` share one read-only transaction, until the block ends, so reads that
+        depend on each other, such as a portfolio's holdings and its cash flows, see the source at one moment. The
+        transaction holds one of the source's slots throughout, so open connections never exceed its limit; its loads
+        take turns on the connection, from whichever threads call them."""
+        start = time.perf_counter()
+        with self.limits.get(source) or nullcontext():
+            _skip_if_stopped()
+            with self.sources[source].read_only() as transaction:
+                log.info("began read-only transaction", extra={"source": source, "wait_ms": ms_since(start)})
+                yield replace(self, sources={**self.sources, source: transaction}, limits={k: v for k, v in self.limits.items() if k != source})
 
     def _fetch(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> tuple[pd.DataFrame, datetime]:
         """The frame, and when the source was asked for it, once a slot was free."""
         start = time.perf_counter()
         with self.limits.get(dataset.source) or nullcontext():
             fields["wait_ms"] = ms_since(start)
-            if (stop := _stop.get()) and stop.is_set():
-                raise Skipped
+            _skip_if_stopped()
             fetched_at = self.clock()
             columns = self.sources[dataset.source].fetch(dataset.query, params)
         with timed(log, "validated", dataset=dataset.name):
             return dataset.to_frame(columns), fetched_at
+
+
+def _skip_if_stopped() -> None:
+    if (stop := _stop.get()) and stop.is_set():
+        raise Skipped
 
 
 def _cache_key(dataset: Dataset, params: Mapping[str, Param]) -> str:

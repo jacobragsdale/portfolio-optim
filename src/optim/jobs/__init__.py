@@ -1,8 +1,8 @@
 """Entry points. A job is its request, one module each: a pydantic model of what was asked, the same whether the CLI or
-an API built it, with `portfolio_ids`, the portfolios it loads, and `tasks`, the solves it makes from the loaded
-datasets. `run` loads, prepares, solves and saves any job. The request is saved in the snapshot, so every run records
-what was asked, and `replay` runs it again from there: every job replays the same way. A new job is a request class added
-to `Job`, and a CLI subcommand."""
+an API built it, with `portfolio_ids`, the portfolios it loads, `holdings`, which holdings they start from, and `tasks`,
+the solves it makes from the loaded datasets. `run` loads, prepares, solves and saves any job. The request is saved in
+the snapshot, so every run records what was asked, and `replay` runs it again from there: every job replays the same
+way. A new job is a request class added to `Job`, and a CLI subcommand."""
 
 import uuid
 from collections.abc import Callable, Mapping, Sequence
@@ -19,16 +19,18 @@ from optim.context import Context
 from optim.data.loader import DatasetRead
 from optim.engine import SolveTask, solve_all
 from optim.inputs import build_market, load_frames
+from optim.jobs.hypothetical import HypotheticalRequest
 from optim.jobs.optimize import OptimizeRequest
 from optim.optimizer.results import Result, Solved
 from optim.outputs.snapshots import Code, load_run, save_run
-from optim.schema import Model
+from optim.schema import Model, RunId
 from optim.strategy import Strategy
 
 # TODO(port): the old system's other entry points, such as model portfolios or transition analysis, are request classes
-# beside `OptimizeRequest`, added here as `OptimizeRequest | ModelPortfolioRequest`. See docs/extending.md.
-Job = Annotated[OptimizeRequest, Field(discriminator="job")]
+# beside these, added here. See docs/extending.md.
+Job = Annotated[OptimizeRequest | HypotheticalRequest, Field(discriminator="job")]
 JOB: TypeAdapter[Job] = TypeAdapter(Job)
+RUN_ID: TypeAdapter[str] = TypeAdapter(RunId)
 NO_LABELS: Mapping[str, str] = MappingProxyType({})
 
 
@@ -39,8 +41,8 @@ class Run:
 
     @property
     def ok(self) -> bool:
-        """Every portfolio solved, and rounding broke nothing."""
-        return all(isinstance(r, Solved) and r.ok for r in self.results)
+        """Every portfolio solved, and every result passed acceptance: the run may trade."""
+        return all(isinstance(r, Solved) and r.accepted for r in self.results)
 
 
 class Replayed(Model):
@@ -54,7 +56,7 @@ class RunInfo(Model):
     """A snapshot's `run.json`: what the run was asked, when it ran, with which code, and where its data came from.
     It holds nothing the snapshot's other files hold. [Snapshot files](docs/snapshots.md) describes each key."""
 
-    run_id: str
+    run_id: RunId
     job: str
     """The request's job. A replay keeps the job of the run it replays."""
     as_of_date: date
@@ -76,12 +78,16 @@ class RunInfo(Model):
     """A replay only: the run it replayed, and the portfolios it solved."""
 
 
-def run(ctx: Context, job: Job, *, labels: Mapping[str, str] = NO_LABELS) -> Run:
-    """Load what the job reads, then prepare, solve and save it, with `labels` in its `run.json`."""
-    run_id = ctx.new_run_id()
+def run(ctx: Context, job: Job, *, labels: Mapping[str, str] = NO_LABELS, run_id: RunId | None = None) -> Run:
+    """Load what the job reads, then prepare, solve and save it, with `labels` in its `run.json`. `run_id` is an id issued
+    outside, such as a scheduler's numeric one; without it, the runs table issues one."""
+    run_id = RUN_ID.validate_python(run_id or ctx.new_run_id())  # it names a directory: no `/` or `..`
     logs.bind(run_id=run_id)
+    if (ctx.snapshot_dir / run_id).exists():  # before loading, so a reused id costs nothing
+        msg = f"run {run_id} already has a snapshot at {ctx.snapshot_dir / run_id}: a run id names one run"
+        raise FileExistsError(msg)
     started_at = ctx.clock()
-    frames, reads = load_frames(ctx.loader, job.portfolio_ids, job.as_of_date)
+    frames, reads = load_frames(ctx.loader, job.portfolio_ids, job.as_of_date, job.holdings)
     loaded_at = ctx.clock()
     results = solve_all(build_market(frames, job.as_of_date), job.tasks(frames), workers=ctx.workers)
     meta = RunInfo(
