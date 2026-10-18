@@ -22,7 +22,7 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 | `optimizer/model.py` | Variables and expressions: buys per bond, sells per tax lot, weights, cash, tax, cost. |
 | `optimizer/objective.py`, `optimizer/constraints/` | Objective terms and constraints, built against the model. |
 | `optimizer/solve.py`, `rounding.py`, `results.py` | Solve one portfolio, make trades exact, re-check every constraint. |
-| `outputs/snapshots.py` | The run's snapshot: request, inputs and results. Other outputs go in `outputs/`, after it. |
+| `outputs/snapshots.py` | The run's snapshot: request, inputs and results ([docs/snapshots.md](docs/snapshots.md)). Other outputs go in `outputs/`, after it. |
 | `strategy.py` | The strategy JSON contract. `uv run optim schema` prints its JSON schema. |
 
 All paths are under `src/optim/`.

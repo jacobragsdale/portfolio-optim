@@ -3,8 +3,8 @@
 ## Dashboards on snapshot data (Streamlit)
 
 For the quant developer first: researching and testing strategies, and reviewing the production runs of the SMA
-product. Build it, what-if included and hosting not, before handing the engine over: seeing runs makes the pitch. Build
-it after the engine changes it reads: replayable jobs, a schema for result frames, and the code version in `run.json`.
+product. Build it, what-if included and hosting not, before handing the engine over: seeing runs makes the pitch. It
+reads the snapshot layout in [docs/snapshots.md](docs/snapshots.md).
 
 ### Structure
 
@@ -12,14 +12,15 @@ it after the engine changes it reads: replayable jobs, a schema for result frame
 snapshots/RUN_ID/      run.json, inputs/*.parquet, results     written by jobs, never changed afterwards
       │
 src/optim/views.py     pure functions: snapshot -> the frames people look at
-      │                built on build_inputs, apply_rules and the results schema; tested in pytest
+      │                built on build_market, build_portfolios, apply_rules and the result row models; tested in pytest
 dashboards/            Streamlit pages: pick a run or portfolio, call a view, plot it
 ```
 
 - No business logic in pages. A page that recomputes tax or exposures in its own pandas drifts from the engine; views
   call the engine's own prep and rules instead, so a change there shows on every page without editing it.
-- Result frames get row models like the datasets have, with a description on every field. Tables take column labels
-  and help text from them, so a new field appears with its explanation.
+- Give every row field a description: attribute docstrings in place of `#` comments, with `use_attribute_docstrings` on
+  `Row`, for datasets and results alike. Tables take column labels and help text from them, so a new field appears
+  with its explanation.
 - CI runs every view on the snapshot the job tests write, and each page headless with Streamlit's `AppTest`, so a
   renamed column fails a test rather than a page.
 - Snapshots never change once written: cache each run by `run_id` with no expiry. Only the runs list needs a ttl.

@@ -71,8 +71,9 @@ family of rules or constraints, a job.
 - [Performance](docs/performance.md): measured run time, CPU and memory, from 1 to 1,000 portfolios, for sizing Jobs.
 - [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source or job;
   configure a solve; compare strategies on a saved run.
-- [Porting another optimizer](docs/porting.md): map an existing system's data and logic onto this one, and compare
-  results on the same data.
+- [Porting another optimizer](docs/porting.md): bring an existing optimizer's data and logic into this one, best
+  effort, with a porting log and a sanity check on the same data.
+- [Snapshot files](docs/snapshots.md): what each run saves, file by file and column by column.
 - [Agent guide](AGENTS.md): the code map, the rules to keep, and the checks to run, for coding agents.
 
 ## Development
