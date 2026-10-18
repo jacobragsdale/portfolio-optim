@@ -22,6 +22,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --no-create-home optim
 COPY --from=build /opt/venv /opt/venv
+# Strategy files ship with the code, so the commit below names them too: a Job runs `--strategy /strategies/core.json`.
+COPY strategies /strategies
 # The commit, which each run's snapshot records. Declared last, so a new commit rebuilds no layer above.
 ARG GIT_SHA
 RUN test -n "$GIT_SHA" || { echo "build with --build-arg GIT_SHA=\$(git rev-parse HEAD): a run must record its code" >&2; exit 1; }
