@@ -9,8 +9,7 @@ from typing import Annotated
 from pydantic import Field
 
 from optim.optimizer.constraints.limits import GroupLimit, PositionLimit
-from optim.optimizer.constraints.risk import DurationBand
-from optim.optimizer.constraints.tax import MaxTax
-from optim.optimizer.constraints.trading import CashRange, MaxBuys, MaxTurnover
+from optim.optimizer.constraints.trading import MaxTurnover
 
-Constraint = Annotated[PositionLimit | GroupLimit | DurationBand | MaxTurnover | CashRange | MaxBuys | MaxTax, Field(discriminator="kind")]
+# TODO(port): the old system's hard limits are constraint classes, in a module here per subject, added to this union.
+Constraint = Annotated[PositionLimit | GroupLimit | MaxTurnover, Field(discriminator="kind")]

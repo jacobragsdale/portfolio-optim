@@ -2,8 +2,6 @@
 SELECT a.account_id                   AS portfolio_id,
        a.benchmark_id,
        CAST(a.cash AS FLOAT)          AS cash,
-       CAST(t.federal_rate AS FLOAT)  AS federal_rate,
-       CAST(t.state_rate AS FLOAT)    AS state_rate,
        CAST(t.st_gain_rate AS FLOAT)  AS st_gain_rate,
        CAST(t.lt_gain_rate AS FLOAT)  AS lt_gain_rate
 FROM   accounts a

@@ -16,7 +16,7 @@ class Model(BaseModel):
 
 
 def _kind_required(schema: dict[str, JsonValue]) -> None:
-    """`kind` has a default so Python can write `MaxTax(dollars=0)`, but JSON must name it to pick the union member."""
+    """`kind` has a default so Python can write `MaxTurnover(max_weight=0.2)`, but JSON must name it to pick the union member."""
     properties, required = schema.get("properties"), schema.setdefault("required", [])
     if isinstance(properties, dict) and "kind" in properties and isinstance(required, list) and "kind" not in required:
         required.insert(0, "kind")

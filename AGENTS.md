@@ -1,9 +1,11 @@
 # Agent guide
 
 A tax-aware optimizer for taxable fixed income portfolios. One run loads data once, solves each portfolio in a worker
-process with cvxpy and HiGHS, and saves a snapshot. A strategy JSON file (`strategies/`) says how to optimize. Read
-[docs/architecture.md](docs/architecture.md) for why it is built this way, and [docs/extending.md](docs/extending.md)
-before adding a dataset, rule, constraint, term, source, job or output.
+process with cvxpy and HiGHS, and saves a snapshot. A strategy JSON file (`strategies/`) says how to optimize. The
+datasets and business logic are placeholders until an existing optimizer is ported in: see
+[Porting another optimizer](#porting-another-optimizer). Read [docs/architecture.md](docs/architecture.md) for why it
+is built this way, and [docs/extending.md](docs/extending.md) before adding a dataset, rule, constraint, term, source,
+job or output.
 
 ## Where things are
 
@@ -13,12 +15,12 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 |---|---|
 | `cli.py` | Arguments to a request; exit code 0 only when every portfolio solved cleanly. |
 | `context.py`, `settings.py` | The only place connections open; `OPTIM_*` environment variables. |
-| `jobs/` | A request class per job (`optimize`, `model_portfolio`, `transition`) and the solves it makes; `run` and `replay` run any job; `RunInfo`, the snapshot's `run.json`. |
+| `jobs/` | A request class per job, such as `optimize`, and the solves it makes; `run` and `replay` run any job; `RunInfo`, the snapshot's `run.json`. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. |
 | `data/loader.py`, `data/cache.py` | Fetching, validation, batching and the Redis cache, for every dataset. |
 | `inputs.py` | `load_frames` (every dataset a run reads), then prep: `Market` (shared by a run), `Portfolio`, and `SolverInputs` (what one solve sees). |
 | `engine.py` | Solving tasks in this process or a process pool. |
-| `rules/` | Pre-solve rules: edit `SolverInputs` (what may be bought, expected returns). |
+| `rules/` | Pre-solve rules: edit `SolverInputs` (what may be bought or sold, expected returns). |
 | `optimizer/model.py` | Variables and expressions: buys per bond, sells per tax lot, weights, cash, tax, cost. |
 | `optimizer/objective.py`, `optimizer/constraints/` | Objective terms and constraints, built against the model. |
 | `optimizer/solve.py`, `rounding.py`, `results.py` | Solve one portfolio, make trades exact, re-check every constraint. |
@@ -54,4 +56,5 @@ end to end. `snapshots/` is not in git, and a snapshot written before a schema c
 
 Follow [docs/porting.md](docs/porting.md): inventory the old code in a porting log first, decide for each behaviour
 whether to port, change or drop it, then sanity-check outcomes on the same day's data. The old optimizer is a list of
-requirements, not results to match trade for trade.
+requirements, not results to match trade for trade. `grep -rn "TODO(port)" src tests` lists every place the port
+writes code; remove each marker as the port fills it.

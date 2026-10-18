@@ -1,8 +1,8 @@
 """`Strategy`: the JSON contract that traders and agents write. `optim schema` prints its JSON schema."""
 
-from typing import Literal, Self
+from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field
 
 from optim.optimizer.constraints import Constraint
 from optim.optimizer.objective import Cost, ExpectedReturn, Tax, Term
@@ -35,11 +35,3 @@ class Strategy(StrictModel):
     objective: list[Term] = Field(default_factory=_expected_return_net_of_tax_and_cost)
     constraints: list[Constraint] = Field(default_factory=list)
     solve: SolveSettings = SolveSettings()
-
-    @model_validator(mode="after")
-    def _integer_only_constraints(self) -> Self:
-        """A constraint that counts trades needs the 0/1 flags only an integer solve has: refuse it here, not at every solve."""
-        if not self.solve.integer and (counting := [c.kind for c in self.constraints if getattr(c, "integer_only", False)]):
-            msg = f'{", ".join(counting)} counts trades, which needs "solve": {{"integer": true}}'
-            raise ValueError(msg)
-        return self

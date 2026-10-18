@@ -10,13 +10,11 @@ import pandas as pd
 from optim.context import Context
 from optim.data.loader import Dataset, Loader
 from optim.datasets.benchmarks import BENCHMARKS
-from optim.datasets.portfolios import LOSS_SALES, LOTS, PORTFOLIOS
+from optim.datasets.portfolios import LOTS, PORTFOLIOS
 from optim.datasets.securities import SECURITIES, UNIVERSE
 from optim.datasets.signals import SIGNALS
 from optim.inputs import MARKET
-from optim.jobs.model_portfolio import ModelPortfolioRequest
 from optim.jobs.optimize import OptimizeRequest
-from optim.jobs.transition import TransitionRequest
 from optim.sources import Columns, Param
 from optim.strategy import Strategy
 
@@ -24,28 +22,14 @@ AS_OF = date(2026, 10, 16)
 A, B, C = "AAAAAAAA1", "BBBBBBBB2", "CCCCCCCC3"
 STRATEGY = Strategy(name="s")
 
+# TODO(port): one valid row for each dataset the port declares; tests build every frame from these.
 DEFAULTS: dict[str, dict[str, object]] = {  # one valid row per dataset
-    "securities": {
-        "cusip": A,
-        "issuer": "Issuer A",
-        "sector": "Corporate",
-        "rating": "AA",
-        "tax_status": "taxable",
-        "maturity": date(2031, 6, 1),
-        "price": 100.0,
-        "accrued": 0.5,
-        "duration": 4.5,
-        "cost_bps": 5.0,
-        "min_piece": 1000,
-        "increment": 1000,
-        "min_remaining": 1000,
-    },
+    "securities": {"cusip": A, "issuer": "Issuer A", "sector": "Corporate", "rating": "AA", "price": 100.0, "cost_bps": 5.0, "min_piece": 1000, "increment": 1000, "min_remaining": 1000},
     "universe": {"cusip": A, "offer_par": 1_000_000},
     "signals": {"cusip": A, "expected_return": 0.05},
     "benchmarks": {"benchmark_id": "B1", "cusip": A, "weight": 1.0},
-    "portfolios": {"portfolio_id": "P1", "benchmark_id": "B1", "cash": 1_000_000.0, "federal_rate": 0.37, "state_rate": 0.05, "st_gain_rate": 0.42, "lt_gain_rate": 0.25},
+    "portfolios": {"portfolio_id": "P1", "benchmark_id": "B1", "cash": 1_000_000.0, "st_gain_rate": 0.42, "lt_gain_rate": 0.25},
     "lots": {"portfolio_id": "P1", "lot_id": "L1", "cusip": A, "par": 100_000, "cost_price": 101.0, "acquired": date(2024, 3, 1)},
-    "loss_sales": {"portfolio_id": "P1", "cusip": A, "sold": date(2026, 10, 1)},
 }
 
 
@@ -80,7 +64,7 @@ class Rows:
 
 
 def sources() -> Rows:
-    """Two bonds in benchmark B1 and a third on offer without a signal; P1 holds B at a loss, P2 sold A at one."""
+    """Two bonds in benchmark B1 and a third on offer without a signal; P1 holds B at a loss, and P2 holds only cash."""
     rows = {
         SECURITIES: [{"cusip": A}, {"cusip": B, "issuer": "Issuer B"}, {"cusip": C, "issuer": "Issuer C"}],
         UNIVERSE: [{"cusip": A}, {"cusip": B}, {"cusip": C}],
@@ -88,7 +72,6 @@ def sources() -> Rows:
         BENCHMARKS: [{"cusip": A, "weight": 0.5}, {"cusip": B, "weight": 0.5}],
         PORTFOLIOS: [{"portfolio_id": "P1"}, {"portfolio_id": "P2"}],
         LOTS: [{"portfolio_id": "P1", "cusip": B, "cost_price": 104.0}],
-        LOSS_SALES: [{"portfolio_id": "P2", "cusip": A}],
     }
     return Rows(rows)
 
@@ -99,11 +82,7 @@ def context(snapshot_dir: Path, source: Rows) -> Context:
     return Context(Loader({"oracle": source, "mssql": source, "signals": source}, clock=clock), snapshot_dir, workers=1, new_run_id=lambda: "run-1", clock=clock)
 
 
-JOBS = [
-    OptimizeRequest(strategy=STRATEGY, portfolios=["P1", "P2"], as_of_date=AS_OF),
-    TransitionRequest(strategy=STRATEGY, portfolio_id="P1", tax_budgets=[0, 10_000], as_of_date=AS_OF),
-    ModelPortfolioRequest(strategy=STRATEGY, benchmark_id="B1", notional=1_000_000, as_of_date=AS_OF),
-]
+OPTIMIZE = OptimizeRequest(strategy=STRATEGY, portfolios=["P1", "P2"], as_of_date=AS_OF)
 
 
 class Clock:

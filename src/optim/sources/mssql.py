@@ -22,8 +22,8 @@ def connect(settings: MssqlSettings) -> SqlSource:
 
 def new_run_id() -> str:
     """Register a run in the runs table and return its id."""
-    # a mock until the runs table is wired in. The real one takes the connection and inserts, so it must commit:
-    # mssql-python defaults to autocommit=False, and `SqlSource.fetch` never commits.
+    # TODO(port): a mock until the runs table is wired in. The real one takes the connection and inserts, so it must
+    # commit: mssql-python defaults to autocommit=False, and `SqlSource.fetch` never commits.
     return str(uuid.uuid7())
 
 

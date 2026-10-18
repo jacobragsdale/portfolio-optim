@@ -14,7 +14,7 @@ from optim.schema import StrictModel
 
 
 class ExpectedReturn(StrictModel):
-    """Expected after-tax income over the horizon, as the rules left `expected_return`."""
+    """Expected income over the horizon, as prep and the rules left `expected_return`."""
 
     kind: Literal["expected_return"] = "expected_return"
     horizon_years: float = Field(default=1.0, gt=0)
@@ -58,4 +58,5 @@ class TrackingL1(StrictModel):
         return tracking
 
 
+# TODO(port): the old system's objective, its penalties and preferences, are term classes here, added to this union.
 Term = Annotated[ExpectedReturn | Tax | Cost | TrackingL1, Field(discriminator="kind")]

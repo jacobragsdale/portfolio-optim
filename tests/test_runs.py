@@ -5,15 +5,13 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from builders import JOBS, context, sources
+from builders import OPTIMIZE, context, sources
 
 from optim.data.loader import DatasetRead, Reads
-from optim.datasets.portfolios import LOSS_SALES, LOTS, PORTFOLIOS
+from optim.datasets.portfolios import LOTS, PORTFOLIOS
 from optim.inputs import MARKET
-from optim.jobs import Job, Replayed, ReplayRequest, RunInfo, replay, run
+from optim.jobs import Replayed, ReplayRequest, RunInfo, replay, run
 from optim.outputs.snapshots import Code
-
-OPTIMIZE = JOBS[0]
 
 
 def saved(path: Path) -> RunInfo:
@@ -28,7 +26,7 @@ def test_a_run_records_when_it_ran_who_labelled_it_and_how_each_dataset_was_read
     assert info.started_at < info.loaded_at < info.finished_at
     assert (info.labels, info.workers) == ({"purpose": "test"}, 1)
     assert info.datasets is not None
-    assert list(info.datasets) == sorted(dataset.name for dataset in [*MARKET, PORTFOLIOS, LOTS, LOSS_SALES])
+    assert list(info.datasets) == sorted(dataset.name for dataset in [*MARKET, PORTFOLIOS, LOTS])
     assert all(read.read == "live" and info.started_at < read.fetched_at < info.loaded_at for read in info.datasets.values())
 
 
@@ -60,9 +58,8 @@ def test_an_images_commit_is_recorded_rather_than_the_checkouts(monkeypatch: pyt
     assert Code.current() == Code(git_sha="abc123", image="registry/portfolio-optim:abc123", dirty=None)
 
 
-@pytest.mark.parametrize("job", JOBS, ids=lambda job: job.job)
-def test_each_sale_carries_its_gain_and_tax_and_they_sum_to_the_summary(tmp_path: Path, job: Job) -> None:
-    ran = run(context(tmp_path, sources()), job)
+def test_each_sale_carries_its_gain_and_tax_and_they_sum_to_the_summary(tmp_path: Path) -> None:
+    ran = run(context(tmp_path, sources()), OPTIMIZE)
 
     trades, summary = (pd.read_parquet(tmp_path / ran.run_id / f"{name}.parquet") for name in ("trades", "summary"))
     sells = trades["side"] == "sell"
@@ -75,12 +72,12 @@ def test_each_sale_carries_its_gain_and_tax_and_they_sum_to_the_summary(tmp_path
 
 
 def test_a_sale_below_basis_realizes_a_loss_and_negative_tax(tmp_path: Path) -> None:
-    """P1 holds bond B bought at 104, now at a clean 99.5: the solve harvests the loss."""
+    """P1 holds bond B bought at 104, now at 100: the solve harvests the loss."""
     ran = run(context(tmp_path, sources()), OPTIMIZE)
 
     trades = pd.read_parquet(tmp_path / ran.run_id / "trades.parquet")
     [sale] = trades[trades["side"] == "sell"].to_dict("records")
 
     assert (sale["portfolio_id"], sale["lot_id"]) == ("P1", "L1")
-    assert sale["gain"] == pytest.approx(-0.045 * sale["par"])
+    assert sale["gain"] == pytest.approx(-0.04 * sale["par"])
     assert sale["tax"] == pytest.approx(0.25 * sale["gain"])  # held over a year: the long-term rate

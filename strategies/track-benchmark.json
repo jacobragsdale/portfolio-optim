@@ -10,9 +10,7 @@
     {"kind": "tracking_l1", "penalty": 0.05}
   ],
   "constraints": [
-    {"kind": "position_limit", "max_weight": 0.05},
-    {"kind": "duration_band", "tolerance": 0.25},
-    {"kind": "cash_range", "min_weight": 0.005, "max_weight": 0.03}
+    {"kind": "position_limit", "max_weight": 0.05}
   ],
   "solve": {"integer": true, "time_limit_s": 30}
 }

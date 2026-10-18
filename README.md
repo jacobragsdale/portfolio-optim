@@ -1,9 +1,14 @@
 # portfolio-optim
 
-A tax-aware optimizer for taxable fixed income portfolios held in tax lots. It loads holdings,
-the buy universe, signals, benchmarks and security analytics from Oracle, SQL Server and REST. It applies pre-solve
-rules, then solves each portfolio with cvxpy and HiGHS, in parallel processes: as an integer program that trades exact
-lot sizes, or as a faster LP whose trades are rounded. Every run is saved as a snapshot.
+A tax-aware optimizer for taxable fixed income portfolios held in tax lots. It loads holdings, the buy universe,
+signals, benchmarks and security analytics from Oracle, SQL Server and REST. It applies pre-solve rules, then solves
+each portfolio with cvxpy and HiGHS, in parallel processes: as an integer program that trades exact lot sizes, or as a
+faster LP whose trades are rounded. Every run is saved as a snapshot, and can be replayed from it.
+
+The engine is ready; its datasets and business logic are placeholders. The queries, prep, rules, constraints and
+objective terms here are one small example of each, to be replaced by an existing optimizer's
+([porting another optimizer](docs/porting.md)). `grep -rn "TODO(port)" src tests` lists every place the port writes
+code.
 
 ## Quick start
 
@@ -11,7 +16,10 @@ You need [uv](https://docs.astral.sh/uv/). It installs Python 3.14 on first use.
 
 ```sh
 uv sync
+uv run pytest
 ```
+
+The tests run every stage, from the loader to the snapshot and its replay, on rows built in memory, with no database.
 
 To run against real systems, copy `.env.example` to `.env` and fill in every variable, then run a strategy for one
 portfolio:
@@ -21,8 +29,9 @@ uv run --env-file .env optim optimize --strategy strategies/core.json --portfoli
 ```
 
 `PORTFOLIO_ID` is an `account_id` in the SQL Server `accounts` table that `src/optim/datasets/sql/portfolios.sql`
-queries. The run prints one summary row per portfolio and writes a snapshot under `OPTIM_SNAPSHOT_DIR`.
-`uv run optim --help` lists the other commands: `model`, `transition`, `replay`, `warm`, `clear` and `schema`.
+queries; until the port, those queries name made-up tables. The run prints one summary row per portfolio and writes a
+snapshot under `OPTIM_SNAPSHOT_DIR`. `uv run optim --help` lists the other commands: `replay`, `warm`, `clear` and
+`schema`.
 
 To try a strategy without access to those systems, replay a saved run with it. Replay reads only the run's snapshot,
 and without `--strategy` re-runs the run as it was, with the code you have now:
@@ -49,23 +58,9 @@ told from research, and each run found from the DAG run that started it.
 
 ## Layout
 
-Each folder under `src/optim/` is one concern, with one module per thing that grows: a source, a subject of data, a
-family of rules or constraints, a job.
-
-| Path | Holds |
-|---|---|
-| `jobs/` | One request class per job: `optimize`, `model_portfolio`, `transition`, each with the solves it makes. `run` runs any job, and `replay` runs a saved one again. |
-| `datasets/` | Every dataset by subject (portfolios, securities, signals, benchmarks): row schema, query and cache rule. SQL is in `datasets/sql/`. |
-| `inputs.py` | Loading every dataset a run reads, and preparing them into the `Market` all portfolios share and the `SolverInputs` one solve sees. |
-| `rules/` | Pre-solve rules a strategy chooses, by family: `eligibility`. What every strategy needs is prep, in `inputs.py`. |
-| `optimizer/` | The solve: `model`, `objective` terms, `constraints/` by family, `solve`, `rounding` to exact trades, `results`. |
-| `strategy.py`, `engine.py` | The strategy JSON contract; solving tasks in-process or in a process pool. |
-| `outputs/` | What a run writes after its solves: run `snapshots`. |
-| `sources/` | `oracle`, `mssql` and `rest` adapters, each with its settings model, over the shared `sql` adapter. |
-| `data/` | The loader: row validation into typed frames (`frames`), fetching, batching and caching (`loader`), and the Redis cache every Job shares (`cache`). |
-| `context.py`, `settings.py`, `cli.py` | Wiring: the connections a process opens, its environment config, and the command line. |
-| `logs.py` | Structured logging: JSON lines, timings, and exceptions with their root cause. |
-| `schema.py` | The pydantic base models and shared field types. |
+The code is under `src/optim/`, one folder per concern and one module per thing that grows: a source, a subject of
+data, a family of rules or constraints, a job. The [agent guide](AGENTS.md) maps every module in the order a run flows
+through them.
 
 ## Further reading
 
@@ -75,7 +70,7 @@ family of rules or constraints, a job.
   configure a solve; compare strategies on a saved run.
 - [Porting another optimizer](docs/porting.md): bring an existing optimizer's data and logic into this one, best
   effort, with a porting log and a sanity check on the same data.
-- [Snapshot files](docs/snapshots.md): what each run saves, file by file and column by column.
+- [Snapshot files](docs/snapshots.md): what each run saves, file by file.
 - [Agent guide](AGENTS.md): the code map, the rules to keep, and the checks to run, for coding agents.
 
 ## Development

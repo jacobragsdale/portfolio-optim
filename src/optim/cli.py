@@ -2,8 +2,6 @@
 
 uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios A1 A2
 uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios @portfolios.txt
-uv run --env-file .env optim model --strategy strategies/track-benchmark.json --benchmark IG-5Y
-uv run --env-file .env optim transition --strategy strategies/track-benchmark.json --portfolio A1 --tax-budgets 0 25000 100000
 uv run --env-file .env optim warm
 uv run --env-file .env optim warm --datasets benchmarks
 uv run --env-file .env optim clear --datasets securities universe
@@ -27,9 +25,7 @@ from optim import logs
 from optim.context import open_cache, open_context
 from optim.datasets import all_datasets
 from optim.jobs import Job, ReplayRequest, Run, replay, run
-from optim.jobs.model_portfolio import ModelPortfolioRequest
 from optim.jobs.optimize import OptimizeRequest
-from optim.jobs.transition import TransitionRequest
 from optim.optimizer.results import result_frames
 from optim.settings import Settings
 from optim.strategy import Strategy
@@ -80,10 +76,6 @@ def _run(args: argparse.Namespace) -> int:
     match args.command:
         case "optimize":
             job = OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of_date=as_of_date)
-        case "model":
-            job = ModelPortfolioRequest(strategy=strategy, benchmark_id=args.benchmark, notional=args.notional, as_of_date=as_of_date)
-        case "transition":
-            job = TransitionRequest(strategy=strategy, portfolio_id=args.portfolio, tax_budgets=args.tax_budgets, as_of_date=as_of_date)
         case _:
             msg = f"no job for the {args.command!r} command: add a case for it here"
             raise ValueError(msg)
@@ -148,14 +140,6 @@ def _parser() -> argparse.ArgumentParser:
 
     optimize_command = commands.add_parser("optimize", parents=[run], help="rebalance portfolios")
     optimize_command.add_argument("--portfolios", nargs="+", required=True, help="portfolio ids, or @file with one per line")
-
-    model_command = commands.add_parser("model", parents=[run], help="build a model portfolio from cash")
-    model_command.add_argument("--benchmark", required=True)
-    model_command.add_argument("--notional", type=float, default=100_000_000.0)
-
-    transition_command = commands.add_parser("transition", parents=[run], help="tax cost vs. tracking for one portfolio")
-    transition_command.add_argument("--portfolio", required=True)
-    transition_command.add_argument("--tax-budgets", type=float, nargs="+", required=True, help="dollars of tax allowed, one solve each")
 
     replay_command = commands.add_parser("replay", parents=[labelled], help="run a saved job again, with today's code and any strategy; reads only the snapshot")
     replay_command.add_argument("snapshot", type=Path, help="the run's snapshot directory")

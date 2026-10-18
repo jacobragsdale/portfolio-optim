@@ -23,7 +23,7 @@ hold. `RunInfo` in `src/optim/jobs/__init__.py` is its model.
 | Key | Value |
 |---|---|
 | `run_id` | The run's id, which names the directory. |
-| `job` | `optimize`, `model_portfolio` or `transition`. A replay keeps the job of the run it replays. |
+| `job` | The request's job, such as `optimize`. A replay keeps the job of the run it replays. |
 | `as_of_date` | The business date, `YYYY-MM-DD`. |
 | `started_at` | When the run started, before it loaded anything. Times are UTC, ISO 8601. |
 | `loaded_at` | When every dataset had loaded; for a replay, when its snapshot had been read and its portfolios prepared. |
@@ -47,61 +47,19 @@ column and the row; a file named after no dataset fails too.
 
 ## Results
 
-Each result file has exactly the fields of its row model in `src/optim/optimizer/results.py`, in that order, even
-when it has no rows.
+Four files, each with exactly the fields of its row model in `src/optim/optimizer/results.py`, in that order, even when
+it has no rows. Each field's docstring there says what the column holds.
 
-`trades.parquet` (`Trade`), one row per trade:
-
-| Field | Type | Meaning |
+| File | Row model | One row per |
 |---|---|---|
-| `portfolio_id` | str | |
-| `strategy` | str | The strategy's name; for a transition, with its tax budget, as `core\|tax<=25000`. |
-| `cusip` | str | |
-| `lot_id` | str, null | The tax lot a sale comes from; null for a buy. |
-| `side` | category | `buy` or `sell`. |
-| `par` | int | Face amount traded, whole dollars. |
-| `gain` | float, null | Gain a sale realizes, $, from the clean price; negative for a loss. Null for a buy. |
-| `tax` | float, null | Tax on that gain, $, at the lot's long- or short-term rate. A solve's trades sum to its summary's `tax`. Null for a buy. |
+| `trades.parquet` | `Trade` | trade; a sale names its tax lot and carries the gain and tax it realizes |
+| `positions.parquet` | `Position` | bond held after trading |
+| `summary.parquet` | `Summary` | solve, in the order the job made them; its numbers are null when the solve failed |
+| `violations.parquet` | `Violation` | constraint broken at the exact trades, as rounding an LP can do |
 
-`positions.parquet` (`Position`), one row per bond held after trading:
+A summary's `status` is `ok`; `rounding broke [...]`, naming the constraints broken at the exact trades; or why the
+portfolio did not solve, such as `infeasible; before any trade it breaks ...`. A constraint is named by its place in the
+strategy and its kind, such as `2:max_turnover`, or `bounds` for the trade sizes and the cash floor. A result with a
+broken constraint is saved, and makes the run exit nonzero.
 
-| Field | Type | Meaning |
-|---|---|---|
-| `portfolio_id` | str | |
-| `strategy` | str | |
-| `cusip` | str | |
-| `par` | int | Face amount held, whole dollars. |
-| `weight` | float | Market value as a fraction of the pre-trade value, cash included. |
-
-`summary.parquet` (`Summary`), one row per solve, in the order the job made them. The numbers are null when the solve
-failed.
-
-| Field | Type | Meaning |
-|---|---|---|
-| `portfolio_id` | str | |
-| `strategy` | str | |
-| `status` | str | `ok`; `rounding broke [...]` with the constraints broken at the exact trades; or why it did not solve, such as `infeasible; before any trade it breaks ...`. |
-| `objective` | float | The solver's optimum before snapping or rounding, as a fraction of value. |
-| `gap` | float | Integer solves: how far the optimum may be from the best possible. Null for an LP. |
-| `value` | float | Pre-trade value, cash included, $. |
-| `cash` | float | Cash after trading, $. |
-| `turnover` | float | Value bought plus value sold, $. |
-| `tax` | float | Tax on realized gains, $; negative when harvesting losses. |
-| `cost` | float | Trading costs, $. |
-| `income` | float | Expected after-tax return over a year, $. |
-| `tracking` | float | L1 distance of the weights from the target, including target weight outside the model. |
-| `seconds` | float | Time to build, solve and check the portfolio. |
-
-`violations.parquet` (`Violation`), one row per constraint broken at the exact trades, as rounding an LP can do:
-
-| Field | Type | Meaning |
-|---|---|---|
-| `portfolio_id` | str | |
-| `strategy` | str | |
-| `constraint` | str | Its place in the strategy and its kind, such as `3:max_turnover`; `bounds` for the trade sizes and the cash floor. |
-| `excess` | float | The worst excess, in the constraint's own units: weights for most. |
-
-A result with a broken constraint is saved, and makes the run exit nonzero.
-
-To compare two runs, join their `summary.parquet` files on `portfolio_id`. For a transition, which has a row per tax
-budget, join on `portfolio_id` and row order instead.
+To compare two runs of `optimize`, join their `summary.parquet` files on `portfolio_id`.

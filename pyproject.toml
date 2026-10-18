@@ -57,6 +57,7 @@ ignore = [
     "PLR2004",  # 0.5, 1e-6 and friends read better inline than as constants
     "PLR0913",  # keyword-only arguments are clearer than a parameter object
     "FBT003",  # stdlib calls such as `captureWarnings(True)` take positional booleans
+    "TD003", "FIX002",  # `TODO(port)` marks where a port writes code; there is no issue to link
 ]
 
 [tool.ruff.lint.per-file-ignores]

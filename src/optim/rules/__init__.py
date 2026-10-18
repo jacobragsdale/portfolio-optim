@@ -15,11 +15,12 @@ from pydantic import Field
 
 from optim.inputs import SolverInputs
 from optim.logs import ms_since, timed
-from optim.rules.eligibility import ExcludeIssuers, MaturityRange, MinRating, TopSignals
+from optim.rules.eligibility import ExcludeIssuers, MinRating
 
 log = logging.getLogger(__name__)
 
-Rule = Annotated[MinRating | ExcludeIssuers | MaturityRange | TopSignals, Field(discriminator="kind")]
+# TODO(port): the old system's rules are rule classes, in a module here per subject, added to this union.
+Rule = Annotated[MinRating | ExcludeIssuers, Field(discriminator="kind")]
 
 
 def apply_rules(rules: Sequence[Rule], inputs: SolverInputs) -> SolverInputs:

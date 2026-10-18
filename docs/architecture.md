@@ -5,6 +5,10 @@ once, in the parent process. Preparing and solving are pure computation on data 
 prepared once, in the parent, and each portfolio is prepared and solved in parallel worker processes. Most of the design
 follows from keeping those two kinds of work apart.
 
+The datasets, prep, rules, constraints, objective terms and model formulation in this repository are placeholders
+until an existing optimizer is ported in ([porting another optimizer](porting.md)). This page explains the engine
+around them.
+
 ## One run, end to end
 
 A run starts with a validated request, such as `OptimizeRequest`, and a `Context`, which `run` in `jobs/` takes. Its
@@ -12,49 +16,44 @@ first step takes a run id and binds it to the logs, so every record of the run c
 included. The id also names the run's snapshot. Ids are meant to come from a runs table in SQL Server; until that table
 is wired in, `mssql.new_run_id` returns a UUIDv7. A replay makes its own id and is not registered.
 
-`load_frames` in `inputs.py` loads every dataset the run reads, one validated frame each. For the business date, it
-loads the data every portfolio shares: security analytics, the buy universe, signals and benchmarks. It also loads
-portfolios (accounts, to SQL Server), their tax lots and the bonds they sold at a loss in the last 30 days, in batches
-of a thousand portfolios per query. Everything loads at once, every batch included: see
-[Loading at the pace of each source](#loading-at-the-pace-of-each-source). `build_market` then prepares the
-`Market` that every portfolio shares, and the request's `tasks` prepares its portfolios with `build_portfolios`: see
-[Preparing the inputs](#preparing-the-inputs). It makes one `SolveTask` per solve, a portfolio plus a `Strategy`: one
-per portfolio for `optimize`, one per tax budget for `transition`. `run` hands the tasks to `solve_all` in `engine.py`.
+`load_frames` in `inputs.py` loads every dataset the run reads, one validated frame each: the data every portfolio
+shares, for the business date, and the portfolios and their tax lots, in batches of a thousand portfolios per query.
+Everything loads at once, every batch included: see
+[Loading at the pace of each source](#loading-at-the-pace-of-each-source). `build_market` then prepares the `Market` that every portfolio shares, and the request's `tasks` prepares its
+portfolios with `build_portfolios` (see [Preparing the inputs](#preparing-the-inputs)), making one `SolveTask`, a
+portfolio plus a `Strategy`, per solve. `run` hands the tasks to `solve_all` in `engine.py`.
 
 In a worker, `solve_task` turns the market and one portfolio into `SolverInputs`, applies the strategy's rules in order
-(`apply_rules`), and calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
-constraint broken at the exact trades) or `Unsolved` (the solver status or the error). Back in the parent,
-`outputs.snapshots` writes the run to a directory: its `run.json` (the request; when it started, finished loading and
-finished solving; the code that ran it; its labels; and how each dataset was read, from its source or the cache, and
-when), every dataset as it was loaded, and every result frame. Result frames have row models like datasets do
-(`Trade`, `Position`, `Summary`, `Violation` in `optimizer/results.py`), so whatever reads a snapshot reads a fixed
-schema.
+(`apply_rules`), and calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar
+summary, and any constraint broken at the exact trades) or `Unsolved` (the solver status or the error). Back in the
+parent, `outputs.snapshots` writes the run's [snapshot](snapshots.md): its request and metadata, every dataset as it was
+loaded, and every result frame.
+
 Nothing derived from the datasets is stored: prep and rules are pure, so replay rebuilds what each solve saw with the
-same code, in about 0.1 s for the market and 30 ms per portfolio. A change to prep therefore shows on replay, as a
-change to a rule does. Storing what each solve saw held 0.26 MB per portfolio in the parent, and 3.2 MB for a
-19,000-bond solve, which capped a Job at a few thousand portfolios.
-Anything else the run produces, such as a report, rows in a database or an API call, comes after the snapshot is on
-disk, so a failed output never loses the run.
+same code, and a change to prep shows on replay as a change to a rule does. Storing what each solve saw instead capped a
+Job at a few thousand portfolios ([what a worker returns](performance.md#what-a-worker-returns)). Anything else the
+run produces, such as a report, rows in a database or an API call, comes after the snapshot is on disk, so a failed
+output never loses the run.
 
 ## Requests and the context
 
-A run takes two things. Its request is a pydantic model of what was asked: the job, the strategy, the
-portfolios, the business date. The CLI builds requests from its arguments, and an API or an agent
-can build the same models from JSON. Because the request goes into the snapshot whole, every run records exactly what
-produced it, and replay can run it again.
+A run takes two things. Its request is a pydantic model of what was asked: the job, the strategy, the portfolios, the
+business date. The CLI builds requests from its arguments, and an API or an agent can build the same models from JSON.
+Because the request goes into the snapshot whole, every run records exactly what produced it, and replay can run it
+again.
 
-The `Context` is everything the process is connected to: the loader with its sources and cache, the
-runs table that issues run ids, and the snapshot directory. `open_context` in `context.py` is the only place that opens connections, and it closes them on
-exit. Jobs never read settings or build clients, so a new job needs no infrastructure code, and a test can give a
-job fake sources through the same `Context`.
+The `Context` is everything the process is connected to: the loader with its sources and cache, the runs table that
+issues run ids, and the snapshot directory. `open_context` in `context.py` is the only place that opens connections,
+and it closes them on exit. Jobs never read settings or build clients, so a new job needs no infrastructure code, and a
+test can give a job fake sources through the same `Context`.
 
 Configuration follows the same split. Each source module owns its settings model (`OracleSettings` beside the Oracle
 connection code), and `Settings` composes them under nested environment variables such as `OPTIM_ORACLE__DSN`.
 
 ## Every run is a Job
 
-Each run is one AKS Job running the CLI. Airflow starts it with the command's arguments, and it loads, solves,
-saves, writes its outputs and exits. The exit code is the run's status: 0 only when every portfolio solved cleanly. Neither
+Each run is one AKS Job running the CLI. Airflow starts it with the command's arguments, and it loads, solves, saves,
+writes its outputs and exits. The exit code is the run's status: 0 only when every portfolio solved cleanly. Neither
 Kubernetes nor Airflow retries a run: a rerun is a new run, with its own id and snapshot.
 
 `OPTIM_WORKERS` sizes the run's process pool and should match the Job's CPU request in physical cores: hyperthreads
@@ -95,11 +94,11 @@ rule can write `rating <= "A-"`.
 
 Caching is a property of the data, not of the code that reads it. A dataset's `CachePolicy` says how long its entry
 lives, whether `optim warm` fills it, and whether a run may read the source when the entry is missing. Portfolios and
-their holdings have no policy, so they are always read live. Every Job is a new process, so the cache is Redis, shared by all
-of them. Nothing is cached in process memory: a job that needs a dataset twice loads it once and passes the frame, as
-`Market` does for every portfolio in a run. Cache keys include the query parameters, the SQL text and the row schema.
-The parameters include the business date, so each day starts with new entries, and a deploy that changes a query or a
-schema never reads what the old code cached.
+their lots have no policy, so they are always read live. Every Job is a new process, so the cache is Redis, shared by
+all of them. Nothing is cached in process memory: a job that needs a dataset twice loads it once and passes the frame,
+as `Market` does for every portfolio in a run. Cache keys include the query parameters, the SQL text and the row
+schema. The parameters include the business date, so each day starts with new entries, and a deploy that changes a
+query or a schema never reads what the old code cached.
 
 `optim warm` is the morning Job. It finds every declared dataset whose policy has a warm hook, asks the hook which
 parameters to load it with, reads each set live, and overwrites its entry, so the day's runs read them from Redis. A
@@ -116,13 +115,13 @@ sets `live_on_miss=False`, so an outage cannot turn every Job into a full read o
 
 ### Loading at the pace of each source
 
-In production a query can take minutes, so a run asks for everything it needs at the start and lets each source
-set the pace. A `TaskGroup` from `data/loader.py` runs loads in threads: the market and the portfolios, the three
-portfolio datasets, and every batch of each. Each source has a limit, `OPTIM_<SOURCE>__MAX_CONCURRENT`, which the
-loader holds as a semaphore around the source call alone, so cache hits and validation never wait for a slot. A
-run then takes about as long as its slowest source, not the sum of its queries. Every `loaded` record carries
-`wait_ms`, the time spent waiting for a slot: a long wait means the limit, not the source, is the bottleneck.
-Limits are per process, so two Jobs running at once send twice as many queries.
+In production a query can take minutes, so a run asks for everything it needs at the start and lets each source set
+the pace. A `TaskGroup` from `data/loader.py` runs loads in threads: the market and the portfolios, each portfolio
+dataset, and every batch of each. Each source has a limit, `OPTIM_<SOURCE>__MAX_CONCURRENT`, which the loader holds as
+a semaphore around the source call alone, so cache hits and validation never wait for a slot. A run then takes about
+as long as its slowest source, not the sum of its queries. Every `loaded` record carries `wait_ms`, the time spent
+waiting for a slot: a long wait means the limit, not the source, is the bottleneck. Limits are per process, so two
+Jobs running at once send twice as many queries.
 
 The first failed load stops the rest: loads still waiting for a slot are skipped, and those already running end at
 their source's timeout, `OPTIM_<SOURCE>__TIMEOUT_S`. A run with a bad batch fails in about one query's time, not
@@ -140,32 +139,25 @@ every strategy. Whether logic is prep or a rule turns on who chooses it, not on 
 
 |  | Every strategy needs it | The strategy chooses it |
 |---|---|---|
-| **The whole market** | `build_market`, once a run, in the parent | a rule, such as `min_rating` or `top_signals` |
+| **The whole market** | `build_market`, once a run, in the parent | a rule, such as `min_rating` |
 | **One portfolio** | `build_portfolios`, and `Market.inputs_for` in the worker | a rule that reads `inputs.portfolio` |
 
 Logic about one dataset alone, such as a range or a check across its rows, belongs to its `Dataset` instead.
 
 The test is that a strategy with no rules must still solve correctly and safely, and whatever that needs is prep.
-`build_market` joins analytics, the universe and signals into one row per bond with analytics. A bond is `buyable`
-when it is offered, which is a fact, and has a signal, which is house policy: never buy a bond we have no view on. A
-bond without a signal expects no excess return, since the solver needs a number for every bond it holds. Rules can
-only narrow `buyable`, so a safeguard in prep holds for every strategy, where the same safeguard as a rule would be
-lost from any strategy file that left it out.
+After-tax returns are an example: a strategy that left them out would weigh pre-tax income against taxes. Rules can
+only narrow what may be bought or sold, so a safeguard in prep holds for every strategy, where the same safeguard as a
+rule would be lost from any strategy file that left it out.
 
-`Market.inputs_for` does the prep each portfolio needs. Expected returns become after the portfolio's tax on interest:
-federal, and state unless the bond is state-exempt. Without that, the solve would weigh pre-tax income against taxes;
-a portfolio that pays no tax keeps them as they are. And a bond the portfolio holds at a loss, or sold at a loss in the
-last 30 days, cannot be bought: the purchase would make a wash sale, which disallows the loss that the solve counts as
-tax saved. Gains and losses are measured from the clean price, the dirty price less accrued interest, since accrued
-interest is income, not part of a gain. Every lot is `sellable` until a rule says otherwise, such as one for a client's
-do-not-sell list.
+`build_market` joins the per-bond datasets into one row per bond. A bond is `buyable` when it is offered, and each row
+has an `expected_return`, since the solver needs a number for every bond it holds. `Market.inputs_for` does the prep
+each portfolio needs, and marks every lot `sellable` until a rule says otherwise. Prep fills gaps without erasing facts
+a rule may need: after a fill, a rule cannot tell no signal from a signal of zero, so keep a column such as
+`has_signal` if one needs to.
 
 Prep fails the run when shared data is wrong: a market dataset with no rows, a benchmark bond without analytics, or a
 portfolio id that is not found. A problem with one portfolio's data fails only that portfolio, in the worker: a
 benchmark that is not loaded, or a held bond without analytics.
-
-Prep fills gaps without erasing facts a rule may need. After the fill, a rule cannot tell no signal from a signal of
-zero; if one needs to, keep a column such as `has_signal` rather than a value that hides it.
 
 Prep runs on replay too, and its tests build frames by hand: `tests/test_inputs.py` needs no loader or database.
 
@@ -186,47 +178,40 @@ every limit. Prices, analytics and lots are facts the solve reads as they are, s
 
 ## The model and the solve
 
-The model decides what is bought per security and sold per tax lot. Selling by lot rather than by bond is what makes
-the optimizer tax-aware: given two lots of one bond, it sells the one bought above today's clean price and keeps the one with
-a gain. The objective is the sum of the strategy's terms, each a fraction of portfolio value; by default, expected
-return over a horizon, after the portfolio's tax, less taxes and trading costs. Constraints are written in weights, fractions of
-pre-trade value, so they share one scale and one feasibility tolerance. Every constraint builds from numpy and sparse
-scipy arrays. Group limits, for example, are one sparse membership matrix times the weight vector, which keeps cvxpy's
-compile time flat as the universe grows.
+The model decides what is bought per bond and sold per tax lot. Selling by lot rather than by bond is what makes the
+optimizer tax-aware: given two lots of one bond, it can sell the one bought above today's price and keep the one with a
+gain. The objective is the sum of the strategy's terms, each a fraction of portfolio value; by default, expected return
+over a horizon less taxes and trading costs. Constraints are written in weights, fractions of pre-trade value, so they
+share one scale and one feasibility tolerance. Every constraint builds from numpy and sparse scipy arrays. Group
+limits, for example, are one sparse membership matrix times the weight vector, which keeps cvxpy's compile time flat as
+the universe grows.
 
 The model holds variables only for bonds that can be bought or are held. Benchmark constituents outside that set add a
-constant to tracking error and are left out without changing the answer.
+constant to tracking error and are left out without changing the answer. So the size of a solve, and its time, follows
+the buyable set: rules that narrow it make every solve faster.
 
 A strategy's `solve` block chooses between two ways to solve. An integer solve, the default, trades exactly what the
 market trades. Each bond's data gives a minimum piece, an increment and a minimum remaining. A buy is nothing, or whole
 increments of at least the minimum piece. A lot is sold whole, which is how an odd lot goes, or in part: whole
-increments of at least the minimum piece, leaving at least the minimum remaining. The model counts increments in integer
-variables and gives each trade a 0/1 flag, which constraints can count too, as `max_buys` does. Solvers return integers
-as values such as 2.9999999, so `optimizer.rounding` snaps them to exact integers after the solve.
+increments of at least the minimum piece, leaving at least the minimum remaining. The model counts increments in
+integer variables and gives each trade a 0/1 flag, which constraints can count too. Solvers return integers as values
+such as 2.9999999, so `optimizer.rounding` snaps them to exact integers after the solve.
 
 An LP solve trades fractional par, and is tens to hundreds of times faster. After it, `optimizer.rounding` rounds buys
-down and sells up, both toward cash, so position limits, group limits and the cash floor survive. Turnover, tax,
-duration and the cash cap may not.
+down and sells up, both toward cash, so position limits, group limits and the cash floor survive. Turnover and tax may
+not.
 
 Either way, every constraint is then re-evaluated at the exact trades, and any breach is recorded on the result. A
-result with a breach is saved, and makes the run exit nonzero. On a synthetic 100,000-bond market with $2mm portfolios, minimum
-pieces of 5,000 and 25,000, and a minimum remaining of 25,000, every integer solve of both example strategies broke
-nothing. Rounding broke a constraint in most LP solves, and in all of track-benchmark's.
+result with a breach is saved, and makes the run exit nonzero.
 
 Every solve has a time limit, 30 seconds by default. An integer solve that reaches it keeps the best solution it has
-found, logs a warning, and reports the remaining optimality gap in its summary. One that has found none is unsolved. On
-that market, an integer solve took a median 1.5s (at most 14s) for core, about 2,000 bonds in the model, and 6.4s (at
-most 12.6s) for track-benchmark, about 21,000. As LPs, the same portfolios took 0.06s and 0.3s. Solve times swing with
-the data: with every bond taxed alike, core took a median 10.6s on the same market, and one solve reached the limit and
-kept a solution within 4% of the best possible.
+found, logs a warning, and reports the remaining optimality gap in its summary. One that has found none is unsolved.
 
-## Three jobs, one engine, one replay
+## Jobs and replay
 
 A job is its request class, and jobs differ only in the solves they ask for. `optimize` solves real portfolios, one
-solve each. A model portfolio is the same solve for a synthetic all-cash portfolio that pays no tax, made from the
-request rather than loaded. Transition analysis solves one portfolio once per tax budget, adding a `MaxTax` constraint
-each time, and reads the results as a frontier of tax paid against distance from the target. Because transitions are
-just more tasks, their frontier points solve in parallel like any batch.
+solve each. Another job asks for other tasks from the same engine: a transition analysis, for example, would solve one
+portfolio once per tax budget, and its tasks would solve in parallel like any batch.
 
 `replay` runs any job again from its snapshot. It reads the saved request and datasets, prepares them with the code you
 have now, and asks the request for its solves as the live run did, with the saved strategy or another one. It saves the
@@ -263,9 +248,8 @@ this package where it surfaced, even when a library raised it.
 These are deliberate shortcuts.
 
 - **Integer solve times.** HiGHS is free, and slower than commercial solvers. Integer solves take seconds to tens of
-  seconds per portfolio where an LP takes a fraction of a second. On the synthetic market, a $100mm model portfolio
-  against track-benchmark found no solution within 30 seconds; given 120, it found a tradable one within 13% of the
-  best possible. A licensed solver is a configuration change (see
+  seconds per portfolio where an LP takes a fraction of a second, and a large portfolio against a broad target may find
+  no solution within the time limit. A licensed solver is a configuration change (see
   [How to configure a solve](extending.md#how-to-configure-a-solve)); otherwise solve such portfolios with
   `"integer": false`.
 - **LP rounding.** Rounding after an LP breaks constraints the LP made binding, so its results often cannot trade. Use
@@ -276,8 +260,5 @@ These are deliberate shortcuts.
   below the minimum piece. Rounding erases them in an LP solve, and an integer solve has to search among them. For
   small portfolios, track exposures instead (duration buckets, sector, rating) with group constraints on the
   difference from the target.
-- **Wash sales before a sale.** Prep stops buys of a bond held at a loss, or sold at a loss in the last 30
-  days. Selling at a loss within 30 days after buying the bond is a wash sale too, and the tax term still counts that
-  loss as harvested.
 - **Snapshots** write the whole market every run, to a local directory. Store the market once per content hash if
   storage grows too fast.

@@ -3,7 +3,7 @@
 import pytest
 from builders import AS_OF, A, B, frame, market
 
-from optim.datasets.portfolios import LOSS_SALES, LOTS, PORTFOLIOS
+from optim.datasets.portfolios import LOTS, PORTFOLIOS
 from optim.datasets.securities import SECURITIES, UNIVERSE
 from optim.datasets.signals import SIGNALS
 from optim.inputs import SolverInputs, build_market, build_portfolios
@@ -13,12 +13,12 @@ from optim.strategy import SolveSettings, Strategy
 
 
 def harvest() -> SolverInputs:
-    """P1 holds bond B, bought at 104 and now at a clean 99.5, with cash to buy bond A: selling B harvests a loss."""
+    """P1 holds bond B, bought at 104 and now at 100, with cash to buy bond A: selling B harvests a loss."""
     frames = market(
         securities=frame(SECURITIES, {"cusip": A}, {"cusip": B, "issuer": "Issuer B"}),
         signals=frame(SIGNALS, {"cusip": A, "expected_return": 0.05}, {"cusip": B, "expected_return": 0.03}),
         universe=frame(UNIVERSE, {"cusip": A}),
-    ) | {"portfolios": frame(PORTFOLIOS, {}), "lots": frame(LOTS, {"cusip": B, "cost_price": 104.0}), "loss_sales": frame(LOSS_SALES)}
+    ) | {"portfolios": frame(PORTFOLIOS, {}), "lots": frame(LOTS, {"cusip": B, "cost_price": 104.0})}
     [portfolio] = build_portfolios(frames, ["P1"])
     return build_market(frames, AS_OF).inputs_for(portfolio)
 

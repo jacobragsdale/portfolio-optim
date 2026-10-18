@@ -19,15 +19,15 @@ from optim.context import Context
 from optim.data.loader import DatasetRead
 from optim.engine import SolveTask, solve_all
 from optim.inputs import build_market, load_frames
-from optim.jobs.model_portfolio import ModelPortfolioRequest
 from optim.jobs.optimize import OptimizeRequest
-from optim.jobs.transition import TransitionRequest
 from optim.optimizer.results import Result, Solved
 from optim.outputs.snapshots import Code, load_run, save_run
 from optim.schema import Model
 from optim.strategy import Strategy
 
-Job = Annotated[OptimizeRequest | ModelPortfolioRequest | TransitionRequest, Field(discriminator="job")]
+# TODO(port): the old system's other entry points, such as model portfolios or transition analysis, are request classes
+# beside `OptimizeRequest`, added here as `OptimizeRequest | ModelPortfolioRequest`. See docs/extending.md.
+Job = Annotated[OptimizeRequest, Field(discriminator="job")]
 JOB: TypeAdapter[Job] = TypeAdapter(Job)
 NO_LABELS: Mapping[str, str] = MappingProxyType({})
 
@@ -99,6 +99,8 @@ def run(ctx: Context, job: Job, *, labels: Mapping[str, str] = NO_LABELS) -> Run
         replay=None,
     )
     save_run(ctx.snapshot_dir, run_id, meta=meta, frames=frames, results=results)
+    # TODO(port): the old system's outputs, such as reports or rows written to a database, are modules in outputs/,
+    # called here: after the snapshot is saved, so a failed output never loses it, and never on replay.
     return Run(run_id, results)
 
 

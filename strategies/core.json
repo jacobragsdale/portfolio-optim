@@ -1,9 +1,7 @@
 {
   "name": "core",
   "rules": [
-    {"kind": "min_rating", "rating": "A-"},
-    {"kind": "maturity_range", "min_years": 1, "max_years": 20},
-    {"kind": "top_signals", "n": 2000}
+    {"kind": "min_rating", "rating": "A-"}
   ],
   "objective": [
     {"kind": "expected_return", "horizon_years": 1},
@@ -13,10 +11,7 @@
   "constraints": [
     {"kind": "position_limit", "max_weight": 0.05},
     {"kind": "group_limit", "by": "issuer", "max_weight": 0.08},
-    {"kind": "duration_band", "tolerance": 0.5},
-    {"kind": "max_turnover", "max_weight": 0.25},
-    {"kind": "cash_range", "min_weight": 0.01, "max_weight": 0.05},
-    {"kind": "max_buys", "n": 20}
+    {"kind": "max_turnover", "max_weight": 0.25}
   ],
   "solve": {"integer": true, "time_limit_s": 30, "options": {"mip_rel_gap": 0.001}}
 }

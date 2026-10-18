@@ -7,6 +7,9 @@ feasibility tolerance.
 
 An integer solve trades exactly what the market trades: whole increments, at least the minimum piece, leaving at least
 the minimum remaining. An LP solve trades any amount, and `rounding` makes it tradable after the solve.
+
+TODO(port): the old optimizer's formulation decides this module: how gains are taxed (`gain_rate`), what counts in value
+and cash, and how trade sizes are modelled. Add an expression here when more than one constraint or term needs it.
 """
 
 from dataclasses import dataclass
@@ -30,19 +33,18 @@ class OptimizationModel:
     sell: cp.Expression  # par sold, per lot
     buying: cp.Expression | None  # 1 where a bond is bought, else 0; integer solves only
     selling: cp.Expression | None  # 1 where a lot is sold, in whole or in part, else 0; integer solves only
-    gain: np.ndarray  # per lot, $ per $1 par sold: clean price less basis; a loss is negative
+    gain: np.ndarray  # per lot, $ per $1 par sold: price less basis; a loss is negative
     gain_rate: np.ndarray  # per lot: the long-term rate if held over a year, else the short-term one
     value: float  # pre-trade value including cash: the fixed denominator of every weight
     par: cp.Expression  # post-trade par, per security
     weights: cp.Expression  # post-trade weight, per security
     target: np.ndarray  # target weight, per security
-    target_duration: float  # of the whole target, including bonds outside the model
     untracked: float  # target weight outside the model (neither held nor buyable): a constant part of tracking error
     cash: cp.Expression  # post-trade cash, $
     turnover: cp.Expression  # value traded, $
     tax: cp.Expression  # tax on realized gains, $; negative when harvesting losses
     cost: cp.Expression  # trading costs, $
-    income: cp.Expression  # expected after-tax return, $ per year
+    income: cp.Expression  # expected return, $ per year
     bounds: list[cp.Constraint]  # what every solve needs: the trade sizes the market allows, and no overspending
 
 
@@ -74,7 +76,7 @@ def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
     par = holds @ lot_par + trades.buy - sold
     cost = (price * sec["cost_bps"].to_numpy() / 1e4) @ (trades.buy + sold)
     cash = portfolio.cash + price @ (sold - trades.buy) - cost
-    gain = (sec["clean_price"].to_numpy()[lot_rows] - lots["cost_price"].to_numpy()) / 100  # per $1 par: accrued interest is income, not a gain
+    gain = price[lot_rows] - lots["cost_price"].to_numpy() / 100  # per $1 par
     long_term = (lots["acquired"] + pd.DateOffset(years=1) < pd.Timestamp(inputs.as_of_date)).to_numpy()  # held over a year
     gain_rate = np.where(long_term, portfolio.lt_gain_rate, portfolio.st_gain_rate)
     return OptimizationModel(
@@ -92,7 +94,6 @@ def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
         par=par,
         weights=cp.multiply(price, par) / value,
         target=target[in_model],
-        target_duration=float(target @ s["duration"].to_numpy()),
         untracked=float(target[~in_model].sum()),
         cash=cash,
         turnover=price @ (trades.buy + sold),

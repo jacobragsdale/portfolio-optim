@@ -58,7 +58,7 @@ class Trade(Row):
     par: Par
     """Face amount traded."""
     gain: float | None
-    """Gain a sale realizes, $, from the clean price; negative for a loss. Null for a buy."""
+    """Gain a sale realizes, $, from the price; negative for a loss. Null for a buy."""
     tax: float | None
     """Tax on the gain, $, at the lot's long- or short-term rate; negative when harvesting a loss. Null for a buy."""
 
@@ -97,7 +97,7 @@ class Summary(Row):
     cost: float | None
     """Trading costs, $."""
     income: float | None
-    """Expected after-tax return over a year, $."""
+    """Expected return over a year, $."""
     tracking: float | None
     """L1 distance of the weights from the target, including target weight outside the model."""
     seconds: float | None

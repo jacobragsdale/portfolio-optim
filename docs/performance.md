@@ -4,6 +4,10 @@ Measured run time, CPU and memory of `optim optimize`, run as the CLI against Or
 2026-10-17. Use them to size a Job's CPU and memory requests and to know how long a run should take. They hold for
 this host and data shape; measure again when either changes.
 
+Loading, snapshot, memory and failure times measure the engine. Solve times measure the placeholder model and the
+example strategy of that day, which capped each solve's candidates at the 2,000 best by expected return; today's
+`core.json` has no such cap, and the port replaces both. Measure solves again after the port.
+
 ## Test setup
 
 | Item | Value |
@@ -12,8 +16,8 @@ this host and data shape; measure again when either changes.
 | Software | Python 3.14.7, cvxpy 1.9.3, highspy 1.15.1, pandas 3.0.6, numpy 2.5.4, python-oracledb 26.0.1 in thin mode, mssql-python 1.16.0, redis-py 8.1.0 |
 | Sources | Oracle Database Free 23ai, SQL Server 2022 and Redis 7.4 in local containers; a local HTTP server stands in for the signals API |
 | Market | 100,000 bonds, 30% of them offered; signals for 35,538; benchmarks of 5,000, 2,000 and 300 names |
-| Portfolios | 50,000 portfolios with 2.07 million tax lots: 25 to 60 positions each, a fifth of them in two lots, $1mm to $4mm per portfolio. 132,166 lot sales over 60 days, half at a loss |
-| Strategy | `strategies/core.json`, with `"overrides": {"US TREASURY": 1.0}` on its issuer limit: an integer solve, 30 s time limit, `mip_rel_gap` 0.001. A solve has about 2,000 bonds, 4,200 variables and 10,000 rows |
+| Portfolios | 50,000 portfolios with 2.07 million tax lots: 25 to 60 positions each, a fifth of them in two lots, $1mm to $4mm per portfolio |
+| Strategy | The example `core` of the day, with `"overrides": {"US TREASURY": 1.0}` on its issuer limit: an integer solve, 30 s time limit, `mip_rel_gap` 0.001. A solve had about 2,000 bonds, 4,200 variables and 10,000 rows |
 | Run | `OPTIM_WORKERS=8`, `OPTIM_LOG_LEVEL=INFO`. The cache was filled by `optim warm` and a first run, except where a row says cold |
 
 The seeding and measuring scripts are not in this repository.
@@ -65,8 +69,8 @@ strategy's `solve.options`:
 | 16 | 132 | 4.46 | 3.36 GB |
 
 Throughput stops growing at the 8 physical cores. Above 8, solves share cores through hyperthreading, so each takes
-longer while the total barely grows. Each worker adds about 0.2 GB for `core`. `track-benchmark` solves are ten times
-larger, about 19,000 bonds each: 2 workers replaying them peaked at 1.76 GB.
+longer while the total barely grows. Each worker added about 0.2 GB for solves of 2,000 bonds. Solves ten times
+larger, about 19,000 bonds each, peaked at 1.76 GB with 2 workers.
 
 At 8 workers with OpenBLAS's default of one thread per hardware thread in every worker, the batch solved 111 a minute
 at 3.35 CPU seconds per solve. With one OpenBLAS thread per worker, which `engine.py` sets for every pool, it solved

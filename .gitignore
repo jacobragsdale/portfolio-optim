@@ -7,3 +7,6 @@ snapshots/
 .env
 .env.*
 !.env.example
+# A port's sanity check (docs/porting.md): the old system's inputs, which are client data, and its script
+/old/
+/sanity.py

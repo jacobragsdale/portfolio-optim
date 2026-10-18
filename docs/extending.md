@@ -23,15 +23,15 @@ To load a new table, for example issuer credit scores from Oracle:
    `inputs.securities` or `model.securities`.
 
    Per-portfolio data is loaded in batches: in `_load_portfolios`, submit a `loader.load_batched` call to its
-   `TaskGroup`, so it loads beside lots and loss sales, and return its frame with theirs. `load_batched` sends up to
-   1,000 portfolios per query, as many batches at once as the source's limit allows; the SQL unpacks the ids with
-   `OPENJSON` or `JSON_TABLE`, as `lots.sql` does, and `loss_sales.sql` binds the business date too. Then carry it to
-   the solve: a field on `Portfolio`, filled in `build_portfolios` as `lots` is. Rules, constraints and terms read it as
-   `inputs.portfolio.<field>` or `m.inputs.portfolio.<field>`.
+   `TaskGroup`, so it loads beside lots, and return its frame with theirs. `load_batched` sends up to 1,000 portfolios
+   per query, as many batches at once as the source's limit allows; the SQL unpacks the ids with `OPENJSON` or
+   `JSON_TABLE`, as `lots.sql` does. Pass any other parameter, such as `as_of_date=as_of_date`, as a keyword to
+   `load_batched`, and bind it in the SQL. Then carry it to the solve: a field on `Portfolio`, filled in
+   `build_portfolios` as `lots` is. Rules, constraints and terms read it as `inputs.portfolio.<field>` or
+   `m.inputs.portfolio.<field>`.
 
-   Snapshots, replay and the all-cash model portfolio need no change: a snapshot saves every frame `load_frames`
-   returns, replay prepares them as a live run does, and a model portfolio loads empty portfolio frames. A snapshot
-   saved before the dataset existed cannot be replayed.
+   Snapshots and replay need no change: a snapshot saves every frame `load_frames` returns, and replay prepares them
+   as a live run does. A snapshot saved before the dataset existed cannot be replayed.
 
 ## How to cache a dataset
 
@@ -87,34 +87,37 @@ Strategy files can use the rule as soon as it is in the union.
 
 ## How to add a constraint
 
-1. Pick the module in `src/optim/optimizer/constraints/` for the constraint's family (`limits`, `risk`, `trading`,
-   `tax`), or add one.
+1. Pick the module in `src/optim/optimizer/constraints/` for the constraint's family, such as `limits` or `trading`, or
+   add one, such as `risk.py`.
 2. Write a `StrictModel` class with a `kind` field, its parameters, and `build(self, m: OptimizationModel) -> list[cp.Constraint]`.
 3. Write the constraint against the model's expressions: `m.weights`, `m.cash`, `m.turnover`, `m.tax`, or a column of
-   `m.securities` times the weights, such as `m.securities["duration"].to_numpy() @ m.weights`. `m.inputs` holds the
-   portfolio and its lots. Divide dollar quantities by `m.value` so the constraint is in weights and shares the tolerance
-   of the re-check after the solve.
+   `m.securities` times the weights, such as a duration column added to a dataset:
+   `m.securities["duration"].to_numpy() @ m.weights`. `m.inputs` holds the portfolio and its lots. Divide dollar
+   quantities by `m.value` so the constraint is in weights and shares the tolerance of the re-check after the solve.
 4. If you need a quantity the model lacks, add it to `OptimizationModel` in `src/optim/optimizer/model.py` and compute it once in
    `build_model`.
 5. Add the class to the `Constraint` union in `src/optim/optimizer/constraints/__init__.py`.
 
-A constraint that counts trades or positions needs an integer solve. Count with the model's 0/1 flags, `m.buying` per
-bond and `m.selling` per lot, as `max_buys` does. Give the class `integer_only: ClassVar[bool] = True`, so a strategy
-that solves an LP is refused when it is read, and still raise a clear error if a flag is `None`. A
-constraint can also declare its own 0/1 variables and tie them to what it limits. This one caps the bonds held after
-trading: a weight can only be above zero where its flag is 1, and no weight exceeds 1.
+A constraint that counts trades needs an integer solve. Count with the model's 0/1 flags, `m.buying` per bond and
+`m.selling` per lot, which are `None` in an LP solve, and raise an error that says so:
 
 ```python
-class MaxHoldings(StrictModel):
-    """Hold at most `n` bonds after trading. Needs an integer solve."""
+class MaxBuys(StrictModel):
+    """Buy at most `n` different bonds. Needs an integer solve."""
 
-    kind: Literal["max_holdings"] = "max_holdings"
-    n: int = Field(gt=0)
+    kind: Literal["max_buys"] = "max_buys"
+    n: int = Field(ge=0)
 
     def build(self, m: OptimizationModel) -> list[cp.Constraint]:
-        held = cp.Variable(len(m.securities), boolean=True)
-        return [m.weights <= held, cp.sum(held) <= self.n]
+        if m.buying is None:
+            msg = 'max_buys counts bonds bought, which needs "solve": {"integer": true}'
+            raise ValueError(msg)
+        return [cp.sum(m.buying) <= self.n]
 ```
+
+A constraint can also declare its own 0/1 variables and tie them to what it limits, such as a cap on the bonds held
+after trading: `held = cp.Variable(len(m.securities), boolean=True)`, then `m.weights <= held` and
+`cp.sum(held) <= n`.
 
 ## How to add an objective term
 
@@ -164,8 +167,7 @@ as `--label purpose=research` records why in the replay's `run.json`. Replay rea
 no `.env`, database or Redis, and writes nothing but its own snapshot. It applies the strategy's rules, objective,
 constraints and solve block, saves the results as a new run of the same job beside the original, and prints the
 summary. `--portfolios A1 A2` replays only some portfolios. Each run's `summary.parquet` holds one row per solve, so
-comparing two runs is a join on `portfolio_id`; for a transition, which has a row per tax budget, on `portfolio_id` and
-row order. [Snapshot files](snapshots.md) defines every column.
+comparing two runs of `optimize` is a join on `portfolio_id`. [Snapshot files](snapshots.md) describes every file.
 
 ## How to add a data source
 
@@ -190,7 +192,9 @@ If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSetting
    `job: Literal["your_job"] = "your_job"` field, a `strategy`, an `as_of_date` and whatever else it needs, then:
    - `portfolio_ids`, a property: the portfolios to load, or none.
    - `tasks(self, frames: Frames) -> list[SolveTask]`: the solves it makes from the loaded datasets. Build its
-     portfolios with `build_portfolios(frames, ids)`, as `optimize.py` does.
+     portfolios with `build_portfolios(frames, ids)`, as `optimize.py` does. A job whose portfolio is not in the
+     database, such as a model portfolio built from cash, loads none, adds the portfolio's row to
+     `frames["portfolios"]`, and builds it the same way.
 2. Add the class to the `Job` union in `src/optim/jobs/__init__.py`. `run` then loads, prepares, solves and saves it,
    and `optim replay` replays its snapshots, with nothing else to write.
 3. Add a subcommand to `_parser()` in `src/optim/cli.py`, and a `case` in `_run` that builds the request.
