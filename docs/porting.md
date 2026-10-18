@@ -150,7 +150,10 @@ To sanity-check the port:
 
    class Old:
        def fetch(self, query: str, params: Mapping[str, Param]) -> Columns:
-           return OLD[query].to_dict("list")
+           frame = OLD[query]
+           if isinstance(batch := params.get("portfolios"), tuple):  # a batch of portfolio ids
+               frame = frame[frame["portfolio_id"].isin(batch)]
+           return frame.to_dict("list")
 
 
    loader = Loader(dict.fromkeys(("oracle", "mssql", "signals"), Old()))

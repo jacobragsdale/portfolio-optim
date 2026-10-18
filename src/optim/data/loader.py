@@ -100,13 +100,17 @@ class Dataset:
 
     def to_frame(self, columns: Columns) -> pd.DataFrame:
         """Raw columns to this dataset's validated, typed frame, with its key and cross-row rules checked."""
-        frame = validate_columns(self.row, columns, name=self.name, key=self.key)
-        if (duplicated := frame.duplicated(list(self.key))).any():
-            examples = frame.loc[duplicated, list(self.key)].head(3).to_dict("records")
-            msg = f"{self.name}: duplicate {self.key}, e.g. {examples}"
-            raise ValueError(msg)
+        frame = self.unique(validate_columns(self.row, columns, name=self.name, key=self.key))
         if self.check is not None:
             self.check(frame)
+        return frame
+
+    def unique(self, frame: pd.DataFrame, *, why: str = "") -> pd.DataFrame:
+        """`frame`, once no two rows share a key."""
+        if (duplicated := frame.duplicated(list(self.key))).any():
+            examples = frame.loc[duplicated, list(self.key)].head(3).to_dict("records")
+            msg = f"{self.name}: duplicate {self.key}{why}, e.g. {examples}"
+            raise ValueError(msg)
         return frame
 
 
@@ -199,7 +203,10 @@ class Loader:
         concurrently, as many at once as the source's limit allows."""
         with TaskGroup() as group:
             futures = [group.submit(self.load, dataset, **params, **{param: chunk}) for chunk in batched(ids, size, strict=False)]
-        return pd.concat([f.result() for f in futures], ignore_index=True) if futures else empty_frame(dataset.row)
+        if not futures:
+            return empty_frame(dataset.row)
+        # each batch's key is checked as it loads; a query that ignores its batch's ids repeats rows across batches
+        return dataset.unique(pd.concat([f.result() for f in futures], ignore_index=True), why=" across batches: does the query filter on its batch's ids?")
 
     def _fetch(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> pd.DataFrame:
         start = time.perf_counter()
