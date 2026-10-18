@@ -20,13 +20,13 @@ class ModelPortfolioRequest(Model):
     strategy: Strategy
     benchmark_id: str
     notional: float = Field(gt=0)
-    as_of: date
+    as_of_date: date
 
 
 def model_portfolio(ctx: Context, request: ModelPortfolioRequest) -> Run:
     run_id = ctx.new_run_id()
     logs.bind(run_id=run_id)
-    market = load_market(ctx.loader, request.as_of)
+    market = load_market(ctx.loader, request.as_of_date)
     details = PortfolioDetails(
         portfolio_id=f"model:{request.strategy.name}", benchmark_id=request.benchmark_id, cash=request.notional, federal_rate=0.0, state_rate=0.0, st_gain_rate=0.0, lt_gain_rate=0.0
     )

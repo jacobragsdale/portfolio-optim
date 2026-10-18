@@ -3,4 +3,4 @@ SELECT b.benchmark_id,
        b.cusip,
        b.weight
 FROM   benchmark_weights b
-WHERE  b.as_of = :as_of
+WHERE  b.as_of = :as_of_date

@@ -41,15 +41,15 @@ with, so any query can be cached, whatever it binds. The policy has three settin
   for queries too heavy to run once per Job. It requires a `warm` hook, because nothing else fills the entry.
 
 A hook takes the loader and the business date, and returns one dict of parameters per entry. `by_date` covers a query
-that binds only `as_of`. Anything else is a short function:
+that binds only `as_of_date`. Anything else is a short function:
 
 ```python
-def _by_curve(loader: Loader, as_of: date) -> list[dict[str, Param]]:
-    return [{"as_of": as_of, "curve": curve} for curve in ("ust", "sofr")]
+def _by_curve(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:
+    return [{"as_of_date": as_of_date, "curve": curve} for curve in ("ust", "sofr")]
 
 
-def _by_portfolio(loader: Loader, as_of: date) -> list[dict[str, Param]]:
-    return [{"as_of": as_of, "portfolio_id": i} for i in loader.load(PORTFOLIOS, as_of=as_of)["portfolio_id"]]
+def _by_portfolio(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:
+    return [{"as_of_date": as_of_date, "portfolio_id": i} for i in loader.load(PORTFOLIOS, as_of_date=as_of_date)["portfolio_id"]]
 ```
 
 A job reads a warmed entry only if it loads the dataset with exactly the parameters the hook returned. Any other

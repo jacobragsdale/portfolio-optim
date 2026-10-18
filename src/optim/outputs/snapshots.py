@@ -20,15 +20,15 @@ log = logging.getLogger(__name__)
 
 
 def save_run(root: Path, run_id: str, *, job: str, request: Model, market: Market, portfolios: Sequence[Portfolio], results: Sequence[Result], **extra: object) -> Path:
-    meta = {"run_id": run_id, "job": job, "as_of": market.as_of, "request": request, **extra}
+    meta = {"run_id": run_id, "job": job, "as_of_date": market.as_of_date, "request": request, **extra}
     return save_snapshot(root, run_id, meta=meta, frames=input_frames(market, portfolios) | result_frames(results))
 
 
 def load_run(path: Path) -> tuple[Market, list[Portfolio]]:
     """A saved run's market and portfolios, as its solves read them before the rules, for `optim replay`."""
-    as_of = date.fromisoformat(json.loads((path / "run.json").read_bytes())["as_of"])
+    as_of_date = date.fromisoformat(json.loads((path / "run.json").read_bytes())["as_of_date"])
     targets = pd.read_parquet(path / "targets.parquet")
-    market = Market(as_of, pd.read_parquet(path / "securities.parquet"), {str(b): group.set_index("cusip")["weight"] for b, group in targets.groupby("benchmark_id")})
+    market = Market(as_of_date, pd.read_parquet(path / "securities.parquet"), {str(b): group.set_index("cusip")["weight"] for b, group in targets.groupby("benchmark_id")})
     lots, loss_sales = by_portfolio(pd.read_parquet(path / "lots.parquet")), by_portfolio(pd.read_parquet(path / "loss_sales.parquet"))
     details = to_models(PortfolioDetails, pd.read_parquet(path / "portfolios.parquet"))
     return market, [Portfolio(d, lots.get(d.portfolio_id, empty_frame(Lot)), loss_sales.get(d.portfolio_id, empty_frame(LossSale))) for d in details]

@@ -20,14 +20,14 @@ class TransitionRequest(Model):
     strategy: Strategy
     portfolio_id: str
     tax_budgets: list[Annotated[float, Field(ge=0)]] = Field(min_length=1)  # dollars of tax allowed, one solve each
-    as_of: date
+    as_of_date: date
 
 
 def transition(ctx: Context, request: TransitionRequest) -> Run:
     run_id = ctx.new_run_id()
     logs.bind(run_id=run_id)
-    market = load_market(ctx.loader, request.as_of)
-    portfolios = load_portfolios(ctx.loader, [request.portfolio_id], request.as_of)
+    market = load_market(ctx.loader, request.as_of_date)
+    portfolios = load_portfolios(ctx.loader, [request.portfolio_id], request.as_of_date)
     tasks = [SolveTask(portfolios[0], _with_tax_budget(request.strategy, budget)) for budget in request.tax_budgets]
     results = solve_all(market, tasks, workers=ctx.workers)
     save_run(ctx.snapshot_dir, run_id, job="transition", request=request, market=market, portfolios=portfolios, results=results)

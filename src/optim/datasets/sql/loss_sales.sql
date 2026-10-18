@@ -6,5 +6,5 @@ SELECT DISTINCT s.account_id          AS portfolio_id,
 FROM   tax_lot_sales s
 -- Typed: an untyped OPENJSON value is NVARCHAR, which turns an index seek on a VARCHAR key into a table scan.
 WHERE  s.account_id IN (SELECT id FROM OPENJSON(%(portfolios)s) WITH (id VARCHAR(64) '$'))
-  AND  s.sold_date BETWEEN DATEADD(day, -30, %(as_of)s) AND %(as_of)s
+  AND  s.sold_date BETWEEN DATEADD(day, -30, %(as_of_date)s) AND %(as_of_date)s
   AND  s.sale_price < s.cost_price

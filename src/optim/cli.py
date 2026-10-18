@@ -72,19 +72,19 @@ def _run(args: argparse.Namespace) -> int:
     log.info("starting %s", args.command, extra={"cli": logs.brief(vars(args)), "settings": settings.model_dump(mode="json")})
     if args.command == "clear":
         return _clear(settings, args.datasets)
-    as_of: date = args.as_of or datetime.now(MARKET_TIME).date()
+    as_of_date: date = args.as_of_date or datetime.now(MARKET_TIME).date()
     if args.command == "warm":
-        return _warm(settings, as_of, args.datasets)
+        return _warm(settings, as_of_date, args.datasets)
     strategy = Strategy.model_validate_json(args.strategy.read_bytes())
 
     with open_context(settings, cache=not args.no_cache) as ctx:
         match args.command:
             case "optimize":
-                run = optimize(ctx, OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of=as_of))
+                run = optimize(ctx, OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of_date=as_of_date))
             case "model":
-                run = model_portfolio(ctx, ModelPortfolioRequest(strategy=strategy, benchmark_id=args.benchmark, notional=args.notional, as_of=as_of))
+                run = model_portfolio(ctx, ModelPortfolioRequest(strategy=strategy, benchmark_id=args.benchmark, notional=args.notional, as_of_date=as_of_date))
             case _:
-                run = transition(ctx, TransitionRequest(strategy=strategy, portfolio_id=args.portfolio, tax_budgets=args.tax_budgets, as_of=as_of))
+                run = transition(ctx, TransitionRequest(strategy=strategy, portfolio_id=args.portfolio, tax_budgets=args.tax_budgets, as_of_date=as_of_date))
     return _report(run)
 
 
@@ -93,14 +93,14 @@ def _report(run: Run) -> int:
     return 0 if run.ok else 1
 
 
-def _warm(settings: Settings, as_of: date, names: Sequence[str] | None) -> int:
+def _warm(settings: Settings, as_of_date: date, names: Sequence[str] | None) -> int:
     """Fill the cache for the business date: every dataset with a warm hook, or only the named ones, say after a data
     correction. Exit 1 if any load failed."""
     if settings.redis_url is None:
         msg = "warm needs OPTIM_REDIS_URL: without Redis there is no cache to fill"
         raise ValueError(msg)
     with open_context(settings) as ctx:
-        return 0 if ctx.loader.warm([d for d in all_datasets() if not names or d.name in names], as_of) else 1
+        return 0 if ctx.loader.warm([d for d in all_datasets() if not names or d.name in names], as_of_date) else 1
 
 
 def _clear(settings: Settings, names: Sequence[str]) -> int:
@@ -121,7 +121,7 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("schema", help="print the strategy JSON schema")
 
     dated = argparse.ArgumentParser(add_help=False)
-    dated.add_argument("--as-of", type=date.fromisoformat, help="business date (default: today in New York)")
+    dated.add_argument("--as-of-date", type=date.fromisoformat, help="business date (default: today in New York)")
     warm_command = commands.add_parser("warm", parents=[dated], help="refresh cached datasets for the business date, before the day's first run")
     warmable = sorted(d.name for d in all_datasets() if d.cache and d.cache.warm)
     warm_command.add_argument("--datasets", nargs="+", choices=warmable, help="warm only these (default: every dataset with a warm hook)")

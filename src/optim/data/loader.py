@@ -43,9 +43,9 @@ class CachePolicy:
             raise ValueError(msg)
 
 
-def by_date(loader: Loader, as_of: date) -> list[dict[str, Param]]:  # noqa: ARG001
-    """The usual warm hook: one entry for the business date, for a query that binds only `as_of`."""
-    return [{"as_of": as_of}]
+def by_date(loader: Loader, as_of_date: date) -> list[dict[str, Param]]:  # noqa: ARG001
+    """The usual warm hook: one entry for the business date, for a query that binds only `as_of_date`."""
+    return [{"as_of_date": as_of_date}]
 
 
 @dataclass(frozen=True)
@@ -135,11 +135,11 @@ class Loader:
             log.warning("could not use the cache for %s; reading it live", dataset.name, exc_info=True)
         return None
 
-    def warm(self, datasets: Iterable[Dataset], as_of: date) -> bool:
+    def warm(self, datasets: Iterable[Dataset], as_of_date: date) -> bool:
         """`optim warm`: read each dataset live with every params its warm hook returns, and overwrite those entries. A
         failed load is logged and the rest still land; returns whether all of them did."""
         loader = replace(self, refresh=True)
-        loads = [(d, params) for d in datasets if d.cache and d.cache.warm for params in d.cache.warm(loader, as_of)]
+        loads = [(d, params) for d in datasets if d.cache and d.cache.warm for params in d.cache.warm(loader, as_of_date)]
         with ThreadPoolExecutor() as pool:
             futures = {pool.submit(loader.load, d, **params): (d.name, params) for d, params in loads}
         failed = [(name, params, error) for future, (name, params) in futures.items() if (error := future.exception())]

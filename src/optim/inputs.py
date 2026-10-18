@@ -32,7 +32,7 @@ class Portfolio:
 class SolverInputs:
     """Everything one solve sees. Rules return edited copies; nothing is mutated in place."""
 
-    as_of: date
+    as_of_date: date
     portfolio: PortfolioDetails
     lots: pd.DataFrame
     loss_sales: pd.DataFrame
@@ -48,7 +48,7 @@ class SolverInputs:
 class Market:
     """Data shared by every portfolio in a run: loaded once, shipped once to each worker process."""
 
-    as_of: date
+    as_of_date: date
     securities: pd.DataFrame
     targets: Mapping[str, pd.Series]  # benchmark_id -> weight by cusip
 
@@ -60,15 +60,15 @@ class Market:
         # Every portfolio in a process reads the same frames. Shallow copies cost nothing under copy-on-write, and keep a
         # rule that edits a frame in place from changing what the next portfolio sees.
         target = self.targets[details.benchmark_id]
-        return SolverInputs(self.as_of, details, portfolio.lots.copy(deep=False), portfolio.loss_sales.copy(deep=False), self.securities.copy(deep=False), target.copy(deep=False))
+        return SolverInputs(self.as_of_date, details, portfolio.lots.copy(deep=False), portfolio.loss_sales.copy(deep=False), self.securities.copy(deep=False), target.copy(deep=False))
 
 
-def load_market(loader: Loader, as_of: date) -> Market:
+def load_market(loader: Loader, as_of_date: date) -> Market:
     start = time.perf_counter()
-    frames = loader.load_all(SECURITIES, UNIVERSE, SIGNALS, BENCHMARKS, as_of=as_of)
+    frames = loader.load_all(SECURITIES, UNIVERSE, SIGNALS, BENCHMARKS, as_of_date=as_of_date)
     analytics, universe, benchmarks = frames["securities"], frames["universe"], frames["benchmarks"]
     if empty := [name for name, frame in frames.items() if frame.empty]:  # an empty signals reply would leave nothing buyable, and still trade
-        msg = f"{', '.join(empty)} returned no rows for {as_of}: is it a business day, and has every feed landed? Solving without them would trade on part of the market"
+        msg = f"{', '.join(empty)} returned no rows for {as_of_date}: is it a business day, and has every feed landed? Solving without them would trade on part of the market"
         raise ValueError(msg)
 
     # get_indexer, not isin: pandas 3 builds a pyarrow scalar per value for isin on strings, ~300ms per 100k cusips
@@ -87,12 +87,12 @@ def load_market(loader: Loader, as_of: date) -> Market:
         msg = f"{orphans.sum()} benchmark constituents have no analytics, e.g. {benchmarks.loc[orphans].head(3).to_dict('records')}"
         raise ValueError(msg)
     targets = {str(benchmark_id): group.set_index("cusip")["weight"] for benchmark_id, group in benchmarks.groupby("benchmark_id")}
-    log.info("loaded market", extra={"as_of": as_of, "securities": len(securities), "buyable": int(securities["buyable"].sum()), "benchmarks": len(targets), "ms": ms_since(start)})
-    return Market(as_of, securities, targets)
+    log.info("loaded market", extra={"as_of_date": as_of_date, "securities": len(securities), "buyable": int(securities["buyable"].sum()), "benchmarks": len(targets), "ms": ms_since(start)})
+    return Market(as_of_date, securities, targets)
 
 
-def load_portfolios(loader: Loader, portfolio_ids: Sequence[str], as_of: date) -> list[Portfolio]:
-    """Load portfolios, lots and the loss sales of the 30 days to `as_of` in batches, in the order given."""
+def load_portfolios(loader: Loader, portfolio_ids: Sequence[str], as_of_date: date) -> list[Portfolio]:
+    """Load portfolios, lots and the loss sales of the 30 days to `as_of_date` in batches, in the order given."""
     start = time.perf_counter()
     portfolio_ids = list(dict.fromkeys(portfolio_ids))
     details = {d.portfolio_id: d for d in to_models(PortfolioDetails, loader.load_batched(PORTFOLIOS, "portfolios", portfolio_ids))}
@@ -100,7 +100,7 @@ def load_portfolios(loader: Loader, portfolio_ids: Sequence[str], as_of: date) -
         msg = f"{len(missing)} unknown portfolios, e.g. {missing[:5]}"
         raise LookupError(msg)
     lots = loader.load_batched(LOTS, "portfolios", portfolio_ids)
-    loss_sales = loader.load_batched(LOSS_SALES, "portfolios", portfolio_ids, as_of=as_of)
+    loss_sales = loader.load_batched(LOSS_SALES, "portfolios", portfolio_ids, as_of_date=as_of_date)
     log.info("loaded portfolios", extra={"portfolios": len(portfolio_ids), "lots": len(lots), "loss_sales": len(loss_sales), "ms": ms_since(start)})
     lots_of, sales_of = by_portfolio(lots), by_portfolio(loss_sales)
     no_lots, no_sales = empty_frame(Lot), empty_frame(LossSale)

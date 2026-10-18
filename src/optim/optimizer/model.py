@@ -21,7 +21,7 @@ from optim.inputs import SolverInputs
 
 @dataclass(frozen=True)
 class OptimizationModel:
-    inputs: SolverInputs  # what the rules produced: the portfolio, its lots, `as_of`; its `securities` is the whole market
+    inputs: SolverInputs  # what the rules produced: the portfolio, its lots, `as_of_date`; its `securities` is the whole market
     securities: pd.DataFrame  # in variable order: the bonds that can be bought or are held
     lots: pd.DataFrame  # in variable order
     lot_rows: np.ndarray  # the securities row of each lot
@@ -71,7 +71,7 @@ def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
     cost = (price * sec["cost_bps"].to_numpy() / 1e4) @ (trades.buy + sold)
     cash = portfolio.cash + price @ (sold - trades.buy) - cost
     gain = price[lot_rows] - lots["cost_price"].to_numpy() / 100  # per $1 par
-    long_term = (lots["acquired"] + pd.DateOffset(years=1) < pd.Timestamp(inputs.as_of)).to_numpy()  # held over a year
+    long_term = (lots["acquired"] + pd.DateOffset(years=1) < pd.Timestamp(inputs.as_of_date)).to_numpy()  # held over a year
     return OptimizationModel(
         inputs=inputs,
         securities=sec,

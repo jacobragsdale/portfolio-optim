@@ -44,7 +44,7 @@ class MaturityRange(StrictModel):
         return self
 
     def apply(self, inputs: SolverInputs) -> SolverInputs:
-        years = (inputs.securities["maturity"] - pd.Timestamp(inputs.as_of)).dt.days / 365.25
+        years = (inputs.securities["maturity"] - pd.Timestamp(inputs.as_of_date)).dt.days / 365.25
         return inputs.restrict(years.between(self.min_years, self.max_years))
 
 

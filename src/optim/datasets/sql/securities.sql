@@ -15,4 +15,4 @@ SELECT s.cusip,
        -- the minimum piece, where the security master records no minimum remaining
        CAST(COALESCE(s.min_remaining, s.min_piece) AS NUMBER(15, 0)) AS min_remaining
 FROM   securities s
-JOIN   analytics a ON a.cusip = s.cusip AND a.as_of = :as_of
+JOIN   analytics a ON a.cusip = s.cusip AND a.as_of = :as_of_date

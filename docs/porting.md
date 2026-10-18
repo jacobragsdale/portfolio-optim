@@ -104,7 +104,7 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
    from optim.outputs.snapshots import input_frames, save_snapshot
    from optim.sources import Columns, Param
 
-   AS_OF = date(2026, 10, 16)
+   AS_OF_DATE = date(2026, 10, 16)
    OLD = {  # each dataset's query -> the old system's data, renamed to that dataset's row fields
        SECURITIES.query: pd.read_parquet("old/securities.parquet"),
        UNIVERSE.query: pd.read_parquet("old/offerings.parquet"),
@@ -123,8 +123,8 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
 
    loader = Loader(dict.fromkeys(("oracle", "mssql", "signals"), Old()))
    portfolio_ids = OLD[PORTFOLIOS.query]["portfolio_id"].tolist()
-   market, portfolios = load_market(loader, AS_OF), load_portfolios(loader, portfolio_ids, AS_OF)
-   save_snapshot(Path("snapshots"), "old-2026-10-16", meta={"as_of": AS_OF}, frames=input_frames(market, portfolios))
+   market, portfolios = load_market(loader, AS_OF_DATE), load_portfolios(loader, portfolio_ids, AS_OF_DATE)
+   save_snapshot(Path("snapshots"), "old-2026-10-16", meta={"as_of_date": AS_OF_DATE}, frames=input_frames(market, portfolios))
    ```
 
    The `old/` files stand for however the old data is exported. Each frame must have exactly its row model's fields,
@@ -162,7 +162,7 @@ models are in `src/optim/datasets/`.
 
 | File | Columns |
 |---|---|
-| `run.json` | An object with `as_of`, the business date as `YYYY-MM-DD`. Other keys are ignored. |
+| `run.json` | An object with `as_of_date`, the business date as `YYYY-MM-DD`. Other keys are ignored. |
 | `securities.parquet` | `Security` fields, then `offer_par` (null when not offered), `expected_return` (pre-tax; 0 without a signal) and `buyable` (offered and has a signal). |
 | `targets.parquet` | `benchmark_id`, `cusip`, `weight`. Weights per benchmark sum to 1. |
 | `portfolios.parquet` | `PortfolioDetails` fields. |
