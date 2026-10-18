@@ -157,7 +157,8 @@ federal, and state unless the bond is state-exempt. Without that, the solve woul
 a portfolio that pays no tax keeps them as they are. And a bond the portfolio holds at a loss, or sold at a loss in the
 last 30 days, cannot be bought: the purchase would make a wash sale, which disallows the loss that the solve counts as
 tax saved. Gains and losses are measured from the clean price, the dirty price less accrued interest, since accrued
-interest is income, not part of a gain.
+interest is income, not part of a gain. Every lot is `sellable` until a rule says otherwise, such as one for a client's
+do-not-sell list.
 
 Prep fails the run when shared data is wrong: a market dataset with no rows, a benchmark bond without analytics, or a
 portfolio id that is not found. A problem with one portfolio's data fails only that portfolio, in the worker: a
@@ -178,8 +179,10 @@ into a discriminated union on `kind`. A strategy file therefore validates strict
 is rejected, and `optim schema` prints a JSON schema that traders' tools and agents can write against. There is no
 registry to keep in sync: the union is the registry. Learning one of the three teaches the other two.
 
-Rules never drop rows. They narrow what may be bought (`SolverInputs.restrict`) or adjust what the solver believes
-(`expected_return`). A bond that a rule forbids buying may still be held, and the solver must be able to sell it.
+Rules never drop rows. They narrow what may be bought, by bond (`SolverInputs.restrict_buys`), or sold, by lot
+(`restrict_sales`), or adjust what the solver believes (`expected_return`). A bond that a rule forbids buying may still
+be held, and the solver must be able to sell it; a lot that a rule forbids selling is still held, and counts toward
+every limit. Prices, analytics and lots are facts the solve reads as they are, so rules leave them alone.
 
 ## The model and the solve
 
@@ -240,7 +243,8 @@ rules: the loader, the SQL and HTTP adapters, the engine and the solver each log
 dataset, rule or job is logged without a line of logging code. At INFO a run tells its story: what loaded, each
 portfolio's result and trades, and the snapshot, with a record for every load (with its cache outcome), query
 (connect, execute and fetch times), HTTP call and solve (size, settings, status, gap, and build, compile and solver
-times). `OPTIM_LOG_LEVEL=DEBUG` adds a record for every rule (what it made unbuyable).
+times), and for the rules before each solve (each rule's time). `OPTIM_LOG_LEVEL=DEBUG` adds a record for every rule
+(what it made unbuyable, how many lots it left sellable, and how many returns it changed).
 
 Every record of a run carries its `run_id`, including the run's failure, so one filter finds the whole run, even one
 that died before writing its snapshot. The snapshot itself is `OPTIM_SNAPSHOT_DIR/<run_id>`.

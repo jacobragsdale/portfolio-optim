@@ -16,7 +16,7 @@ class MinRating(StrictModel):
     rating: Rating
 
     def apply(self, inputs: SolverInputs) -> SolverInputs:
-        return inputs.restrict(inputs.securities["rating"] <= self.rating)
+        return inputs.restrict_buys(inputs.securities["rating"] <= self.rating)
 
 
 class ExcludeIssuers(StrictModel):
@@ -26,7 +26,7 @@ class ExcludeIssuers(StrictModel):
     issuers: list[str]
 
     def apply(self, inputs: SolverInputs) -> SolverInputs:
-        return inputs.restrict(~inputs.securities["issuer"].isin(self.issuers))
+        return inputs.restrict_buys(~inputs.securities["issuer"].isin(self.issuers))
 
 
 class MaturityRange(StrictModel):
@@ -45,7 +45,7 @@ class MaturityRange(StrictModel):
 
     def apply(self, inputs: SolverInputs) -> SolverInputs:
         years = (inputs.securities["maturity"] - pd.Timestamp(inputs.as_of_date)).dt.days / 365.25
-        return inputs.restrict(years.between(self.min_years, self.max_years))
+        return inputs.restrict_buys(years.between(self.min_years, self.max_years))
 
 
 class TopSignals(StrictModel):
@@ -56,4 +56,4 @@ class TopSignals(StrictModel):
 
     def apply(self, inputs: SolverInputs) -> SolverInputs:
         s = inputs.securities
-        return inputs.restrict(s["expected_return"].where(s["buyable"]).rank(ascending=False, method="first") <= self.n)
+        return inputs.restrict_buys(s["expected_return"].where(s["buyable"]).rank(ascending=False, method="first") <= self.n)

@@ -77,8 +77,10 @@ dataset live, whatever its policy.
    ([preparing the inputs](architecture.md#preparing-the-inputs)).
 2. Write a `StrictModel` class with a `kind: Literal["your_rule"] = "your_rule"` field, its parameters as fields, and
    `apply(self, inputs: SolverInputs) -> SolverInputs`.
-3. Narrow buying with `inputs.restrict(allowed)`, or return `replace(inputs, securities=inputs.securities.assign(...))`
-   to adjust a column. Never drop rows.
+3. Narrow buying with `inputs.restrict_buys(allowed)`, one flag per bond, or selling with
+   `inputs.restrict_sales(allowed)`, one flag per lot. To change what the solver believes, return
+   `replace(inputs, securities=inputs.securities.assign(expected_return=...))`. Never drop rows, and leave prices,
+   analytics and lots as they are.
 4. Add the class to the `Rule` union in `src/optim/rules/__init__.py`.
 
 Strategy files can use the rule as soon as it is in the union.

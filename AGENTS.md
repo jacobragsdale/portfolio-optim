@@ -33,7 +33,8 @@ All paths are under `src/optim/`.
 - Snapshots hold each dataset as loaded, never a frame derived from one, and everything after the loader is pure, so
   replay reruns prep and rules. Logic that combines datasets and every strategy needs is prep, in `inputs.py`; logic a
   strategy chooses is a rule. See [Preparing the inputs](docs/architecture.md#preparing-the-inputs).
-- Rules never drop rows. A bond you may not buy can still be held and sold; a held bond without its row fails the solve.
+- Rules never drop rows: they narrow `buyable` or `sellable`, or edit `expected_return`. A bond you may not buy can
+  still be held and sold; a held bond without its row fails the solve.
 - Constraints and objective terms are in weights (fractions of pre-trade value): divide dollars by `m.value`. The
   re-check after every solve uses one tolerance in weights.
 - Document model fields with a docstring under them, not a comment: it becomes the field's description.

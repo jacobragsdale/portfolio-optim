@@ -1,8 +1,9 @@
 """The model: what is bought per security and sold per tax lot, and the expressions that the objective and
 constraints are written against, as numpy and sparse scipy arrays.
 
-Selling by lot rather than by bond is what makes the optimizer tax-aware: it chooses which lots to sell. Weights are
-fractions of pre-trade value, so constraints written in weights share one scale and one feasibility tolerance.
+Selling by lot rather than by bond is what makes the optimizer tax-aware: it chooses which lots to sell, of those
+`sellable`. Weights are fractions of pre-trade value, so constraints written in weights share one scale and one
+feasibility tolerance.
 
 An integer solve trades exactly what the market trades: whole increments, at least the minimum piece, leaving at least
 the minimum remaining. An LP solve trades any amount, and `rounding` makes it tradable after the solve.
@@ -67,7 +68,8 @@ def build_model(inputs: SolverInputs, *, integer: bool) -> OptimizationModel:
         raise ValueError(msg)
 
     offer = np.where(sec["buyable"], sec["offer_par"].fillna(0), 0).astype(float)
-    trades = _integer_trades(sec, lot_rows, lot_par, offer) if integer else _any_trades(offer, lot_par)
+    sellable = lots["sellable"].to_numpy(dtype=bool)
+    trades = _integer_trades(sec, lot_rows, lot_par, offer, sellable) if integer else _any_trades(offer, np.where(sellable, lot_par, 0.0))
     sold = holds @ trades.sell
     par = holds @ lot_par + trades.buy - sold
     cost = (price * sec["cost_bps"].to_numpy() / 1e4) @ (trades.buy + sold)
@@ -109,16 +111,17 @@ class _Trades(NamedTuple):
     sizes: list[cp.Constraint]  # the trade sizes the market allows
 
 
-def _any_trades(offer: np.ndarray, lot_par: np.ndarray) -> _Trades:
-    """Any amount up to what is offered or held: an LP."""
-    buy, sell = cp.Variable(len(offer), nonneg=True, name="buy"), cp.Variable(len(lot_par), nonneg=True, name="sell")
-    return _Trades(buy, sell, None, None, [buy <= offer, sell <= lot_par])
+def _any_trades(offer: np.ndarray, sellable_par: np.ndarray) -> _Trades:
+    """Any amount up to what is offered, or held in a sellable lot: an LP."""
+    buy, sell = cp.Variable(len(offer), nonneg=True, name="buy"), cp.Variable(len(sellable_par), nonneg=True, name="sell")
+    return _Trades(buy, sell, None, None, [buy <= offer, sell <= sellable_par])
 
 
-def _integer_trades(sec: pd.DataFrame, lot_rows: np.ndarray, lot_par: np.ndarray, offer: np.ndarray) -> _Trades:
-    """Exactly what the market trades. A buy is nothing, or whole increments of at least the minimum piece. A lot is sold
-    whole, which is how an odd lot goes, or in part: whole increments of at least the minimum piece, leaving at least the
-    minimum remaining. Each 0/1 flag is bounded by the trade's own size, so the formulation stays as tight as it can."""
+def _integer_trades(sec: pd.DataFrame, lot_rows: np.ndarray, lot_par: np.ndarray, offer: np.ndarray, sellable: np.ndarray) -> _Trades:
+    """Exactly what the market trades. A buy is nothing, or whole increments of at least the minimum piece. A sellable lot
+    is sold whole, which is how an odd lot goes, or in part: whole increments of at least the minimum piece, leaving at
+    least the minimum remaining. Each 0/1 flag is bounded by the trade's own size, so the formulation stays as tight as it
+    can."""
     # assumes the minimum piece is a whole number of increments, as it is for nearly every bond; a minimum
     # piece plus whole increments is exact for the rest, and measured about 1.7x slower
     increment, min_piece = sec["increment"].to_numpy(dtype=float), sec["min_piece"].to_numpy(dtype=float)
@@ -135,7 +138,7 @@ def _integer_trades(sec: pd.DataFrame, lot_rows: np.ndarray, lot_par: np.ndarray
         sell_steps >= 0,
         partial >= cp.multiply(min_piece[lot_rows], part),
         partial <= cp.multiply(most_partial, part),
-        whole + part <= 1,
+        whole + part <= sellable.astype(float),
     ]
     return _Trades(buy, cp.multiply(lot_par, whole) + partial, buying, whole + part, sizes)
 

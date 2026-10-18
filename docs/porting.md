@@ -99,7 +99,8 @@ Old code hides behaviour outside its optimizer. Search these as well as the opti
 | Cleans or checks data | A constraint in a field's type, or a dataset `check` | `datasets/` |
 | Joins data per bond | A merge in `build_market` | `inputs.py` |
 | Decides what missing data means, as a `fillna` or a default does | Prep, if every strategy needs it; otherwise a rule (see [preparing the inputs](architecture.md#preparing-the-inputs)) | `inputs.py`, `rules/` |
-| Excludes bonds from buying | A rule that calls `inputs.restrict`, such as `exclude_issuers` for a restricted list | `rules/` |
+| Excludes bonds from buying | A rule that calls `inputs.restrict_buys`, such as `exclude_issuers` for a restricted list | `rules/` |
+| Stops bonds or lots being sold, as a client's do-not-sell list does | A rule that calls `inputs.restrict_sales`; a list that differs by portfolio is a per-portfolio dataset the rule reads from `inputs.portfolio` | `rules/`, `datasets/` |
 | Adjusts returns or scores | A rule that edits `expected_return` | `rules/` |
 | Sets a hard limit | A constraint | `optimizer/constraints/` |
 | Applies a penalty or a preference | An objective term | `optimizer/objective.py` |

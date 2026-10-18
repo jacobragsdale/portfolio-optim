@@ -48,6 +48,7 @@ def solve(inputs: SolverInputs, strategy: Strategy) -> Result:
             "securities": len(m.securities),
             "buyable": int(m.securities["buyable"].sum()),
             "lots": len(m.lots),
+            "sellable": int(m.lots["sellable"].sum()),
             "value": m.value,
             "variables": size.num_scalar_variables,
             "rows": size.num_scalar_eq_constr + size.num_scalar_leq_constr,

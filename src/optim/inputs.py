@@ -42,13 +42,18 @@ class SolverInputs:
     """Everything one solve sees. Rules return edited copies; nothing is mutated in place."""
 
     as_of_date: date
-    portfolio: Portfolio  # its details, lots and loss sales
+    portfolio: Portfolio  # its details, lots and loss sales; rules edit the lots' `sellable`
     securities: pd.DataFrame  # see `build_market`; rules edit `buyable` and `expected_return`
     target: pd.Series  # weight by cusip: the benchmark, or a model portfolio to move toward
 
-    def restrict(self, allowed: pd.Series) -> SolverInputs:
-        """Narrow what may be bought. Rows stay: a bond you may not buy can still be held, and sold."""
+    def restrict_buys(self, allowed: pd.Series) -> SolverInputs:
+        """Narrow what may be bought, by bond. Rows stay: a bond you may not buy can still be held, and sold."""
         return replace(self, securities=self.securities.assign(buyable=self.securities["buyable"] & allowed))
+
+    def restrict_sales(self, allowed: pd.Series) -> SolverInputs:
+        """Narrow what may be sold, by lot. Rows stay: a lot you may not sell is still held, and counts as it does."""
+        lots = self.portfolio.lots
+        return replace(self, portfolio=replace(self.portfolio, lots=lots.assign(sellable=lots["sellable"] & allowed)))
 
 
 @dataclass(frozen=True)
@@ -62,7 +67,8 @@ class Market:
     def inputs_for(self, portfolio: Portfolio) -> SolverInputs:
         """The market as one portfolio sees it, before the strategy's rules: expected returns after the portfolio's tax,
         and no buys that would make a wash sale. Every strategy needs both: without them the solve would weigh pre-tax
-        income against taxes, and count a loss the wash sale disallows as tax saved."""
+        income against taxes, and count a loss the wash sale disallows as tax saved. Every lot is `sellable` until a
+        rule says otherwise."""
         details = portfolio.details
         if details.benchmark_id not in self.targets:
             msg = f"portfolio {details.portfolio_id}: benchmark {details.benchmark_id} is not loaded"
@@ -70,6 +76,7 @@ class Market:
         # Every portfolio in a process reads the same market, and each solve of a portfolio its frames. Shallow copies cost
         # nothing under copy-on-write, and keep a rule that edits a frame in place from changing what the next solve sees.
         own = {name: value.copy(deep=False) for name, value in vars(portfolio).items() if isinstance(value, pd.DataFrame)}
+        own["lots"] = own["lots"].assign(sellable=np.ones(len(own["lots"]), dtype=bool))
         securities = _no_wash_sales(_after_tax(self.securities, details), portfolio)
         target = self.targets[details.benchmark_id]
         return SolverInputs(self.as_of_date, replace(portfolio, **own), securities, target.copy(deep=False))
