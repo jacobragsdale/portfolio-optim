@@ -29,6 +29,7 @@ spec:
             - {name: OPTIM_SIGNALS__TIMEOUT_S, value: "240"}
             - {name: OPTIM_WORKERS, value: "4"}  # match the CPU request
             - {name: OPTIM_SNAPSHOT_DIR, value: /snapshots}
+            - {name: OPTIM_IMAGE, value: IMAGE}  # the image above, which each run's snapshot records
           resources:
             requests: {cpu: "4", memory: 6Gi}
             limits: {memory: 6Gi}

@@ -34,8 +34,11 @@ uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json
 ## Run as a Job
 
 ```sh
-docker build -t portfolio-optim .
+docker build --build-arg GIT_SHA=$(git rev-parse HEAD) -t <registry>.azurecr.io/portfolio-optim:$(git rev-parse HEAD) .
 ```
+
+The build fails without `GIT_SHA`: every run's snapshot records the commit it ran, and the image, which the Job sets as
+`OPTIM_IMAGE`.
 
 The image's entrypoint is the `optim` CLI. Every run is an AKS Job that Airflow starts with the command's arguments:
 `deploy/job.yaml` is the Job spec, and `deploy/snapshots-pvc.yaml` the volume that snapshots go to. Schedule

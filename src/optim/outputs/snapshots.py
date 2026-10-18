@@ -11,6 +11,7 @@ from pathlib import Path
 import pandas as pd
 import pydantic_core
 from pydantic import TypeAdapter
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from optim.optimizer.results import Result, Solved, Unsolved
 from optim.schema import Model
@@ -19,9 +20,19 @@ log = logging.getLogger(__name__)
 _RUN_JSON = TypeAdapter(dict[str, object])
 
 
+class Code(BaseSettings):
+    """The code a run ran, as `run.json` records it: the commit, baked into the image at build (`--build-arg GIT_SHA`),
+    and the image, which the Job sets. A run outside an image records neither unless they are set."""
+
+    model_config = SettingsConfigDict(env_prefix="OPTIM_", extra="forbid", frozen=True)
+
+    git_sha: str | None = None
+    image: str | None = None
+
+
 def save_run(root: Path, run_id: str, *, job: str, request: Model, as_of_date: date, frames: Mapping[str, pd.DataFrame], results: Sequence[Result], **extra: object) -> Path:
     """`frames` are the datasets the run loaded, by name, as `load_frames` returns them."""
-    meta = {"run_id": run_id, "job": job, "as_of_date": as_of_date, "request": request, **extra}
+    meta = {"run_id": run_id, "job": job, "as_of_date": as_of_date, "code": Code(), "request": request, **extra}
     return save_snapshot(root, run_id, meta=meta, frames=input_frames(frames) | result_frames(results))
 
 
