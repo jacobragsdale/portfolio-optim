@@ -3,7 +3,7 @@ list of records."""
 
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -11,7 +11,7 @@ import httpx
 from pydantic import HttpUrl, TypeAdapter
 
 from optim.logs import ms_since
-from optim.sources import Columns, Param, SourceSettings, columns_from_records
+from optim.sources import Columns, Param, SourceSettings
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class RestSource:
 
     def fetch(self, query: str, params: Mapping[str, Param]) -> Columns:
         response = self.client.get(query, params={k: _query_value(v) for k, v in params.items()})
-        return columns_from_records(_RECORDS.validate_json(response.content), source=query)
+        return _columns(_RECORDS.validate_json(response.content), source=query)
 
 
 def _query_value(value: Param) -> str | int | float | list[str]:
@@ -62,3 +62,12 @@ def _query_value(value: Param) -> str | int | float | list[str]:
             return list(value)
         case _:
             return value
+
+
+def _columns(records: Sequence[Mapping[str, object]], *, source: str) -> Columns:
+    """Transpose records, as a JSON API returns them, into columns. Every record must have the same fields."""
+    names = list(records[0]) if records else []
+    if any(record.keys() != records[0].keys() for record in records):
+        msg = f"{source}: records do not all have the same fields"
+        raise ValueError(msg)
+    return {name: [record[name] for record in records] for name in names}

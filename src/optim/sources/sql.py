@@ -15,7 +15,7 @@ from importlib import resources
 from typing import Protocol
 
 from optim.logs import ms_since
-from optim.sources import Columns, Param, columns_from_rows
+from optim.sources import Columns, Param
 
 log = logging.getLogger(__name__)
 
@@ -55,10 +55,17 @@ class SqlSource:
             rows = cursor.fetchall()
         timings = {"connect_ms": connected, "execute_ms": round(executed - connected, 1), "fetch_ms": round(ms_since(start) - executed, 1)}
         log.info("query", extra={"query": query, "rows": len(rows)} | timings)
-        return columns_from_rows(names, rows)
+        return _columns(names, rows)
 
 
 @cache
 def read_sql(path: str) -> str:
     """A SQL file's text, by its path inside the `optim` package."""
     return resources.files("optim").joinpath(path).read_text()
+
+
+def _columns(names: Sequence[str], rows: Sequence[Iterable[object]]) -> Columns:
+    """Transpose row tuples, as a cursor returns them, into columns."""
+    if not rows:
+        return {name: [] for name in names}
+    return {name: list(values) for name, values in zip(names, zip(*rows, strict=True), strict=True)}
