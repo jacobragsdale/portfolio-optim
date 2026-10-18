@@ -56,8 +56,7 @@ family of rules or constraints, an entry point.
 | `strategy.py`, `engine.py` | The strategy JSON contract; solving tasks in-process or in a process pool. |
 | `outputs/` | What a run writes after its solves: run `snapshots`. |
 | `sources/` | `oracle`, `mssql` and `rest` adapters, each with its settings model, over the shared `sql` adapter. |
-| `cache.py` | The Redis dataset cache that every Job shares. |
-| `data/` | The loader: row validation into typed frames (`frames`), and fetching, batching and caching (`loader`). |
+| `data/` | The loader: row validation into typed frames (`frames`), fetching, batching and caching (`loader`), and the Redis cache every Job shares (`cache`). |
 | `context.py`, `settings.py`, `cli.py` | Wiring: the connections a process opens, its environment config, and the command line. |
 | `logs.py` | Structured logging: JSON lines, timings, and exceptions with their root cause. |
 | `schema.py` | The pydantic base models and shared field types. |

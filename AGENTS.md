@@ -15,7 +15,7 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 | `context.py`, `settings.py` | The only place connections open; `OPTIM_*` environment variables. |
 | `jobs/` | One entry point per module: `optimize`, `model_portfolio`, `transition`, `replay`. Each is load, solve, save. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. |
-| `data/loader.py` | Fetching, validation, batching and the Redis cache, for every dataset. |
+| `data/loader.py`, `data/cache.py` | Fetching, validation, batching and the Redis cache, for every dataset. |
 | `inputs.py` | `Market` (shared by a run), `Portfolio`, and `SolverInputs` (what one solve sees). |
 | `engine.py` | Solving tasks in this process or a process pool. |
 | `rules/` | Pre-solve rules: edit `SolverInputs` (what may be bought, expected returns). |

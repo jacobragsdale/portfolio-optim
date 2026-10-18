@@ -1,2 +1,2 @@
-"""Loading machinery: row schemas to typed DataFrames (`frames`), and datasets fetched through their sources and an
-optional cache (`loader`). The datasets themselves are declared in `optim.datasets`."""
+"""Loading machinery: row schemas to typed DataFrames (`frames`), datasets fetched through their sources (`loader`), and
+the Redis cache every Job shares (`cache`). The datasets themselves are declared in `optim.datasets`."""

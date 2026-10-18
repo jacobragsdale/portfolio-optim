@@ -10,7 +10,7 @@ from pathlib import Path
 import redis
 from pydantic import RedisDsn, Secret
 
-from optim.cache import RedisCache
+from optim.data.cache import RedisCache
 from optim.data.loader import Loader
 from optim.settings import Settings
 from optim.sources import Source, SourceName, mssql, oracle, rest

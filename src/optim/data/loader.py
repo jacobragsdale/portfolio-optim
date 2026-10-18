@@ -20,7 +20,7 @@ from typing import Self
 import pandas as pd
 import redis
 
-from optim.cache import RedisCache
+from optim.data.cache import RedisCache
 from optim.data.frames import empty_frame, validate_columns
 from optim.logs import brief, ms_since, timed, to_json
 from optim.schema import Row
