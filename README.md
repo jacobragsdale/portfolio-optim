@@ -21,9 +21,8 @@ uv run --env-file .env optim optimize --strategy strategies/core.json --portfoli
 ```
 
 `PORTFOLIO_ID` is an `account_id` in the SQL Server `accounts` table that `src/optim/datasets/sql/portfolios.sql`
-queries. The
-run prints one summary row per portfolio and writes a snapshot under `OPTIM_SNAPSHOT_DIR`. `uv run optim --help` lists the other commands: `model`, `transition`, `replay`, `warm`, `clear` and
-`schema`.
+queries. The run prints one summary row per portfolio and writes a snapshot under `OPTIM_SNAPSHOT_DIR`.
+`uv run optim --help` lists the other commands: `model`, `transition`, `replay`, `warm`, `clear` and `schema`.
 
 To try a strategy without access to those systems, replay a saved run with it. Replay reads only the run's snapshot:
 
@@ -69,6 +68,9 @@ family of rules or constraints, an entry point.
 - [Performance](docs/performance.md): measured run time, CPU and memory, from 1 to 1,000 portfolios, for sizing Jobs.
 - [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source or entry point;
   configure a solve; compare strategies on a saved run.
+- [Porting another optimizer](docs/porting.md): map an existing system's data and logic onto this one, and compare
+  results on the same data.
+- [Agent guide](AGENTS.md): the code map, the rules to keep, and the checks to run, for coding agents.
 
 ## Development
 

@@ -7,10 +7,13 @@ worker processes. Most of the design follows from keeping those two kinds of wor
 ## One run, end to end
 
 A run starts in a module of `jobs/` with a validated request, such as `OptimizeRequest`, and a `Context`. Its first
-step takes a run id from the runs table in SQL Server and binds it to the logs, so every record of the run carries
-`run_id`, solver workers' records included. The id also names the run's snapshot. A replay makes its own id and is not registered. `load_market` in `inputs.py` fetches the data every portfolio shares: security analytics, the buy universe, signals
-and benchmarks, loaded concurrently and merged into a single securities frame. `load_portfolios` fetches portfolios (accounts,
-to SQL Server), their tax lots and the bonds they sold at a loss in the last 30 days, in batches of a
+step takes a run id and binds it to the logs, so every record of the run carries `run_id`, solver workers' records
+included. The id also names the run's snapshot. Ids are meant to come from a runs table in SQL Server; until that table
+is wired in, `mssql.new_run_id` returns a UUIDv7. A replay makes its own id and is not registered.
+
+`load_market` in `inputs.py` fetches the data every portfolio shares: security analytics, the buy universe, signals
+and benchmarks, loaded concurrently and merged into a single securities frame. `load_portfolios` fetches portfolios
+(accounts, to SQL Server), their tax lots and the bonds they sold at a loss in the last 30 days, in batches of a
 thousand portfolios per query. The job then builds one `Task` per portfolio (a portfolio plus a
 `Strategy`) and hands the tasks to `solve_all` in `engine.py`.
 
