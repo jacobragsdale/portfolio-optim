@@ -6,19 +6,18 @@ from functools import partial
 import mssql_python
 from pydantic import SecretStr
 
-from optim.schema import Model
-from optim.sources import TIMEOUT_S
+from optim.sources import SourceSettings
 from optim.sources.sql import SqlSource
 
 LOGIN_TIMEOUT_S = 30
 
 
-class MssqlSettings(Model):
+class MssqlSettings(SourceSettings):
     connection_string: SecretStr
 
 
 def connect(settings: MssqlSettings) -> SqlSource:
-    return SqlSource(partial(_connect, settings.connection_string.get_secret_value()))
+    return SqlSource(partial(_connect, settings.connection_string.get_secret_value(), settings.timeout_s))
 
 
 def new_run_id() -> str:
@@ -28,14 +27,14 @@ def new_run_id() -> str:
     return str(uuid.uuid7())
 
 
-def _connect(connection_string: str) -> mssql_python.Connection:
+def _connect(connection_string: str, timeout_s: int) -> mssql_python.Connection:
     try:
         connection = mssql_python.connect(connection_string, timeout=LOGIN_TIMEOUT_S)
     except mssql_python.Error as error:
         # The driver names neither the server nor the database, and reports a missing database as a failed login.
         error.add_note(f"while connecting to SQL Server {_target(connection_string)}")
         raise
-    connection.timeout = TIMEOUT_S  # seconds, per statement
+    connection.timeout = timeout_s  # seconds, per statement
     return connection
 
 

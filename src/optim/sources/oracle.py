@@ -8,14 +8,13 @@ from functools import partial
 import oracledb
 from pydantic import SecretStr
 
-from optim.schema import Model
-from optim.sources import TIMEOUT_S
+from optim.sources import SourceSettings
 from optim.sources.sql import SqlSource
 
 CONNECT_TIMEOUT_S = 30
 
 
-class OracleSettings(Model):
+class OracleSettings(SourceSettings):
     dsn: str
     user: str
     password: SecretStr
@@ -37,7 +36,7 @@ def _connect(settings: OracleSettings) -> oracledb.Connection:
         msg = f"Oracle at {settings.dsn} accepted a connection but did not log in within {CONNECT_TIMEOUT_S}s: the listener or the database is hung"
         raise TimeoutError(msg)
     connection = connected.result()
-    connection.call_timeout = TIMEOUT_S * 1000  # milliseconds, per round trip
+    connection.call_timeout = settings.timeout_s * 1000  # milliseconds, per round trip
     return connection
 
 

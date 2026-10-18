@@ -107,9 +107,9 @@ How long a run takes to fail, or how much it slows, when a dependency fails:
 | Oracle host unreachable | Fails in 20 s: python-oracledb's `tcp_connect_timeout`, measured with the driver alone |
 | Oracle accepts connections and never answers | Fails in 30 s: `CONNECT_TIMEOUT_S` in `sources/oracle.py` |
 | SQL Server stopped or hung | Fails in 30 s: `LOGIN_TIMEOUT_S` in `sources/mssql.py`; the driver retries until it |
-| SQL Server query blocked by another session's lock | Fails in 240 s: `TIMEOUT_S`, 120 s, applies to the execute and to the fetch |
+| SQL Server query blocked by another session's lock | Fails in twice `OPTIM_MSSQL__TIMEOUT_S`: it applies to the execute and to the fetch (measured at 120 s: 240 s) |
 | Signals API refusing connections | Fails in about 1.5 s, after the client's three connection retries |
-| Signals API slow | Waits up to `TIMEOUT_S`, 120 s, per call |
+| Signals API slow | Waits up to `OPTIM_SIGNALS__TIMEOUT_S` per call |
 | A solver worker killed | Its unfinished portfolios run again in a new pool; if that breaks too, they stay unsolved |
 
 A blocked Oracle query was not measured. python-oracledb's `call_timeout` applies to each round trip, and a large

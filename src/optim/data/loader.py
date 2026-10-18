@@ -4,26 +4,69 @@ them in Redis."""
 import hashlib
 import json
 import logging
+import sys
 import threading
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
+from contextlib import nullcontext
+from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date, timedelta
 from functools import partial
 from itertools import batched
+from typing import Self
 
 import pandas as pd
 import redis
 
 from optim.cache import RedisCache
 from optim.data.frames import empty_frame, validate_columns
-from optim.logs import brief, timed, to_json
+from optim.logs import brief, ms_since, timed, to_json
 from optim.schema import Row
 from optim.sources import Columns, Param, Source, SourceName
 from optim.sources.sql import read_sql
 
 log = logging.getLogger(__name__)
 _REDIS_DOWN_LOCK = threading.Lock()  # so the first loader thread to find Redis down is the one that says so
+_stop: ContextVar[threading.Event | None] = ContextVar("_stop", default=None)  # set when a call in a `TaskGroup` fails
+
+
+class Skipped(Exception):  # noqa: N818 -- not an error: the call was not made
+    """A load that never reached its source, because another load in the same `TaskGroup` had already failed."""
+
+
+class TaskGroup:
+    """Runs each submitted call in a thread and waits for them all on exit, like asyncio's TaskGroup. The first failure
+    stops the rest: loads still waiting for a source slot are skipped, and those already running end at their source's
+    timeout. Then the failure raises. Nested groups share the stop, so a failed batch also stops the market loading
+    beside it."""
+
+    def __init__(self) -> None:
+        self._stop = _stop.get() or threading.Event()
+        self._errors: list[BaseException] = []
+        # ponytail: a thread per call, mostly waiting on a source's slot; fine to thousands of batches, a queue beyond
+        self._pool = ThreadPoolExecutor(max_workers=sys.maxsize)
+
+    def submit[**P, T](self, fn: Callable[P, T], /, *args: P.args, **kwargs: P.kwargs) -> Future[T]:
+        def run() -> T:
+            _stop.set(self._stop)  # the pool is this group's alone, so its threads never carry another group's stop
+            try:
+                return fn(*args, **kwargs)
+            except BaseException as error:
+                self._errors.append(error)
+                self._stop.set()
+                raise
+
+        return self._pool.submit(run)
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._pool.shutdown()
+        if self._errors:
+            raise next((e for e in self._errors if not isinstance(e, Skipped)), self._errors[0])  # the cause, not the loads it skipped
 
 
 @dataclass(frozen=True)
@@ -79,27 +122,29 @@ class Loader:
 
     sources: Mapping[SourceName, Source]
     cache: RedisCache | None = None
+    limits: Mapping[SourceName, threading.Semaphore] = field(default_factory=dict)  # calls each source may serve at once; none: unbounded
     refresh: bool = False  # set by `warm`: read live, overwrite the cache, and fail if Redis does
     _redis_down: threading.Event = field(default_factory=threading.Event, init=False, repr=False, compare=False)  # see `_cached`
 
     def load(self, dataset: Dataset, **params: Param) -> pd.DataFrame:
         try:
             with timed(log, "loaded", dataset=dataset.name, params=brief(params)) as fields:
-                frame, fields["cache"] = self._read(dataset, params)
+                frame, fields["cache"] = self._read(dataset, params, fields)
                 fields["rows"] = len(frame)
         except Exception as error:
             error.add_note(f"while loading dataset {dataset.name!r} ({dataset.query}) from {dataset.source} with {to_json(brief(params))}")
             raise
         return frame
 
-    def _read(self, dataset: Dataset, params: Mapping[str, Param]) -> tuple[pd.DataFrame, str]:
-        """The frame, and where it came from: `live` (not cached), `hit`, `miss`, or `refresh` (warm)."""
+    def _read(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> tuple[pd.DataFrame, str]:
+        """The frame, and where it came from: `live` (not cached), `hit`, `miss`, or `refresh` (warm). A source read adds
+        `wait_ms` to `fields`: the time spent waiting for a slot."""
         policy, cache = dataset.cache, self.cache
         if policy is None or cache is None:
-            return self._fetch(dataset, params), "live"
+            return self._fetch(dataset, params, fields), "live"
         key = _cache_key(dataset, params)
         if self.refresh:
-            frame = self._fetch(dataset, params)
+            frame = self._fetch(dataset, params, fields)
             if frame.empty:
                 msg = f"{dataset.name} returned no rows; an empty entry would hide the data for {policy.ttl} once it lands"
                 raise ValueError(msg)
@@ -112,7 +157,7 @@ class Loader:
             raise LookupError(msg)
         if policy.warm and not self._redis_down.is_set():  # warm should have filled it: the warm failed, or this load's params differ from the hook's
             log.warning("%s is warmed but missed the cache; reading it live", dataset.name, extra={"params": brief(params)})
-        frame = self._fetch(dataset, params)
+        frame = self._fetch(dataset, params, fields)
         if not frame.empty:  # usually a feed that has not landed yet: cached, it would hide the data for a whole ttl
             self._cached(dataset, partial(cache.set, key, frame, policy.ttl))
         return frame, "miss"
@@ -150,17 +195,24 @@ class Loader:
 
     def load_all(self, *datasets: Dataset, **params: Param) -> dict[str, pd.DataFrame]:
         """Load independent datasets concurrently, keyed by dataset name."""
-        with ThreadPoolExecutor() as pool:
-            futures = {dataset.name: pool.submit(self.load, dataset, **params) for dataset in datasets}
+        with TaskGroup() as group:
+            futures = {dataset.name: group.submit(self.load, dataset, **params) for dataset in datasets}
         return {name: future.result() for name, future in futures.items()}
 
     def load_batched(self, dataset: Dataset, param: str, ids: Sequence[str], *, size: int = 1000, **params: Param) -> pd.DataFrame:
-        """Load `ids` in chunks of `size`, one query per chunk, binding each chunk to `param`."""
-        frames = [self.load(dataset, **params, **{param: chunk}) for chunk in batched(ids, size, strict=False)]
-        return pd.concat(frames, ignore_index=True) if frames else empty_frame(dataset.row)
+        """Load `ids` in chunks of `size`, one query per chunk, binding each chunk to `param`. The chunks load
+        concurrently, as many at once as the source's limit allows."""
+        with TaskGroup() as group:
+            futures = [group.submit(self.load, dataset, **params, **{param: chunk}) for chunk in batched(ids, size, strict=False)]
+        return pd.concat([f.result() for f in futures], ignore_index=True) if futures else empty_frame(dataset.row)
 
-    def _fetch(self, dataset: Dataset, params: Mapping[str, Param]) -> pd.DataFrame:
-        columns = self.sources[dataset.source].fetch(dataset.query, params)
+    def _fetch(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> pd.DataFrame:
+        start = time.perf_counter()
+        with self.limits.get(dataset.source) or nullcontext():
+            fields["wait_ms"] = ms_since(start)
+            if (stop := _stop.get()) and stop.is_set():
+                raise Skipped
+            columns = self.sources[dataset.source].fetch(dataset.query, params)
         with timed(log, "validated", dataset=dataset.name):
             return dataset.to_frame(columns)
 

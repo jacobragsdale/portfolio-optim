@@ -1,6 +1,7 @@
 """The process's connections, opened once and shared by every job: the CLI opens one per command, and an API server
 would open one in its lifespan handler. Every source, cache and client is wired here and nowhere else."""
 
+import threading
 from collections.abc import Callable, Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
@@ -33,8 +34,9 @@ def open_context(settings: Settings, *, cache: bool = True) -> Generator[Context
             "mssql": mssql.connect(settings.mssql),
             "signals": rest.RestSource(stack.enter_context(rest.client(settings.signals))),
         }
+        limits: dict[SourceName, threading.Semaphore] = {name: threading.Semaphore(getattr(settings, name).max_concurrent) for name in sources}
         redis_cache = stack.enter_context(open_cache(settings.redis_url)) if cache and settings.redis_url else None
-        yield Context(Loader(sources, redis_cache), settings.snapshot_dir, settings.workers, mssql.new_run_id)
+        yield Context(Loader(sources, redis_cache, limits), settings.snapshot_dir, settings.workers, mssql.new_run_id)
 
 
 @contextmanager

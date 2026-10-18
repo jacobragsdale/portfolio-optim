@@ -19,8 +19,14 @@ spec:
           image: IMAGE  # e.g. <registry>.azurecr.io/portfolio-optim:<git sha>
           args: [--help]
           envFrom:
-            - secretRef: {name: optim}  # every OPTIM_* variable in .env.example except the two below
+            - secretRef: {name: optim}  # every OPTIM_* variable in .env.example except those below
           env:
+            - {name: OPTIM_ORACLE__MAX_CONCURRENT, value: "4"}  # per Job: two Jobs at once send twice as many
+            - {name: OPTIM_ORACLE__TIMEOUT_S, value: "240"}
+            - {name: OPTIM_MSSQL__MAX_CONCURRENT, value: "4"}
+            - {name: OPTIM_MSSQL__TIMEOUT_S, value: "240"}
+            - {name: OPTIM_SIGNALS__MAX_CONCURRENT, value: "2"}
+            - {name: OPTIM_SIGNALS__TIMEOUT_S, value: "240"}
             - {name: OPTIM_WORKERS, value: "4"}  # match the CPU request
             - {name: OPTIM_SNAPSHOT_DIR, value: /snapshots}
           resources:

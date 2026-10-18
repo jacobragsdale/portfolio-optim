@@ -11,7 +11,7 @@ from datetime import date
 import pandas as pd
 
 from optim.data.frames import empty_frame, to_models
-from optim.data.loader import Loader
+from optim.data.loader import Loader, TaskGroup
 from optim.datasets.benchmarks import BENCHMARKS
 from optim.datasets.portfolios import LOSS_SALES, LOTS, PORTFOLIOS, LossSale, Lot, PortfolioDetails
 from optim.datasets.securities import SECURITIES, UNIVERSE
@@ -91,18 +91,29 @@ def load_market(loader: Loader, as_of_date: date) -> Market:
     return Market(as_of_date, securities, targets)
 
 
+def load_inputs(loader: Loader, portfolio_ids: Sequence[str], as_of_date: date) -> tuple[Market, list[Portfolio]]:
+    """The market and the portfolios, loaded at the same time."""
+    with TaskGroup() as group:
+        market = group.submit(load_market, loader, as_of_date)
+        portfolios = group.submit(load_portfolios, loader, portfolio_ids, as_of_date)
+    return market.result(), portfolios.result()
+
+
 def load_portfolios(loader: Loader, portfolio_ids: Sequence[str], as_of_date: date) -> list[Portfolio]:
-    """Load portfolios, lots and the loss sales of the 30 days to `as_of_date` in batches, in the order given."""
+    """Load portfolios, lots and the loss sales of the 30 days to `as_of_date`, all three at once and in batches, in the
+    order given."""
     start = time.perf_counter()
     portfolio_ids = list(dict.fromkeys(portfolio_ids))
-    details = {d.portfolio_id: d for d in to_models(PortfolioDetails, loader.load_batched(PORTFOLIOS, "portfolios", portfolio_ids))}
+    with TaskGroup() as group:
+        portfolios = group.submit(loader.load_batched, PORTFOLIOS, "portfolios", portfolio_ids)
+        lots = group.submit(loader.load_batched, LOTS, "portfolios", portfolio_ids)
+        loss_sales = group.submit(loader.load_batched, LOSS_SALES, "portfolios", portfolio_ids, as_of_date=as_of_date)
+    details = {d.portfolio_id: d for d in to_models(PortfolioDetails, portfolios.result())}
     if missing := [i for i in portfolio_ids if i not in details]:
         msg = f"{len(missing)} unknown portfolios, e.g. {missing[:5]}"
         raise LookupError(msg)
-    lots = loader.load_batched(LOTS, "portfolios", portfolio_ids)
-    loss_sales = loader.load_batched(LOSS_SALES, "portfolios", portfolio_ids, as_of_date=as_of_date)
-    log.info("loaded portfolios", extra={"portfolios": len(portfolio_ids), "lots": len(lots), "loss_sales": len(loss_sales), "ms": ms_since(start)})
-    lots_of, sales_of = by_portfolio(lots), by_portfolio(loss_sales)
+    log.info("loaded portfolios", extra={"portfolios": len(portfolio_ids), "lots": len(lots.result()), "loss_sales": len(loss_sales.result()), "ms": ms_since(start)})
+    lots_of, sales_of = by_portfolio(lots.result()), by_portfolio(loss_sales.result())
     no_lots, no_sales = empty_frame(Lot), empty_frame(LossSale)
     return [Portfolio(details[i], lots_of.get(i, no_lots), sales_of.get(i, no_sales)) for i in portfolio_ids]
 

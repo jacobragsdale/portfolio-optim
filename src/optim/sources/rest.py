@@ -11,13 +11,12 @@ import httpx
 from pydantic import HttpUrl, TypeAdapter
 
 from optim.logs import ms_since
-from optim.schema import Model
-from optim.sources import TIMEOUT_S, Columns, Param, columns_from_records
+from optim.sources import Columns, Param, SourceSettings, columns_from_records
 
 log = logging.getLogger(__name__)
 
 
-class ApiSettings(Model):
+class ApiSettings(SourceSettings):
     url: HttpUrl
 
 
@@ -25,7 +24,7 @@ def client(settings: ApiSettings) -> httpx.Client:
     """A client with a deadline on every call, which logs each call and raises on any 4xx or 5xx reply, so callers need
     not check. Its retries cover only failed connections, so they are safe for POSTs."""
     transport = httpx.HTTPTransport(retries=3)
-    return httpx.Client(base_url=str(settings.url), timeout=TIMEOUT_S, transport=transport, event_hooks={"request": [_start], "response": [_check]})
+    return httpx.Client(base_url=str(settings.url), timeout=settings.timeout_s, transport=transport, event_hooks={"request": [_start], "response": [_check]})
 
 
 def _start(request: httpx.Request) -> None:

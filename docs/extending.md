@@ -19,8 +19,9 @@ To load a new table, for example issuer credit scores from Oracle:
    call and merge `frames["issuer_scores"]` into `securities` with `validate="many_to_one"` or `"one_to_one"`. A rule
    or constraint can then read the new column from `inputs.securities` or `model.securities`.
 
-   Per-portfolio data goes in `load_portfolios` through `loader.load_batched`, which sends up to 1,000 portfolios per
-   query; the SQL unpacks the ids with `OPENJSON` or `JSON_TABLE`, as `lots.sql` does, and `loss_sales.sql` binds the
+   Per-portfolio data goes in `load_portfolios`: submit a `loader.load_batched` call to its `TaskGroup`, so it
+   loads beside lots and loss sales. `load_batched` sends up to 1,000 portfolios per query, as many batches at once as
+   the source's limit allows; the SQL unpacks the ids with `OPENJSON` or `JSON_TABLE`, as `lots.sql` does, and `loss_sales.sql` binds the
    business date too. Split the frame with `by_portfolio`, as `lots` and `loss_sales` are, then carry it to the solve: a
    field on `Portfolio` and on `SolverInputs`, a line in `Market.inputs_for`, and an empty frame for the all-cash portfolio in
    `jobs/model_portfolio.py`. Add it to `input_frames` in `outputs/snapshots.py` and read it back in `load_run`: a run
@@ -155,13 +156,14 @@ row per portfolio, so comparing two runs is a join on `portfolio_id`.
 ## How to add a data source
 
 1. Add a module to `src/optim/sources/`, such as `pricing.py`, with a settings model (a `Model` subclass) and a
-   `connect` function. A database with a DB-API driver returns a `SqlSource` over a connection factory; anything else
-   returns a class with `fetch(self, query, params) -> Columns`. Put a timeout on every call, the login included:
+   `connect` function. Its settings model subclasses `SourceSettings`, so it has a concurrency limit and a timeout
+   like every other source. A database with a DB-API driver returns a `SqlSource` over a connection factory; anything else
+   returns a class with `fetch(self, query, params) -> Columns`. Put `settings.timeout_s` on every call, the login included:
    Oracle's thin driver bounds only the TCP connect, so `oracle.py` runs its login in a thread it stops waiting for.
 2. Add the source's name to `SourceName` in `src/optim/sources/__init__.py`.
 3. Add its settings to `Settings` in `src/optim/settings.py`, and its variables to `.env.example`.
-4. Open it in `open_context` in `src/optim/context.py`. If it holds a pool or client, enter it on the `ExitStack` so it
-   closes.
+4. Open it in `open_context` in `src/optim/context.py`, which also gives it its slot limit. If it holds a pool or
+   client, enter it on the `ExitStack` so it closes.
 
 If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSettings`, `rest.client` and `RestSource`.
 
@@ -169,7 +171,7 @@ If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSetting
 
 1. Add a module to `src/optim/jobs/` with a request model (a `Model` subclass) and a function taking
    `(ctx: Context, request: YourRequest)`. First take a run id from `ctx.new_run_id()` and `logs.bind(run_id=...)`
-   it, so every record of the run carries it. Load with `load_market` and `load_portfolios`, build `SolveTask`s, call
+   it, so every record of the run carries it. Load with `load_inputs` (or `load_market` alone), build `SolveTask`s, call
    `solve_all`, and save the run with `save_run` before any other output.
 2. Add a subcommand to `_parser()` in `src/optim/cli.py` that builds the request, and a `case` for it in `main`.
 

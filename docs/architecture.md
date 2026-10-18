@@ -14,7 +14,8 @@ is wired in, `mssql.new_run_id` returns a UUIDv7. A replay makes its own id and 
 `load_market` in `inputs.py` fetches the data every portfolio shares: security analytics, the buy universe, signals
 and benchmarks, loaded concurrently and merged into a single securities frame. `load_portfolios` fetches portfolios
 (accounts, to SQL Server), their tax lots and the bonds they sold at a loss in the last 30 days, in batches of a
-thousand portfolios per query. The job then builds one `SolveTask` per portfolio (a portfolio plus a
+thousand portfolios per query. `load_inputs` runs both at once, and every batch is sent at once too: see
+[Loading at the pace of each source](#loading-at-the-pace-of-each-source). The job then builds one `SolveTask` per portfolio (a portfolio plus a
 `Strategy`) and hands the tasks to `solve_all` in `engine.py`.
 
 In a worker, `solve_task` turns the market and one portfolio into `SolverInputs`, applies the strategy's rules in order, and
@@ -104,6 +105,20 @@ password), the run stops asking it, so an outage costs one timeout and one warni
 dataset's policy decides what a miss means: read the source, or fail. A dataset that is too heavy to read once per Job
 sets `live_on_miss=False`, so an outage cannot turn every Job into a full read of the source. Without Redis, or with
 `--no-cache`, a run reads everything live.
+
+### Loading at the pace of each source
+
+In production a query can take minutes, so a run asks for everything it needs at the start and lets each source
+set the pace. A `TaskGroup` from `data/loader.py` runs loads in threads: the market and the portfolios, the three
+portfolio datasets, and every batch of each. Each source has a limit, `OPTIM_<SOURCE>__MAX_CONCURRENT`, which the
+loader holds as a semaphore around the source call alone, so cache hits and validation never wait for a slot. A
+run then takes about as long as its slowest source, not the sum of its queries. Every `loaded` record carries
+`wait_ms`, the time spent waiting for a slot: a long wait means the limit, not the source, is the bottleneck.
+Limits are per process, so two Jobs running at once send twice as many queries.
+
+The first failed load stops the rest: loads still waiting for a slot are skipped, and those already running end at
+their source's timeout, `OPTIM_<SOURCE>__TIMEOUT_S`. A run with a bad batch fails in about one query's time, not
+after every other batch has loaded.
 
 Batched queries bind a list of ids as one JSON array string, which the SQL unpacks with `OPENJSON` (SQL Server) or
 `JSON_TABLE` (Oracle). One bind per batch avoids Oracle's 1,000-item `IN` limit and keeps SQL out of string

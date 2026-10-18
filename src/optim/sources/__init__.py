@@ -3,13 +3,22 @@ so all sources are held to the same schemas. `optim.context` opens the connectio
 
 from collections.abc import Iterable, Mapping, Sequence
 from datetime import date
-from typing import Literal, Protocol
+from typing import Annotated, Literal, Protocol
+
+from pydantic import Field
+
+from optim.schema import Model
 
 type SourceName = Literal["oracle", "mssql", "signals"]
 type Param = str | int | float | date | tuple[str, ...]
 type Columns = dict[str, list[object]]
 
-TIMEOUT_S = 120  # deadline on every call that crosses the network
+
+class SourceSettings(Model):
+    """What every source's settings carry: how hard a run may press it, and how long it may take to answer."""
+
+    max_concurrent: Annotated[int, Field(ge=1)]  # calls this process has open to the source at once; the loader holds the rest
+    timeout_s: Annotated[int, Field(ge=1)]  # deadline on every call that crosses the network
 
 
 class Source(Protocol):
