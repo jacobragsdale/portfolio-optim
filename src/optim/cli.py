@@ -7,7 +7,8 @@ uv run --env-file .env optim transition --strategy strategies/track-benchmark.js
 uv run --env-file .env optim warm
 uv run --env-file .env optim warm --datasets benchmarks
 uv run --env-file .env optim clear --datasets securities universe
-uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json --workers 4
+uv run optim replay snapshots/RUN_ID --workers 4
+uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json
 uv run optim schema > strategy.schema.json
 """
 
@@ -25,11 +26,10 @@ from zoneinfo import ZoneInfo
 from optim import logs
 from optim.context import open_cache, open_context
 from optim.datasets import all_datasets
-from optim.jobs import Run
-from optim.jobs.model_portfolio import ModelPortfolioRequest, model_portfolio
-from optim.jobs.optimize import OptimizeRequest, optimize
-from optim.jobs.replay import ReplayRequest, replay
-from optim.jobs.transition import TransitionRequest, transition
+from optim.jobs import Job, ReplayRequest, Run, replay, run
+from optim.jobs.model_portfolio import ModelPortfolioRequest
+from optim.jobs.optimize import OptimizeRequest
+from optim.jobs.transition import TransitionRequest
 from optim.outputs.snapshots import result_frames
 from optim.settings import Settings
 from optim.strategy import Strategy
@@ -66,8 +66,8 @@ def _stopped(signum: int, _frame: object) -> None:
 def _run(args: argparse.Namespace) -> int:
     if args.command == "replay":  # reads a snapshot only: no settings, connections or cache
         log.info("starting replay", extra={"cli": logs.brief(vars(args))})
-        strategy = Strategy.model_validate_json(args.strategy.read_bytes())
-        return _report(replay(ReplayRequest(strategy=strategy, snapshot=args.snapshot, portfolios=args.portfolios), workers=args.workers))
+        strategy = Strategy.model_validate_json(args.strategy.read_bytes()) if args.strategy else None
+        return _report(replay(ReplayRequest(snapshot=args.snapshot, strategy=strategy, portfolios=args.portfolios), workers=args.workers))
     settings = Settings()
     log.info("starting %s", args.command, extra={"cli": logs.brief(vars(args)), "settings": settings.model_dump(mode="json")})
     if args.command == "clear":
@@ -76,16 +76,16 @@ def _run(args: argparse.Namespace) -> int:
     if args.command == "warm":
         return _warm(settings, as_of_date, args.datasets)
     strategy = Strategy.model_validate_json(args.strategy.read_bytes())
-
+    job: Job
+    match args.command:
+        case "optimize":
+            job = OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of_date=as_of_date)
+        case "model":
+            job = ModelPortfolioRequest(strategy=strategy, benchmark_id=args.benchmark, notional=args.notional, as_of_date=as_of_date)
+        case _:
+            job = TransitionRequest(strategy=strategy, portfolio_id=args.portfolio, tax_budgets=args.tax_budgets, as_of_date=as_of_date)
     with open_context(settings, cache=not args.no_cache) as ctx:
-        match args.command:
-            case "optimize":
-                run = optimize(ctx, OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of_date=as_of_date))
-            case "model":
-                run = model_portfolio(ctx, ModelPortfolioRequest(strategy=strategy, benchmark_id=args.benchmark, notional=args.notional, as_of_date=as_of_date))
-            case _:
-                run = transition(ctx, TransitionRequest(strategy=strategy, portfolio_id=args.portfolio, tax_budgets=args.tax_budgets, as_of_date=as_of_date))
-    return _report(run)
+        return _report(run(ctx, job))
 
 
 def _report(run: Run) -> int:
@@ -144,9 +144,9 @@ def _parser() -> argparse.ArgumentParser:
     transition_command.add_argument("--portfolio", required=True)
     transition_command.add_argument("--tax-budgets", type=float, nargs="+", required=True, help="dollars of tax allowed, one solve each")
 
-    replay_command = commands.add_parser("replay", help="re-solve a saved run with another strategy; reads only the snapshot")
+    replay_command = commands.add_parser("replay", help="run a saved job again, with today's code and any strategy; reads only the snapshot")
     replay_command.add_argument("snapshot", type=Path, help="the run's snapshot directory")
-    replay_command.add_argument("--strategy", type=Path, required=True, help="strategy JSON file")
+    replay_command.add_argument("--strategy", type=Path, help="strategy JSON file (default: the strategy the run used)")
     replay_command.add_argument("--portfolios", nargs="+", help="only these portfolios (default: every portfolio in the run)")
     replay_command.add_argument("--workers", type=int, default=1, help="solver processes (default: 1)")
     return parser

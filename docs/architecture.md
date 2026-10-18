@@ -1,14 +1,14 @@
 # How the optimizer is put together
 
-Every entry point runs the same stages: load, prepare, solve, save, outputs. Loading, saving and outputs do I/O and run
+Every job runs the same stages: load, prepare, solve, save, outputs. Loading, saving and outputs do I/O and run
 once, in the parent process. Preparing and solving are pure computation on data already in memory: the market is
 prepared once, in the parent, and each portfolio is prepared and solved in parallel worker processes. Most of the design
 follows from keeping those two kinds of work apart.
 
 ## One run, end to end
 
-A run starts in a module of `jobs/` with a validated request, such as `OptimizeRequest`, and a `Context`. Its first
-step takes a run id and binds it to the logs, so every record of the run carries `run_id`, solver workers' records
+A run starts with a validated request, such as `OptimizeRequest`, and a `Context`, which `run` in `jobs/` takes. Its
+first step takes a run id and binds it to the logs, so every record of the run carries `run_id`, solver workers' records
 included. The id also names the run's snapshot. Ids are meant to come from a runs table in SQL Server; until that table
 is wired in, `mssql.new_run_id` returns a UUIDv7. A replay makes its own id and is not registered.
 
@@ -16,10 +16,10 @@ is wired in, `mssql.new_run_id` returns a UUIDv7. A replay makes its own id and 
 loads the data every portfolio shares: security analytics, the buy universe, signals and benchmarks. It also loads
 portfolios (accounts, to SQL Server), their tax lots and the bonds they sold at a loss in the last 30 days, in batches
 of a thousand portfolios per query. Everything loads at once, every batch included: see
-[Loading at the pace of each source](#loading-at-the-pace-of-each-source). `build_inputs` then prepares the frames
-into the `Market` that every portfolio shares and one `Portfolio` each: see [Preparing the inputs](#preparing-the-inputs).
-The job builds one `SolveTask` per portfolio (a portfolio plus a `Strategy`) and hands the tasks to `solve_all` in
-`engine.py`.
+[Loading at the pace of each source](#loading-at-the-pace-of-each-source). `build_market` then prepares the
+`Market` that every portfolio shares, and the request's `tasks` prepares its portfolios with `build_portfolios`: see
+[Preparing the inputs](#preparing-the-inputs). It makes one `SolveTask` per solve, a portfolio plus a `Strategy`: one
+per portfolio for `optimize`, one per tax budget for `transition`. `run` hands the tasks to `solve_all` in `engine.py`.
 
 In a worker, `solve_task` turns the market and one portfolio into `SolverInputs`, applies the strategy's rules in order
 (`apply_rules`), and calls `optimizer.solve`. The result is either `Solved` (trades, post-trade positions, a dollar summary, and any
@@ -34,14 +34,14 @@ disk, so a failed output never loses the run.
 
 ## Requests and the context
 
-Each entry point takes two things. Its request is a pydantic model of what was asked: the strategy, the
+A run takes two things. Its request is a pydantic model of what was asked: the job, the strategy, the
 portfolios, the business date. The CLI builds requests from its arguments, and an API or an agent
 can build the same models from JSON. Because the request goes into the snapshot whole, every run records exactly what
-produced it.
+produced it, and replay can run it again.
 
 The `Context` is everything the process is connected to: the loader with its sources and cache, the
 runs table that issues run ids, and the snapshot directory. `open_context` in `context.py` is the only place that opens connections, and it closes them on
-exit. Jobs never read settings or build clients, so a new entry point needs no infrastructure code, and a test can give a
+exit. Jobs never read settings or build clients, so a new job needs no infrastructure code, and a test can give a
 job fake sources through the same `Context`.
 
 Configuration follows the same split. Each source module owns its settings model (`OracleSettings` beside the Oracle
@@ -206,22 +206,27 @@ most 12.6s) for track-benchmark, about 21,000. As LPs, the same portfolios took 
 the data: with every bond taxed alike, core took a median 10.6s on the same market, and one solve reached the limit and
 kept a solution within 4% of the best possible.
 
-## Four entry points, one engine
+## Three jobs, one engine, one replay
 
-The entry points differ only in what they feed the engine. `optimize` solves real portfolios. A model
-portfolio is the same solve for a synthetic all-cash portfolio that pays no tax. Transition analysis solves one portfolio
-once per tax budget, adding a `MaxTax` constraint each time, and reads the results as a frontier of tax paid against
-distance from the target. Because transitions are just more tasks, their frontier points solve in parallel like any
-batch. `replay` reads the datasets a run saved instead of the sources, prepares them with the same code, and solves
-them with another strategy. It is how a strategy is tried without database access, and how two strategies are compared on
-the same data.
+A job is its request class, and jobs differ only in the solves they ask for. `optimize` solves real portfolios, one
+solve each. A model portfolio is the same solve for a synthetic all-cash portfolio that pays no tax, made from the
+request rather than loaded. Transition analysis solves one portfolio once per tax budget, adding a `MaxTax` constraint
+each time, and reads the results as a frontier of tax paid against distance from the target. Because transitions are
+just more tasks, their frontier points solve in parallel like any batch.
+
+`replay` runs any job again from its snapshot. It reads the saved request and datasets, prepares them with the code you
+have now, and asks the request for its solves as the live run did, with the saved strategy or another one. It saves the
+result as a new run of the same job, recording the run it replayed, so a replay can be replayed too. With the saved
+strategy, a replay shows whether a code change moved any result; with another, it compares strategies on the same
+data, without database access. A solve that stops at its time limit may stop elsewhere on another machine, so its
+replay can differ.
 
 ## Logs are written for agents
 
 Every record is one JSON object per line on stderr, because the main reader is an agent, and Azure Monitor parses the
 same lines; `OPTIM_LOG_FORMAT=text` is for a person at a terminal. Logging lives in the shared parts, not in jobs or
 rules: the loader, the SQL and HTTP adapters, the engine and the solver each log what passes through them, so a new
-dataset, rule or entry point is logged without a line of logging code. At INFO a run tells its story: what loaded, each
+dataset, rule or job is logged without a line of logging code. At INFO a run tells its story: what loaded, each
 portfolio's result and trades, and the snapshot, with a record for every load (with its cache outcome), query
 (connect, execute and fetch times), HTTP call and solve (size, settings, status, gap, and build, compile and solver
 times). `OPTIM_LOG_LEVEL=DEBUG` adds a record for every rule (what it made unbuyable).

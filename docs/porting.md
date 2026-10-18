@@ -102,8 +102,10 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
    from optim.datasets.securities import SECURITIES, UNIVERSE
    from optim.datasets.signals import SIGNALS
    from optim.inputs import load_frames
-   from optim.outputs.snapshots import input_frames, save_snapshot
+   from optim.jobs.optimize import OptimizeRequest
+   from optim.outputs.snapshots import save_run
    from optim.sources import Columns, Param
+   from optim.strategy import Strategy
 
    AS_OF_DATE = date(2026, 10, 16)
    OLD = {  # each dataset's query -> the old system's data, renamed to that dataset's row fields
@@ -124,8 +126,10 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
 
    loader = Loader(dict.fromkeys(("oracle", "mssql", "signals"), Old()))
    portfolio_ids = OLD[PORTFOLIOS.query]["portfolio_id"].tolist()
+   strategy = Strategy.model_validate_json(Path("strategies/legacy.json").read_bytes())
+   request = OptimizeRequest(strategy=strategy, portfolios=portfolio_ids, as_of_date=AS_OF_DATE)
    frames = load_frames(loader, portfolio_ids, AS_OF_DATE)
-   save_snapshot(Path("snapshots"), "old-2026-10-16", meta={"as_of_date": AS_OF_DATE}, frames=input_frames(frames))
+   save_run(Path("snapshots"), "old-2026-10-16", job="optimize", as_of_date=AS_OF_DATE, request=request, frames=frames, results=[])
    ```
 
    The `old/` files stand for however the old data is exported. Each frame must have exactly its row model's fields,
@@ -134,7 +138,7 @@ system's inputs as a snapshot, replay it with the ported strategy, and diff the 
 2. Replay it with the ported strategy:
 
    ```sh
-   uv run optim replay snapshots/old-2026-10-16 --strategy strategies/legacy.json --workers 4
+   uv run optim replay snapshots/old-2026-10-16 --workers 4
    ```
 
    The run prints a summary row per portfolio and saves its snapshot as `snapshots/RUN_ID`, where `RUN_ID` is the id
@@ -162,7 +166,7 @@ lot selection and wash sales, turnover at limits, income at signals and eligibil
 
 | File | Columns |
 |---|---|
-| `run.json` | An object with `as_of_date`, the business date as `YYYY-MM-DD`. Other keys are ignored. |
+| `run.json` | An object with `run_id` and `request`, the job's request as JSON, with `job` naming the job. Replay reads only these two; the other keys are for people. |
 | `inputs/<dataset>.parquet` | One file per dataset, named as its `Dataset` is, with exactly its row model's fields, as loaded: `securities` (`Security`), `universe` (`Offering`), `signals` (`Signal`), `benchmarks` (`BenchmarkWeight`), `portfolios` (`PortfolioDetails`), `lots` (`Lot`) and `loss_sales` (`LossSale`). The models are in `src/optim/datasets/`. |
 
 A run's snapshot also holds its results. `trades.parquet` has `portfolio_id`, `cusip`, `lot_id` (sells only), `side`

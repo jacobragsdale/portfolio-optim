@@ -3,7 +3,7 @@
 A tax-aware optimizer for taxable fixed income portfolios. One run loads data once, solves each portfolio in a worker
 process with cvxpy and HiGHS, and saves a snapshot. A strategy JSON file (`strategies/`) says how to optimize. Read
 [docs/architecture.md](docs/architecture.md) for why it is built this way, and [docs/extending.md](docs/extending.md)
-before adding a dataset, rule, constraint, term, source, entry point or output.
+before adding a dataset, rule, constraint, term, source, job or output.
 
 ## Where things are
 
@@ -13,7 +13,7 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 |---|---|
 | `cli.py` | Arguments to a request; exit code 0 only when every portfolio solved cleanly. |
 | `context.py`, `settings.py` | The only place connections open; `OPTIM_*` environment variables. |
-| `jobs/` | One entry point per module: `optimize`, `model_portfolio`, `transition`, `replay`. Each is load, solve, save. |
+| `jobs/` | A request class per job (`optimize`, `model_portfolio`, `transition`) and the solves it makes; `run` and `replay` run any job. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. |
 | `data/loader.py`, `data/cache.py` | Fetching, validation, batching and the Redis cache, for every dataset. |
 | `inputs.py` | `load_frames` (every dataset a run reads), then prep: `Market` (shared by a run), `Portfolio`, and `SolverInputs` (what one solve sees). |
@@ -42,7 +42,7 @@ All paths are under `src/optim/`.
 ```sh
 uv run pre-commit run --all-files   # ruff, ty, lockfile
 uv run pytest
-uv run optim replay snapshots/RUN_ID --strategy strategies/core.json
+uv run optim replay snapshots/RUN_ID   # the saved run, with your code; --strategy FILE to try another
 ```
 
 Replay solves a saved run again and needs no `.env` or database, so it is the way to see a solver change work

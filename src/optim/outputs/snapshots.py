@@ -3,7 +3,6 @@ explained and replayed. One directory per run, holding `run.json`, a Parquet fil
 Parquet file per dataset exactly as loaded. What the solves derived from those is not saved: replay rebuilds it with the
 same code."""
 
-import json
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import date
@@ -11,11 +10,13 @@ from pathlib import Path
 
 import pandas as pd
 import pydantic_core
+from pydantic import TypeAdapter
 
 from optim.optimizer.results import Result, Solved, Unsolved
 from optim.schema import Model
 
 log = logging.getLogger(__name__)
+_RUN_JSON = TypeAdapter(dict[str, object])
 
 
 def save_run(root: Path, run_id: str, *, job: str, request: Model, as_of_date: date, frames: Mapping[str, pd.DataFrame], results: Sequence[Result], **extra: object) -> Path:
@@ -24,13 +25,13 @@ def save_run(root: Path, run_id: str, *, job: str, request: Model, as_of_date: d
     return save_snapshot(root, run_id, meta=meta, frames=input_frames(frames) | result_frames(results))
 
 
-def load_run(path: Path) -> tuple[date, dict[str, pd.DataFrame]]:
-    """A saved run's business date and the datasets it loaded, by name, for `optim replay`."""
+def load_run(path: Path) -> tuple[dict[str, object], dict[str, pd.DataFrame]]:
+    """A saved run's `run.json` and the datasets it loaded, by name, for `optim replay`."""
     if not (inputs := path / "inputs").is_dir():
         msg = f"{path} has no inputs/ directory: it is not a snapshot, or was saved before snapshots kept each dataset as loaded"
         raise FileNotFoundError(msg)
-    as_of_date = date.fromisoformat(json.loads((path / "run.json").read_bytes())["as_of_date"])
-    return as_of_date, {file.stem: pd.read_parquet(file) for file in sorted(inputs.glob("*.parquet"))}
+    meta = _RUN_JSON.validate_json((path / "run.json").read_bytes())
+    return meta, {file.stem: pd.read_parquet(file) for file in sorted(inputs.glob("*.parquet"))}
 
 
 def save_snapshot(root: Path, run_id: str, *, meta: Mapping[str, object], frames: Mapping[str, pd.DataFrame]) -> Path:

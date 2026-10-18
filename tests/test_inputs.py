@@ -16,9 +16,10 @@ from optim.datasets.portfolios import LOSS_SALES, LOTS, PORTFOLIOS, LossSale, Lo
 from optim.datasets.securities import SECURITIES, UNIVERSE
 from optim.datasets.signals import SIGNALS
 from optim.inputs import MARKET, build_market, build_portfolios
-from optim.jobs.model_portfolio import ModelPortfolioRequest, model_portfolio
-from optim.jobs.optimize import OptimizeRequest, optimize
-from optim.jobs.replay import ReplayRequest, replay
+from optim.jobs import Job, ReplayRequest, replay, run
+from optim.jobs.model_portfolio import ModelPortfolioRequest
+from optim.jobs.optimize import OptimizeRequest
+from optim.jobs.transition import TransitionRequest
 from optim.optimizer.results import Solved
 from optim.outputs.snapshots import load_run, save_run
 from optim.rules.tax import AfterTax, NoWashSales
@@ -151,9 +152,9 @@ def test_a_snapshot_gives_back_the_frames_the_run_loaded(tmp_path: Path) -> None
     request = OptimizeRequest(strategy=STRATEGY, portfolios=["P1"], as_of_date=AS_OF)
 
     save_run(tmp_path, "run-1", job="optimize", request=request, as_of_date=AS_OF, frames=frames, results=[])
-    as_of_date, saved = load_run(tmp_path / "run-1")
+    meta, saved = load_run(tmp_path / "run-1")
 
-    assert as_of_date == AS_OF
+    assert meta["request"] == request.model_dump(mode="json")
     assert saved.keys() == frames.keys()
     for name, loaded in frames.items():
         assert_frame_equal(saved[name], loaded)  # dtypes included: replay must prepare exactly what the run did
@@ -192,15 +193,24 @@ def context(snapshot_dir: Path, source: Rows) -> Context:
     return Context(Loader({"oracle": source, "mssql": source, "signals": source}), snapshot_dir, workers=1, new_run_id=lambda: "run-1")
 
 
-def test_replay_trades_as_the_run_did(tmp_path: Path) -> None:
-    run = optimize(context(tmp_path, sources()), OptimizeRequest(strategy=STRATEGY, portfolios=["P1", "P2"], as_of_date=AS_OF))
-    replayed = replay(ReplayRequest(strategy=STRATEGY, snapshot=tmp_path / run.run_id), workers=1)
+JOBS = [
+    OptimizeRequest(strategy=STRATEGY, portfolios=["P1", "P2"], as_of_date=AS_OF),
+    TransitionRequest(strategy=STRATEGY, portfolio_id="P1", tax_budgets=[0, 10_000], as_of_date=AS_OF),
+    ModelPortfolioRequest(strategy=STRATEGY, benchmark_id="B1", notional=1_000_000, as_of_date=AS_OF),
+]
 
-    assert run.ok
+
+@pytest.mark.parametrize("job", JOBS, ids=lambda job: job.job)
+def test_a_replay_solves_as_the_run_did(tmp_path: Path, job: Job) -> None:
+    ran = run(context(tmp_path, sources()), job)
+    replayed = replay(ReplayRequest(snapshot=tmp_path / ran.run_id), workers=1)
+
+    assert ran.ok
     assert replayed.ok
-    for live, again in zip(run.results, replayed.results, strict=True):
+    for live, again in zip(ran.results, replayed.results, strict=True):
         assert isinstance(live, Solved)
         assert isinstance(again, Solved)
+        assert again.strategy == live.strategy
         assert not live.trades.empty
         assert_frame_equal(again.trades, live.trades)
 
@@ -208,7 +218,7 @@ def test_replay_trades_as_the_run_did(tmp_path: Path) -> None:
 def test_a_model_portfolio_reads_no_portfolio_data(tmp_path: Path) -> None:
     source = sources()
 
-    run = model_portfolio(context(tmp_path, source), ModelPortfolioRequest(strategy=STRATEGY, benchmark_id="B1", notional=1_000_000, as_of_date=AS_OF))
+    ran = run(context(tmp_path, source), ModelPortfolioRequest(strategy=STRATEGY, benchmark_id="B1", notional=1_000_000, as_of_date=AS_OF))
 
-    assert run.ok
+    assert ran.ok
     assert not {PORTFOLIOS.query, LOTS.query, LOSS_SALES.query} & set(source.queries)

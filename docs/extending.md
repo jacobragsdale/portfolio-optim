@@ -149,16 +149,17 @@ Each strategy's `"solve"` block says how its portfolios are solved:
 
 ## How to compare strategies on a saved run
 
-Every run's snapshot holds every dataset it loaded. `optim replay` prepares them with the same code as a live run and
-solves them again with another strategy, so two strategies can be compared on the same data:
+Every run's snapshot holds its request and every dataset it loaded. `optim replay` runs the same job again on them,
+with the code you have now and, with `--strategy`, another strategy, so two strategies can be compared on the same data:
 
 ```sh
 uv run optim replay snapshots/RUN_ID --strategy strategies/my-variant.json --workers 4
 ```
 
-Replay reads only the snapshot directory. It needs no `.env`, database or Redis, and writes nothing but its own snapshot. It
-applies the new strategy's rules, objective, constraints and solve block, saves the results as a new run beside the
-original, and prints the summary. `--portfolios A1 A2` replays only some portfolios. Each run's `summary.parquet` holds one
+Without `--strategy`, it replays the run as it was, which shows whether a code change moved any result. Replay reads
+only the snapshot directory. It needs no `.env`, database or Redis, and writes nothing but its own snapshot. It
+applies the strategy's rules, objective, constraints and solve block, saves the results as a new run of the same job
+beside the original, and prints the summary. `--portfolios A1 A2` replays only some portfolios. Each run's `summary.parquet` holds one
 row per portfolio, so comparing two runs is a join on `portfolio_id`.
 
 ## How to add a data source
@@ -175,14 +176,16 @@ row per portfolio, so comparing two runs is a join on `portfolio_id`.
 
 If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSettings`, `rest.client` and `RestSource`.
 
-## How to add an entry point
+## How to add a job
 
-1. Add a module to `src/optim/jobs/` with a request model (a `Model` subclass) and a function taking
-   `(ctx: Context, request: YourRequest)`. First take a run id from `ctx.new_run_id()` and `logs.bind(run_id=...)`
-   it, so every record of the run carries it. Load with `load_frames` and prepare with `build_inputs`, build
-   `SolveTask`s, call `solve_all`, and save the run with `save_run`, passing it the loaded frames, before any other
-   output.
-2. Add a subcommand to `_parser()` in `src/optim/cli.py` that builds the request, and a `case` for it in `main`.
+1. Add a module to `src/optim/jobs/` with a request class, a `Model` subclass. Give it a
+   `job: Literal["your_job"] = "your_job"` field, a `strategy`, an `as_of_date` and whatever else it needs, then:
+   - `portfolio_ids`, a property: the portfolios to load, or none.
+   - `tasks(self, frames: Frames) -> list[SolveTask]`: the solves it makes from the loaded datasets. Build its
+     portfolios with `build_portfolios(frames, ids)`, as `optimize.py` does.
+2. Add the class to the `Job` union in `src/optim/jobs/__init__.py`. `run` then loads, prepares, solves and saves it,
+   and `optim replay` replays its snapshots, with nothing else to write.
+3. Add a subcommand to `_parser()` in `src/optim/cli.py`, and a `case` in `_run` that builds the request.
 
 ## How to add an output
 
@@ -193,4 +196,6 @@ A report, a write to a database or a call to another API after the solves:
    connection.
 2. If it needs a client or connection, add its settings and open it in `open_context` as for
    [a data source](#how-to-add-a-data-source), and add it to `Context`.
-3. Call it from each job that should produce it, after `save_run`, so a failed output never loses the run's snapshot.
+3. Call it in `run` in `src/optim/jobs/__init__.py`, after `_solve` returns: the snapshot is on disk by then, so a
+   failed output never loses it. An output for one job checks `job.job`. Replays do not call it, so a replay never
+   sends a report or writes a row.

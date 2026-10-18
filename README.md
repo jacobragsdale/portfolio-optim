@@ -24,7 +24,8 @@ uv run --env-file .env optim optimize --strategy strategies/core.json --portfoli
 queries. The run prints one summary row per portfolio and writes a snapshot under `OPTIM_SNAPSHOT_DIR`.
 `uv run optim --help` lists the other commands: `model`, `transition`, `replay`, `warm`, `clear` and `schema`.
 
-To try a strategy without access to those systems, replay a saved run with it. Replay reads only the run's snapshot:
+To try a strategy without access to those systems, replay a saved run with it. Replay reads only the run's snapshot,
+and without `--strategy` re-runs the run as it was, with the code you have now:
 
 ```sh
 uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json
@@ -44,11 +45,11 @@ The image's entrypoint is the `optim` CLI. Every run is an AKS Job that Airflow 
 ## Layout
 
 Each folder under `src/optim/` is one concern, with one module per thing that grows: a source, a subject of data, a
-family of rules or constraints, an entry point.
+family of rules or constraints, a job.
 
 | Path | Holds |
 |---|---|
-| `jobs/` | The entry points, one module each: `optimize`, `model_portfolio`, `transition`, `replay`. Each defines its request model. |
+| `jobs/` | One request class per job: `optimize`, `model_portfolio`, `transition`, each with the solves it makes. `run` runs any job, and `replay` runs a saved one again. |
 | `datasets/` | Every dataset by subject (portfolios, securities, signals, benchmarks): row schema, query and cache rule. SQL is in `datasets/sql/`. |
 | `inputs.py` | Loading every dataset a run reads, and preparing them into the `Market` all portfolios share and the `SolverInputs` one solve sees. |
 | `rules/` | Pre-solve rules, by family: `eligibility`, `tax`. |
@@ -65,7 +66,7 @@ family of rules or constraints, an entry point.
 
 - [How the optimizer is put together](docs/architecture.md): how a run flows, and why it is built that way.
 - [Performance](docs/performance.md): measured run time, CPU and memory, from 1 to 1,000 portfolios, for sizing Jobs.
-- [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source or entry point;
+- [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source or job;
   configure a solve; compare strategies on a saved run.
 - [Porting another optimizer](docs/porting.md): map an existing system's data and logic onto this one, and compare
   results on the same data.

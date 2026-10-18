@@ -96,11 +96,6 @@ def _load_portfolios(loader: Loader, portfolio_ids: list[str], as_of_date: date)
     return {"portfolios": portfolios.result(), "lots": lots.result(), "loss_sales": loss_sales.result()}
 
 
-def build_inputs(frames: Frames, portfolio_ids: Sequence[str], as_of_date: date) -> tuple[Market, list[Portfolio]]:
-    """The market and the portfolios, from the frames a run loaded or a snapshot saved."""
-    return build_market(frames, as_of_date), build_portfolios(frames, portfolio_ids)
-
-
 def build_market(frames: Frames, as_of_date: date) -> Market:
     """Join the per-security datasets into one row per bond with analytics, and check that the datasets agree. Besides
     the `Security` columns, each row has:

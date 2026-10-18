@@ -1,36 +1,30 @@
 """Build a model portfolio from cash: the same engine, run for an all-cash portfolio that pays no tax."""
 
 from datetime import date
+from typing import Literal
 
 from pydantic import Field
 
-from optim import logs
-from optim.context import Context
 from optim.datasets.portfolios import PORTFOLIOS, PortfolioDetails
-from optim.engine import SolveTask, solve_all
-from optim.inputs import build_inputs, load_frames
-from optim.jobs import Run
-from optim.outputs.snapshots import save_run
+from optim.engine import SolveTask
+from optim.inputs import Frames, build_portfolios
 from optim.schema import Model
 from optim.strategy import Strategy
 
 
 class ModelPortfolioRequest(Model):
+    job: Literal["model_portfolio"] = "model_portfolio"
     strategy: Strategy
     benchmark_id: str
     notional: float = Field(gt=0)
     as_of_date: date
 
+    @property
+    def portfolio_ids(self) -> list[str]:
+        return []  # nothing to load: the portfolio is made from the request
 
-def model_portfolio(ctx: Context, request: ModelPortfolioRequest) -> Run:
-    run_id = ctx.new_run_id()
-    logs.bind(run_id=run_id)
-    details = PortfolioDetails(
-        portfolio_id=f"model:{request.strategy.name}", benchmark_id=request.benchmark_id, cash=request.notional, federal_rate=0.0, state_rate=0.0, st_gain_rate=0.0, lt_gain_rate=0.0
-    )
-    # the market, and empty portfolio frames in which the model portfolio stands as the only portfolio
-    frames = load_frames(ctx.loader, [], request.as_of_date) | {"portfolios": PORTFOLIOS.to_frame({k: [v] for k, v in details.model_dump().items()})}
-    market, portfolios = build_inputs(frames, [details.portfolio_id], request.as_of_date)
-    results = solve_all(market, [SolveTask(portfolios[0], request.strategy)], workers=ctx.workers)
-    save_run(ctx.snapshot_dir, run_id, job="model_portfolio", request=request, as_of_date=request.as_of_date, frames=frames, results=results)
-    return Run(run_id, results)
+    def tasks(self, frames: Frames) -> list[SolveTask]:
+        details = PortfolioDetails(portfolio_id=f"model:{self.strategy.name}", benchmark_id=self.benchmark_id, cash=self.notional, federal_rate=0.0, state_rate=0.0, st_gain_rate=0.0, lt_gain_rate=0.0)
+        # it stands as the only portfolio, beside the empty lots and loss sales the run loaded for no portfolios
+        frames = {**frames, "portfolios": PORTFOLIOS.to_frame({k: [v] for k, v in details.model_dump().items()})}
+        return [SolveTask(portfolio, self.strategy) for portfolio in build_portfolios(frames, [details.portfolio_id])]
