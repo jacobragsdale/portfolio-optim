@@ -1,6 +1,6 @@
 """How much the portfolio trades, and how much it keeps in cash."""
 
-from typing import Literal, Self
+from typing import ClassVar, Literal, Self
 
 import cvxpy as cp
 from pydantic import Field, model_validator
@@ -42,6 +42,7 @@ class MaxBuys(StrictModel):
 
     kind: Literal["max_buys"] = "max_buys"
     n: int = Field(ge=0)
+    integer_only: ClassVar[bool] = True  # a strategy that solves an LP is refused when it is read
 
     def build(self, m: OptimizationModel) -> list[cp.Constraint]:
         if m.buying is None:

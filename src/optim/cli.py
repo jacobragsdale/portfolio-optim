@@ -82,8 +82,11 @@ def _run(args: argparse.Namespace) -> int:
             job = OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of_date=as_of_date)
         case "model":
             job = ModelPortfolioRequest(strategy=strategy, benchmark_id=args.benchmark, notional=args.notional, as_of_date=as_of_date)
-        case _:
+        case "transition":
             job = TransitionRequest(strategy=strategy, portfolio_id=args.portfolio, tax_budgets=args.tax_budgets, as_of_date=as_of_date)
+        case _:
+            msg = f"no job for the {args.command!r} command: add a case for it here"
+            raise ValueError(msg)
     with open_context(settings, cache=not args.no_cache) as ctx:
         return _report(run(ctx, job))
 
