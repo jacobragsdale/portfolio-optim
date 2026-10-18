@@ -169,10 +169,15 @@ lot selection and wash sales, turnover at limits, income at signals and eligibil
 | `run.json` | An object with `run_id` and `request`, the job's request as JSON, with `job` naming the job. Replay reads only these two; the other keys are for people. |
 | `inputs/<dataset>.parquet` | One file per dataset, named as its `Dataset` is, with exactly its row model's fields, as loaded: `securities` (`Security`), `universe` (`Offering`), `signals` (`Signal`), `benchmarks` (`BenchmarkWeight`), `portfolios` (`PortfolioDetails`), `lots` (`Lot`) and `loss_sales` (`LossSale`). The models are in `src/optim/datasets/`. |
 
-A run's snapshot also holds its results. `trades.parquet` has `portfolio_id`, `cusip`, `lot_id` (sells only), `side`
-(`buy` or `sell`) and `par`. `positions.parquet` has post-trade `cusip`, `par` and `weight` per portfolio.
-`summary.parquet` has one row per portfolio, including `status`, `objective`, and `value`, `cash`, `turnover`, `tax`, `cost` and
-`income` in dollars.
+A run's snapshot also holds its results, each with exactly the fields of its row model in
+`src/optim/optimizer/results.py`, whatever the run produced:
+
+| File | One row per | Row model |
+|---|---|---|
+| `trades.parquet` | trade: a buy of a bond, or a sale from one tax lot | `Trade` |
+| `positions.parquet` | bond held after trading | `Position` |
+| `summary.parquet` | solve, with its status and its dollar totals; null numbers when it did not solve | `Summary` |
+| `violations.parquet` | constraint broken at the exact trades, with the excess in weights | `Violation` |
 
 ## Glossary
 

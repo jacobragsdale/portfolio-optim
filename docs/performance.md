@@ -80,7 +80,7 @@ Each solve returns its result to the parent, which keeps it until the snapshot i
 |---|---|---|---|
 | `trades` | 11 | 1 KB | the `solved` log record, the snapshot |
 | `positions` | 38 | 1 KB | the snapshot |
-| `summary`, `violations` | | under 1 KB | the log, the snapshot's summary, the exit code |
+| `summary`, `violations` | | under 1 KB | the log, the snapshot's `summary` and `violations`, the exit code |
 
 Pickling a result in the worker and unpickling it in the parent takes 0.2 ms. What a solve saw after the rules is not
 returned: replay rebuilds it from the snapshot, 0.6 s to load a 1,000-portfolio snapshot and 0.1 s to prepare its

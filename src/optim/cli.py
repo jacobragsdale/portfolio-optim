@@ -30,7 +30,7 @@ from optim.jobs import Job, ReplayRequest, Run, replay, run
 from optim.jobs.model_portfolio import ModelPortfolioRequest
 from optim.jobs.optimize import OptimizeRequest
 from optim.jobs.transition import TransitionRequest
-from optim.outputs.snapshots import result_frames
+from optim.optimizer.results import result_frames
 from optim.settings import Settings
 from optim.strategy import Strategy
 

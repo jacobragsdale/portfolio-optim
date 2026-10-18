@@ -42,6 +42,18 @@ def empty_frame(row: type[Row]) -> pd.DataFrame:
     return pd.DataFrame({name: pd.Series(dtype=dtype) for name, (_, dtype) in _schema(row).items()})
 
 
+def conform(row: type[Row], frames: Sequence[pd.DataFrame], *, name: str) -> pd.DataFrame:
+    """Frames this code built, as one frame validated against `row` and typed by it, as a dataset's frame is, for what
+    others read, such as a snapshot's results. A field no frame has, such as `gap` when no solve was an integer one, is
+    null; a column `row` has no field for is an error, so the schema cannot fall behind the code."""
+    frame = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    if extra := sorted(set(frame.columns) - set(row.model_fields)):
+        msg = f"{name}: {row.__name__} has no field for {extra}"
+        raise ValueError(msg)
+    frame = frame.reindex(columns=list(row.model_fields))
+    return validate_columns(row, {column: frame[column].astype(object).where(frame[column].notna(), None).tolist() for column in frame.columns}, name=name)
+
+
 def to_models[R: Row](row: type[R], frame: pd.DataFrame) -> list[R]:
     """A validated frame's rows as models, for small frames you want typed attributes on (one per portfolio)."""
     records = frame.astype(object).where(frame.notna(), None).to_dict("records")

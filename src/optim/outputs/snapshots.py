@@ -13,7 +13,7 @@ import pydantic_core
 from pydantic import TypeAdapter
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from optim.optimizer.results import Result, Solved, Unsolved
+from optim.optimizer.results import Result, result_frames
 from optim.schema import Model
 
 log = logging.getLogger(__name__)
@@ -64,24 +64,3 @@ def input_frames(frames: Mapping[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
     """The datasets a run loaded, keyed as `save_snapshot` writes them and `load_run` reads them back."""
     # writes the whole market every run; store it once per content hash if snapshots grow too fast
     return {f"inputs/{name}": frame for name, frame in frames.items()}
-
-
-def result_frames(results: Sequence[Result]) -> dict[str, pd.DataFrame]:
-    solved = [r for r in results if isinstance(r, Solved)]
-    return {
-        "trades": _concat([r.trades.assign(strategy=r.strategy) for r in solved]),
-        "positions": _concat([r.positions.assign(portfolio_id=r.portfolio_id, strategy=r.strategy) for r in solved]),
-        "summary": pd.DataFrame([_summary_row(r) for r in results]),
-    }
-
-
-def _summary_row(result: Result) -> dict[str, object]:
-    match result:
-        case Solved():
-            return {"portfolio_id": result.portfolio_id, "strategy": result.strategy, "status": result.status, **result.summary, "seconds": result.seconds}
-        case Unsolved():
-            return {"portfolio_id": result.portfolio_id, "strategy": result.strategy, "status": result.status}
-
-
-def _concat(frames: list[pd.DataFrame]) -> pd.DataFrame:
-    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
