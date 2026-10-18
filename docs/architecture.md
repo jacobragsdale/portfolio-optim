@@ -31,7 +31,7 @@ loaded, and every result frame.
 
 Nothing derived from the datasets is stored: prep and rules are pure, so replay rebuilds what each solve saw with the
 same code, and a change to prep shows on replay as a change to a rule does. Storing what each solve saw instead capped a
-Job at a few thousand portfolios ([what a worker returns](performance.md#what-a-worker-returns)). Anything else the
+Job at a few thousand portfolios, since the parent holds every result until the snapshot is written. Anything else the
 run produces, such as a report, rows in a database or an API call, comes after the snapshot is on disk, so a failed
 output never loses the run.
 
@@ -58,9 +58,8 @@ Kubernetes nor Airflow retries a run: a rerun is a new run, with its own id and 
 
 `OPTIM_WORKERS` sizes the run's process pool and should match the Job's CPU request in physical cores: hyperthreads
 add little throughput and slow every solve. Each worker's BLAS gets one thread rather than one per CPU, so the workers
-do not compete for cores. [Performance](performance.md) has the measured time, CPU and memory per run. A run with one
-task, the common intraday case, solves in the Job's own process and starts no pool. Snapshots go to an Azure Files
-volume, so they outlive the Job's pod.
+do not compete for cores. A run with one task, the common intraday case, solves in the Job's own process and starts
+no pool. Snapshots go to an Azure Files volume, so they outlive the Job's pod.
 
 A solver process that dies, as when the Job reaches its memory limit, breaks the pool and loses every portfolio it had
 not finished. Those get one new pool, which covers a one-off kill; if that breaks too, they stay unsolved, and one

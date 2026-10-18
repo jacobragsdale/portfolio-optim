@@ -65,7 +65,6 @@ through them.
 ## Further reading
 
 - [How the optimizer is put together](docs/architecture.md): how a run flows, and why it is built that way.
-- [Performance](docs/performance.md): measured run time, CPU and memory, from 1 to 1,000 portfolios, for sizing Jobs.
 - [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source or job;
   configure a solve; compare strategies on a saved run.
 - [Porting another optimizer](docs/porting.md): bring an existing optimizer's data and logic into this one, best
