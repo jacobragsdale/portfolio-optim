@@ -5,8 +5,10 @@ from typing import Literal
 
 from pydantic import Field
 
+from optim.datasets.portfolios import HoldingsBasis
 from optim.engine import SolveTask
-from optim.inputs import Frames, HoldingsBasis, build_portfolios
+from optim.prep import Frames
+from optim.prep.portfolios import build_portfolios
 from optim.schema import Id, Model
 from optim.strategy import Strategy
 

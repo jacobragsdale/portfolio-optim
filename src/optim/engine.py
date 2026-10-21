@@ -15,9 +15,11 @@ from dataclasses import dataclass
 from functools import partial
 
 from optim import logs
-from optim.inputs import Market, Portfolio
 from optim.optimizer.results import Result, Solved, Unsolved
 from optim.optimizer.solve import solve
+from optim.prep import Portfolio
+from optim.prep.market import Market
+from optim.prep.portfolios import inputs_for
 from optim.rules import apply_rules
 from optim.strategy import Strategy
 
@@ -40,7 +42,7 @@ def solve_task(market: Market, task: SolveTask) -> Result:
     """One portfolio, logged in whichever process solves it. A failure is logged here, where its traceback is whole."""
     portfolio_id, strategy = task.portfolio.details.portfolio_id, task.strategy.name
     try:
-        result = solve(apply_rules(task.strategy.rules, market.inputs_for(task.portfolio)), task.strategy)
+        result = solve(apply_rules(task.strategy.rules, inputs_for(market, task.portfolio)), task.strategy)
     except Exception as error:
         log.exception("solve failed", extra={"portfolio_id": portfolio_id, "strategy": strategy})
         return Unsolved(portfolio_id, strategy, f"error: {error!r}")

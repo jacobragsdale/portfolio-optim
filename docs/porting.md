@@ -31,14 +31,15 @@ To port an optimizer:
    - **drop**: [the engine already does it](#what-the-engine-already-does), or it was a workaround for something the
      engine does differently.
    - **ask**: nobody can say what it is for. Get an answer before step 4, or drop it and say so in the log.
-4. Port the data. Replace the placeholder datasets and their SQL in `src/optim/datasets/` with the old system's
-   queries, one `Dataset` per query ([how to add a dataset](extending.md#how-to-add-a-dataset)). Key securities by the
-   old system's canonical id, as `security_id`, with CUSIP and ISIN as columns where it has them. Leave prices,
-   quantities and amounts as the database's decimals: no `CAST(... AS FLOAT)`. Data cleaning becomes a bound in a
-   field's type, such as `Annotated[float, Field(gt=0)]`, or a dataset's `check`, a function that raises on rows that
-   disagree with each other, so bad data fails the load instead of being patched silently. Then make `load_frames`,
-   `_load_batch`, `build_market` and `build_portfolios` in `src/optim/inputs.py` follow the new datasets, and give each
-   dataset its row in `DEFAULTS` in `tests/builders.py`: one valid row per dataset, which every test frame starts from.
+4. Port the data. Replace the placeholder datasets and their SQL in `src/optim/datasets/` with the old system's queries,
+   one `Dataset` per query ([how to add a dataset](extending.md#how-to-add-a-dataset)). Key securities by the old
+   system's canonical id, as `security_id`, with CUSIP and ISIN as columns where it has them. Leave prices, quantities
+   and amounts as the database's decimals: no `CAST(... AS FLOAT)`. Data cleaning becomes a bound in a field's type,
+   such as `Annotated[float, Field(gt=0)]`, or a dataset's `check`, a function that raises on rows that disagree with
+   each other, so bad data fails the load instead of being patched silently. Then make `MARKET` and `PER_PORTFOLIO`
+   (`src/optim/datasets/__init__.py`), `_load_batch` (`datasets/load.py`), and `build_market` and `build_portfolios`
+   (`prep/`) follow the new datasets, and give each dataset its row in `DEFAULTS` in `tests/builders.py`: one valid row
+   per dataset, which every test frame starts from.
 5. Port each **port** and **change** row to its place in [where old code goes](#where-old-code-goes), following
    [extending.md](extending.md). The example kinds are generic, so reuse one with new parameters before writing a new
    one: `uv run optim schema` lists every rule, term and constraint kind with its parameters, `group_limit` with
@@ -70,12 +71,12 @@ sanity check recorded as intended, are where to start improving the strategy.
 |---|---|---|
 | Engine | Under `src/optim/`: `data/`, `sources/`, `context.py`, `settings.py`, `engine.py`, `jobs/`, `outputs/`, `cli.py`, `logs.py`, `strategy.py`, `schema.py`, `optimizer/solve.py`, `optimizer/backends.py`, `optimizer/rounding.py`, `optimizer/acceptance.py`, `optimizer/results.py` | Keep. Add sources, jobs, solvers and outputs as [extending.md](extending.md) shows. |
 | Placeholders | `src/optim/datasets/`, `strategies/`, `tests/builders.py` | Replace with the old system's data and settings. Their tables, columns and values are made up. |
-| Business logic | Under `src/optim/`: prep in `inputs.py`; the rule, term and constraint classes in `rules/`, `optimizer/objective.py` and `optimizer/constraints/`, and the unions that list them; `optimizer/model.py` | Port from the old optimizer. What is here is one small example of each, not a requirement: keep an example only where the old optimizer does the same. |
+| Business logic | Under `src/optim/`: prep in `prep/`; the rule, term and constraint classes in `rules/`, `optimizer/objective/` and `optimizer/constraints/`, and the unions that list them; `optimizer/model.py` | Port from the old optimizer. What is here is one small example of each, not a requirement: keep an example only where the old optimizer does the same. |
 
 `optimizer/model.py` holds the variables and expressions every constraint and term is written against, as `m`: buys and
 sales per line, a sleeve's holding of a security (`m.buy`, `m.sell`, with 0/1 flags `m.buying` and `m.selling` in an
 integer solve), weights in a scope (`m.weights(m.scope(sleeve))`), exposures, cash and cost. Change the model where the
-old optimizer's formulation differs, such as in what counts as cash or how it sizes trades. `inputs.py` decides what a
+old optimizer's formulation differs, such as in what counts as cash or how it sizes trades. `prep/` decides what a
 line is, how cash and cash flows are counted, and how controls apply; `build_market` holds the valuation convention,
 `unit_value`.
 
@@ -117,25 +118,25 @@ Paths are under `src/optim/` unless they start with `strategies/` or `deploy/`.
 |---|---|---|
 | Queries a database, file or API | A `Dataset` and its SQL | `datasets/`, `datasets/sql/` |
 | Cleans or checks data | A constraint in a field's type, or a dataset `check` | `datasets/` |
-| Joins data per security | A merge in `build_market` | `inputs.py` |
-| Values a position: prices, accrued interest, quote conventions, cash | `Security` columns (`price`, `accrued`, `price_per`, `asset_class`), and `unit_value` in `build_market` | `datasets/securities.py`, `inputs.py` |
-| Decides what missing data means, as a `fillna` or a default does | Prep, if every strategy needs it; otherwise a rule (see [preparing the inputs](architecture.md#preparing-the-inputs)) | `inputs.py`, `rules/` |
+| Joins data per security | A merge in `build_market` | `prep/market.py` |
+| Values a position: prices, accrued interest, quote conventions, cash | `Security` columns (`price`, `accrued`, `price_per`, `asset_class`), and `unit_value` in `build_market` | `datasets/securities.py`, `prep/market.py` |
+| Decides what missing data means, as a `fillna` or a default does | Prep, if every strategy needs it; otherwise a rule (see [preparing the inputs](architecture.md#preparing-the-inputs)) | `prep/`, `rules/` |
 | Splits a portfolio into sleeves, such as corporate and Treasury, with their own buy lists and benchmarks | Rows of the `sleeves` dataset, holdings booked to them, and their lists and benchmarks ([how to solve a portfolio with several sleeves](extending.md#how-to-solve-a-portfolio-with-several-sleeves)) | `datasets/`, `datasets/sql/` |
-| Restricts trading whatever the strategy: a client's restrictions, wash-sale blocks, hold-constant positions, mandatory sales | Rows of the `controls` dataset, which prep applies to every solve. A new kind of control is an `Action` and its handling in `_controlled` | `datasets/controls.py`, `inputs.py` |
+| Restricts trading whatever the strategy: a client's restrictions, wash-sale blocks, hold-constant positions, mandatory sales | Rows of the `controls` dataset, which prep applies to every solve. A new kind of control is an `Action` and its handling in `apply_controls` | `datasets/controls.py`, `prep/controls.py` |
 | Excludes securities from buying, for some strategies | A rule that calls `inputs.restrict_buys`, such as `exclude_issuers` for a restricted list | `rules/` |
 | Stops securities being sold, for some strategies | A rule that calls `inputs.restrict_sales`; a list that differs by portfolio is a per-portfolio dataset the rule reads from `inputs.portfolio`. A list every strategy must obey is a control | `rules/`, `datasets/` |
 | Adjusts returns or scores for some strategies | A rule that edits `expected_return` | `rules/` |
 | Sets a hard limit, on the whole portfolio or one sleeve | A constraint, with `"sleeve"` for one sleeve | `optimizer/constraints/` |
-| Applies a penalty or a preference, linear or quadratic | An objective term; a quadratic one sets `quadratic`, and an integer solve of it needs COPT | `optimizer/objective.py` |
+| Applies a penalty or a preference, linear or quadratic | An objective term; a quadratic one sets `quadratic`, and an integer solve of it needs COPT | `optimizer/objective/` |
 | Computes value, cash or exposures inside the optimization | An expression in the model | `optimizer/model.py` |
 | Rounds trades or drops small trades after the solve | The integer solve's trade sizes, from each security's `min_piece`, `increment` and `min_remaining`; a dollar minimum is a constraint on `m.buy` and `m.buying`, or on `m.sell` and `m.selling` | `optimizer/model.py`, `optimizer/constraints/` |
-| Retries a failed solve, as by loosening a constraint or changing the solver | Nothing: the portfolio is reported unsolved, with what it breaks before any trade. A limit that may bend is an objective penalty instead. | `optimizer/objective.py` |
+| Retries a failed solve, as by loosening a constraint or changing the solver | Nothing: the portfolio is reported unsolved, with what it breaks before any trade. A limit that may bend is an objective penalty instead. | `optimizer/objective/` |
 | Checks a result before it is released | A check in `review`, if every result needs it; otherwise a constraint | `optimizer/acceptance.py`, `optimizer/constraints/` |
 | Sets solver options, or uses a licensed solver | The strategy's `solve` block: `solver`, `time_limit_s`, `max_gap`, `options` | `strategies/` |
 | Sets values shared by a group of portfolios, such as a product's | Fields in one strategy file per group | `strategies/` |
 | Sets values that differ for every portfolio | A column on `PortfolioDetails` or `Sleeve`, read as `inputs.portfolio.details.<column>` or from `inputs.portfolio.sleeves` | `datasets/portfolios.py` |
 | Is another entry point, such as start-of-day runs, hypothetical portfolios or transition analysis | A job ([how to add a job](extending.md#how-to-add-a-job)); start of day is `optimize --holdings sod` | `jobs/` |
-| Writes reports or database rows | An output, called in `run` in `jobs/__init__.py` once the snapshot is saved | `outputs/` |
+| Writes reports or database rows | An output, called in `run` in `jobs/run.py` once the snapshot is saved | `outputs/` |
 | Sends orders | Nothing: the engine never sends orders | |
 | Runs on a schedule | An AKS Job that Airflow starts, from the Job spec | `deploy/job.yaml` |
 
@@ -191,7 +192,7 @@ To sanity-check the port:
    from optim.data.frames import to_columns
    from optim.data.loader import Loader
    from optim.datasets import all_datasets
-   from optim.jobs import run
+   from optim.jobs.run import run
    from optim.jobs.optimize import OptimizeRequest
    from optim.optimizer.results import result_frames
    from optim.sources import Columns, Param
@@ -294,7 +295,7 @@ The engine's words, and the placeholder data's. Old code may use other words for
 | Minimum remaining | The smallest holding a partial sale may leave. |
 | Full liquidation | A sale of the whole holding, exactly as booked, whatever its denominations. |
 | Signal | Expected annual return per security, from the signals API. |
-| Prep | What every strategy needs from the datasets, before the rules: joins, valuation, controls, what missing data means, checks across datasets. `build_market`, `build_portfolios` and `Market.inputs_for` in `inputs.py`. |
+| Prep | What every strategy needs from the datasets, before the rules: joins, valuation, controls, what missing data means, checks across datasets. `build_market`, `build_portfolios` and `inputs_for` in `prep/`. |
 | Strategy | The JSON file that says how to optimize: rules, objective, constraints, solve. |
 | Rule | A strategy's pre-solve edit to what may be bought or sold, or to expected returns. |
 | Kind | The `kind` that names a rule, term or constraint in a strategy file, such as `min_rating`. |

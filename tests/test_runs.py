@@ -14,8 +14,8 @@ from optim.cli import main
 from optim.data.loader import DatasetRead, Reads
 from optim.datasets.controls import Control
 from optim.datasets.portfolios import Holding, PortfolioDetails, Sleeve
-from optim.jobs import Replayed, ReplayRequest, RunInfo, replay, run
 from optim.jobs.hypothetical import HypotheticalPortfolio, HypotheticalRequest
+from optim.jobs.run import Replayed, ReplayRequest, RunInfo, replay, run
 from optim.outputs.snapshots import Code
 
 

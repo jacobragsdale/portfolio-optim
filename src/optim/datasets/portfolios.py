@@ -1,14 +1,14 @@
 """Portfolios, from SQL Server, which calls a portfolio an account: each portfolio's details, its sleeves, what it holds
 and the cash flows due. All are read live, a batch of portfolios at a time in one read-only transaction, so a batch's
-holdings and cash are from the same moment (see `optim.inputs`)."""
+holdings and cash are from the same moment (see `optim.datasets.load`)."""
 
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 import pandas as pd
 from pydantic import Field
 
-from optim.data.loader import Dataset
+from optim.data.dataset import Dataset
 from optim.schema import Currency, Id, Row, Weight
 
 
@@ -33,6 +33,9 @@ class Sleeve(Row):
     benchmark_id: Id | None
     target_weight: Weight | None
     """Its share of the portfolio's base value, which makes its own base value; null: its value before trading."""
+
+
+type HoldingsBasis = Literal["working", "sod"]  # start of day, or the start of day plus what has traded since
 
 
 class Holding(Row):

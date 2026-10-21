@@ -13,7 +13,8 @@ import oracledb
 import pytest
 from builders import CASH, frame
 
-from optim.data.loader import Dataset, Loader, TaskGroup
+from optim.data.dataset import Dataset
+from optim.data.loader import Loader, TaskGroup
 from optim.datasets.portfolios import HOLDINGS
 from optim.datasets.securities import SECURITIES
 from optim.schema import Row

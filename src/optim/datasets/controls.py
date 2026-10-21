@@ -1,9 +1,10 @@
 """Mandatory trading controls per portfolio, from SQL Server: what may not be bought or sold, and what must be sold.
-Prep applies them to every solve, whatever its strategy (see `optim.inputs`). Read live, with the portfolio's holdings."""
+Prep applies them to every solve, whatever its strategy (see `optim.prep.controls`). Read live, with the portfolio's
+holdings."""
 
 from typing import Literal
 
-from optim.data.loader import Dataset
+from optim.data.dataset import Dataset
 from optim.schema import Id, Row
 
 type Action = Literal["no_buy", "no_sell", "hold", "must_sell"]

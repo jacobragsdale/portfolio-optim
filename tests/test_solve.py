@@ -14,7 +14,6 @@ from optim.datasets.controls import CONTROLS
 from optim.datasets.portfolios import CASH_FLOWS, HOLDINGS, PORTFOLIOS, SLEEVES
 from optim.datasets.securities import SECURITIES, UNIVERSE
 from optim.datasets.signals import SIGNALS
-from optim.inputs import SolverInputs
 from optim.optimizer.acceptance import review
 from optim.optimizer.backends import Termination
 from optim.optimizer.constraints.exposures import ExposureLimit
@@ -24,6 +23,7 @@ from optim.optimizer.model import build_model
 from optim.optimizer.objective import Cost, ExpectedReturn, ExposureTracking, LadderBalance, Term, TurnoverQuadratic
 from optim.optimizer.results import Result, Solved
 from optim.optimizer.solve import solve
+from optim.prep import SolverInputs
 from optim.strategy import SolveSettings, Strategy
 
 INTEGER_AND_LP = pytest.mark.parametrize("settings", [SolveSettings(integer=True), SolveSettings(integer=False)], ids=["integer", "lp"])

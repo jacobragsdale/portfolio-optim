@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 import pandas as pd
 from pydantic import Field
 
-from optim.data.loader import CachePolicy, Dataset
+from optim.data.dataset import CachePolicy, Dataset
 from optim.schema import Currency, Cusip, Id, Isin, Par, Price, Quantity, Rating, Row
 
 # TODO(port): the old system's numeric analytics, such as spread duration or yield, join `Security` and this list.

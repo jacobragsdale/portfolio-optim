@@ -7,11 +7,13 @@ from typing import Literal, Self
 import pandas as pd
 from pydantic import Field, model_validator
 
-from optim.data.loader import Dataset
+from optim.data.dataset import Dataset
+from optim.datasets import PER_PORTFOLIO
 from optim.datasets.controls import Control
-from optim.datasets.portfolios import CashFlow, Holding, PortfolioDetails, Sleeve
+from optim.datasets.portfolios import PORTFOLIOS, CashFlow, Holding, HoldingsBasis, PortfolioDetails, Sleeve
 from optim.engine import SolveTask
-from optim.inputs import PER_PORTFOLIO, PORTFOLIOS, Frames, HoldingsBasis, build_portfolios
+from optim.prep import Frames
+from optim.prep.portfolios import build_portfolios
 from optim.schema import Model, Row
 from optim.strategy import Strategy
 

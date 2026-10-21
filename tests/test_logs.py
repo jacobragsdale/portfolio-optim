@@ -8,9 +8,11 @@ import pytest
 
 from optim import logs
 from optim.data.frames import empty_frame
+from optim.datasets import PER_PORTFOLIO
 from optim.datasets.portfolios import PortfolioDetails
 from optim.engine import SolveTask, solve_all
-from optim.inputs import PER_PORTFOLIO, Market, Portfolio
+from optim.prep import Portfolio
+from optim.prep.market import Market
 from optim.strategy import Strategy
 
 

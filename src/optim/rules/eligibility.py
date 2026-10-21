@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from optim.inputs import SolverInputs
+from optim.prep import SolverInputs
 from optim.schema import Rating, StrictModel
 
 

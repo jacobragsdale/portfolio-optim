@@ -10,18 +10,20 @@ import pytest
 from builders import ALL_DATASETS, AS_OF, CASH, OPTIMIZE, STRATEGY, USD, A, B, C, context, frame, market, portfolio, prepare, sources
 from pandas.testing import assert_frame_equal
 
+from optim.data.dataset import Dataset
 from optim.data.frames import empty_frame
-from optim.data.loader import Dataset
+from optim.datasets import MARKET
 from optim.datasets.benchmarks import BENCHMARKS
 from optim.datasets.controls import CONTROLS
 from optim.datasets.portfolios import CASH_FLOWS, HOLDINGS, PORTFOLIOS, SLEEVES, Holding
 from optim.datasets.securities import SECURITIES, UNIVERSE
 from optim.datasets.signals import SIGNALS
-from optim.inputs import MARKET, build_market, build_portfolios
-from optim.jobs import ReplayRequest, RunInfo, replay, run
 from optim.jobs.optimize import OptimizeRequest
+from optim.jobs.run import ReplayRequest, RunInfo, replay, run
 from optim.optimizer.results import Solved
 from optim.outputs.snapshots import Code, load_run, save_run
+from optim.prep.market import build_market
+from optim.prep.portfolios import build_portfolios
 
 THREE_BONDS = frame(SECURITIES, {"security_id": A}, {"security_id": B, "cusip": B}, {"security_id": C, "cusip": None, "isin": "XS0000000009"}, CASH)
 

@@ -27,7 +27,7 @@ import scipy.sparse as sp
 
 from optim.data.frames import to_models
 from optim.datasets.portfolios import Sleeve
-from optim.inputs import SolverInputs
+from optim.prep import SolverInputs
 from optim.schema import Id, StrictModel
 
 PORTFOLIO = "portfolio"  # the scope of the whole portfolio, beside one per sleeve

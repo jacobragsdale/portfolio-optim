@@ -14,8 +14,8 @@ from typing import Annotated
 import pandas as pd
 from pydantic import Field
 
-from optim.inputs import SolverInputs
 from optim.logs import ms_since, timed
+from optim.prep import SolverInputs
 from optim.rules.eligibility import ExcludeIssuers, MinRating
 
 log = logging.getLogger(__name__)

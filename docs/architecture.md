@@ -18,11 +18,11 @@ included. The id also names the run's snapshot. A scheduler can pass its own id,
 otherwise ids come from a runs table in SQL Server, and until that table is wired in, `mssql.new_run_id` returns a
 UUIDv7. A run refuses an id that already names a snapshot. A replay makes its own id and is not registered.
 
-`load_frames` in `inputs.py` loads every dataset a run reads, one validated frame each: the data every portfolio
+`load_frames` in `datasets/load.py` loads every dataset a run reads, one validated frame each: the data every portfolio
 shares, for the business date, and each portfolio's details, sleeves, holdings, controls and cash flows, in batches of a
 thousand portfolios, each batch in one read-only transaction. Everything loads at once, every batch included: see
-[Loading at the pace of each source](#loading-at-the-pace-of-each-source). `build_market` then prepares the `Market`
-that every portfolio shares, and the request's `tasks` prepares its portfolios with `build_portfolios` (see
+[Loading at the pace of each source](#loading-at-the-pace-of-each-source). `build_market` in `prep/` then prepares the
+`Market` that every portfolio shares, and the request's `tasks` prepares its portfolios with `build_portfolios` (see
 [Preparing the inputs](#preparing-the-inputs)), making one `SolveTask`, a portfolio plus a `Strategy`, per solve. `run`
 hands the tasks to `solve_all` in `engine.py`.
 
@@ -76,6 +76,11 @@ bounded however many processes run. Every portfolio in a run sees the same snaps
 consistent with each other and reproducible from the snapshot. And moving from one machine to a cluster changes one
 function: `solve_all` would ship the market with `ray.put` or Dask's `scatter` instead of an initializer, and submit
 the same tasks.
+
+The rule is enforced, not only followed: `lint-imports`, in pre-commit, fails if `prep`, `rules`, `optimizer`,
+`strategy` or `engine` imports the loader, the cache, a source, the context, jobs or outputs, directly or through
+another module. That is why a dataset's declaration (`data/dataset.py`) is apart from the loader that fetches it: prep
+and the optimizer import row models, and must not pull the loader in with them.
 
 The cost is that the parent is the bottleneck for loading. That is the right place for it: loading is I/O-bound and
 batched, and caching makes it cheaper still.
@@ -134,10 +139,10 @@ read-only transaction, which waits once for the slot its loads share, carries it
 record: a long wait means the limit, not the source, is the bottleneck. Limits are per process, so two Jobs running at once send twice
 as many queries.
 
-Reads that depend on each other share a read-only transaction. A portfolio's holdings, cash, controls and cash flows
-are only consistent if they come from one moment: a trade booked between the read of its holdings and the read of its
-cash would count the trade's cash but not its bonds, or the other way round. So `_load_batch` in `inputs.py` reads each
-batch's per-portfolio datasets inside `Loader.read_only("mssql")`, which opens one connection, begins a read-only
+Reads that depend on each other share a read-only transaction. A portfolio's holdings, cash, controls and cash flows are
+only consistent if they come from one moment: a trade booked between the read of its holdings and the read of its cash
+would count the trade's cash but not its bonds, or the other way round. So `_load_batch` in `datasets/load.py` reads
+each batch's per-portfolio datasets inside `Loader.read_only("mssql")`, which opens one connection, begins a read-only
 transaction on it (snapshot isolation on SQL Server, `SET TRANSACTION READ ONLY` on Oracle), runs the batch's queries in
 it, and rolls it back. The scope is explicit in the code: a read outside it opens its own connection and sees its own
 moment. The transaction's queries take turns on its connection, since a DB-API connection is not safe to use from two
@@ -168,7 +173,7 @@ every strategy. Whether logic is prep or a rule turns on who chooses it, not on 
 |  | Every strategy needs it | The strategy chooses it |
 |---|---|---|
 | **The whole market** | `build_market`, once a run, in the parent | a rule, such as `min_rating` |
-| **One portfolio** | `build_portfolios`, and `Market.inputs_for` in the worker | a rule that reads `inputs.portfolio` |
+| **One portfolio** | `build_portfolios`, and `inputs_for` in the worker | a rule that reads `inputs.portfolio` |
 
 Logic about one dataset alone, such as a range or a check across its rows, belongs to its `Dataset` instead.
 
@@ -179,7 +184,7 @@ would be lost from any strategy file that left it out.
 
 `build_market` joins the per-security datasets into one row per security, turns prices into floats, and gives each row
 its `unit_value` and an `expected_return`, since the solver needs a number for every security it holds.
-`Market.inputs_for` turns one portfolio into lines, its cash and its cash flows, and applies its controls (see
+`inputs_for` turns one portfolio into lines, its cash and its cash flows, and applies its controls (see
 [Positions, cash and sleeves](#positions-cash-and-sleeves)). Prep fills gaps without erasing facts a rule may need:
 after a fill, a rule cannot tell no signal from a signal of zero, so keep a column such as `has_signal` if one needs to.
 
@@ -248,14 +253,15 @@ discretion (`no_sell`), what is held constant (`hold`), and what must be sold (`
 security or, with no security, every security in the portfolio, as for an account that is closing. Wash-sale
 restrictions arrive this way, as `no_buy` controls the source system computes.
 
-Controls are applied in prep, in `Market.inputs_for`, because a strategy that omitted a rule must not trade around a
-restriction. For the same reason, a control that cannot be applied fails the portfolio rather than being skipped. A
-control that names a security the market does not have fails it: that is how an identifier mismatch would otherwise
-make a restriction silently match nothing. So does a pair of controls that both require and forbid a sale, such as
-`must_sell` and `no_sell` on one security: the solve does not choose between them, and the error quotes both with their
-reasons. A mandatory sale of a security the portfolio no longer holds has happened, as in a working run after its
-trade: it logs a warning and still stops the security being bought back. A source that cannot be read fails the run,
-and an empty answer is read as "no controls", so the query must not hide a failure as no rows.
+Controls are applied in prep, in `apply_controls` (`prep/controls.py`), which `inputs_for` calls, because a strategy
+that omitted a rule must not trade around a restriction. For the same reason, a control that cannot be applied fails the
+portfolio rather than being skipped. A control that names a security the market does not have fails it: that is how an
+identifier mismatch would otherwise make a restriction silently match nothing. So does a pair of controls that both
+require and forbid a sale, such as `must_sell` and `no_sell` on one security: the solve does not choose between them,
+and the error quotes both with their reasons. A mandatory sale of a security the portfolio no longer holds has happened,
+as in a working run after its trade: it logs a warning and still stops the security being bought back. A source that
+cannot be read fails the run, and an empty answer is read as "no controls", so the query must not hide a failure as no
+rows.
 
 A mandatory sale and a discretionary block are handled differently on purpose. `no_sell` and a rule's
 `restrict_sales` stop the optimizer choosing to sell. `must_sell` sells the whole holding, exactly as booked, and buys
@@ -266,7 +272,7 @@ none of it back, and no rule can block it: `restrict_sales` leaves a mandatory s
 A `Strategy` is a list of rules, a list of objective terms, a list of constraints, and a `solve` block that says how
 to solve and when an answer may trade. Each rule, term and constraint is a small pydantic class whose fields are its
 parameters and whose method does the work: `apply` for a rule, `expression` for a term, `build` for a constraint. Rules
-are grouped by family in `rules/`, constraints in `optimizer/constraints/`, and terms live in `optimizer/objective.py`.
+are grouped by family in `rules/`, constraints in `optimizer/constraints/`, and terms in `optimizer/objective/`.
 Each kind is collected into a discriminated union on `kind`. A strategy file therefore validates strictly, an unknown
 `kind` or a typo'd field is rejected, and `optim schema` prints a JSON schema that traders' tools and agents can write
 against. There is no registry to keep in sync: the union is the registry. Learning one of the three teaches the other

@@ -16,15 +16,16 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 |---|---|
 | `cli.py` | Arguments to a request; exit code 0 only when every portfolio's result was accepted. |
 | `context.py`, `settings.py` | The only place connections open; `OPTIM_*` environment variables. |
-| `jobs/` | A request class per job, such as `optimize` and `hypothetical`, and the solves it makes; `run` and `replay` run any job; `RunInfo`, the snapshot's `run.json`. |
+| `jobs/` | A request class per job, such as `optimize` and `hypothetical`, and the solves it makes, collected in `Job`; `run.py`: `run` and `replay` run any job, and `RunInfo` is the snapshot's `run.json`. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. Booked values are exact `Decimal`s. |
 | `sources/` | Oracle (thin or thick), SQL Server and REST: bounded fetches, read-only transactions. |
-| `data/loader.py`, `data/cache.py` | Fetching, validation, read-only scopes and the Redis cache, for every dataset. |
-| `inputs.py` | `load_frames` (every dataset a run reads), then prep: `Market` (shared by a run), `Portfolio`, and `SolverInputs` (what one solve sees: lines, cash, cash flows, with the portfolio's controls applied). |
+| `data/` | `dataset.py` declares a dataset and `frames.py` validates rows, with no I/O; `loader.py` and `cache.py` fetch, scope reads in read-only transactions, and cache in Redis. |
+| `datasets/load.py` | `load_frames`: every dataset a run reads (`MARKET`, `PER_PORTFOLIO` in `datasets/__init__.py`), in batches. |
+| `prep/` | Pure prep: the `Market` a run shares (`market.py`); each `Portfolio`, and the `SolverInputs` one solve sees: lines, cash, cash flows (`portfolios.py`, the types in `__init__.py`), with the portfolio's controls applied (`controls.py`). |
 | `engine.py` | Solving tasks in this process or a process pool. |
 | `rules/` | Pre-solve rules: edit `SolverInputs` lines (what may be bought or sold, expected returns). |
 | `optimizer/model.py` | Variables and expressions: buys and sales per line (sleeve and security), weights per scope, exposures, cash, cost. |
-| `optimizer/objective.py`, `optimizer/constraints/` | Objective terms (linear or quadratic) and constraints, built against the model, for the portfolio or one sleeve. |
+| `optimizer/objective/`, `optimizer/constraints/` | Objective terms (linear or quadratic) and constraints, built against the model, for the portfolio or one sleeve. |
 | `optimizer/solve.py`, `backends.py`, `rounding.py` | Solve one portfolio with HiGHS or COPT, read why the solver stopped, make trades exact. |
 | `optimizer/acceptance.py`, `results.py` | Rebuild the result from its exact trades and check whether it may trade; what a solve returns. |
 | `outputs/snapshots.py` | The run's snapshot: request, inputs and results ([docs/snapshots.md](docs/snapshots.md)). Other outputs go in `outputs/`, after it. |
@@ -35,8 +36,10 @@ All paths are under `src/optim/`.
 ## Rules to keep
 
 - Workers do no I/O. The parent loads, the workers compute, and the parent saves; replay and snapshots depend on it.
+  `lint-imports` enforces it: `prep`, `rules`, `optimizer`, `strategy` and `engine` may not import the loader, a
+  source, the cache, jobs or outputs.
 - Snapshots hold each dataset as loaded, never a frame derived from one, and everything after the loader is pure, so
-  replay reruns prep and rules. Logic that combines datasets and every strategy needs is prep, in `inputs.py`; logic a
+  replay reruns prep and rules. Logic that combines datasets and every strategy needs is prep, in `prep/`; logic a
   strategy chooses is a rule. See [Preparing the inputs](docs/architecture.md#preparing-the-inputs).
 - Rules never drop rows: they narrow `buyable` or `sellable` on `inputs.lines`, or edit `expected_return`. A security
   you may not buy can still be held and sold; a held security without its row fails the solve.
@@ -53,7 +56,7 @@ All paths are under `src/optim/`.
 ## Checks
 
 ```sh
-uv run pre-commit run --all-files   # ruff, ty, lockfile
+uv run pre-commit run --all-files   # ruff, ty, lockfile, import contracts
 uv run pytest
 uv run optim replay snapshots/RUN_ID   # the saved run, with your code; --strategy FILE to try another
 ```

@@ -9,13 +9,13 @@ from collections.abc import Mapping
 import cvxpy as cp
 import numpy as np
 
-from optim.inputs import SolverInputs
 from optim.logs import ms_since
 from optim.optimizer.acceptance import review, violations
 from optim.optimizer.backends import SOLVERS, Termination
 from optim.optimizer.model import OptimizationModel, build_model, value_of
 from optim.optimizer.results import Result, Unsolved
 from optim.optimizer.rounding import round_to_lots, snap_integers
+from optim.prep import SolverInputs
 from optim.strategy import Strategy
 
 log = logging.getLogger(__name__)

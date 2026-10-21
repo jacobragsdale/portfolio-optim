@@ -27,9 +27,10 @@ from pydantic import TypeAdapter
 from optim import logs
 from optim.context import open_cache, open_context
 from optim.datasets import all_datasets
-from optim.jobs import RUN_ID, Job, ReplayRequest, Run, replay, run
+from optim.jobs import Job
 from optim.jobs.hypothetical import HypotheticalPortfolio, HypotheticalRequest
 from optim.jobs.optimize import OptimizeRequest
+from optim.jobs.run import RUN_ID, ReplayRequest, Run, replay, run
 from optim.optimizer.results import result_frames
 from optim.settings import Settings
 from optim.strategy import Strategy

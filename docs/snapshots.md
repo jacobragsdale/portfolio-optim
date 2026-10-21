@@ -18,7 +18,7 @@ RUN_ID/
 ## `run.json`
 
 What the run was asked, when it ran, with which code, and where its data came from: nothing the snapshot's other files
-hold. `RunInfo` in `src/optim/jobs/__init__.py` is its model.
+hold. `RunInfo` in `src/optim/jobs/run.py` is its model.
 
 | Key | Value |
 |---|---|

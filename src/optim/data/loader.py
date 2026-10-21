@@ -1,6 +1,6 @@
-"""Datasets, their cache policies, and the `Loader` that fetches them through their sources, validates them and caches
-them in Redis. Loading is raw acquisition: a frame holds what its source returned, validated against its row model and
-nothing more, so booked values stay exact `Decimal`s. Turning them into numbers for the solve is prep (`optim.inputs`)."""
+"""The `Loader`, which fetches datasets (`optim.data.dataset`) through their sources, validates them and caches them in
+Redis. Loading is raw acquisition: a frame holds what its source returned, validated against its row model and nothing
+more, so booked values stay exact `Decimal`s. Turning them into numbers for the solve is prep (`optim.prep`)."""
 
 import hashlib
 import json
@@ -13,7 +13,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from functools import partial
 from typing import Literal, Self
 
@@ -21,10 +21,10 @@ import pandas as pd
 import redis
 
 from optim.data.cache import RedisCache
-from optim.data.frames import validate_columns
+from optim.data.dataset import Dataset
 from optim.logs import brief, ms_since, timed, to_json, utc_now
-from optim.schema import Model, Row
-from optim.sources import Columns, Param, Source, SourceName
+from optim.schema import Model
+from optim.sources import Param, Source, SourceName
 from optim.sources.sql import read_sql
 
 log = logging.getLogger(__name__)
@@ -67,51 +67,6 @@ class TaskGroup:
         self._pool.shutdown()
         if self._errors:
             raise next((e for e in self._errors if not isinstance(e, Skipped)), self._errors[0])  # the cause, not the loads it skipped
-
-
-@dataclass(frozen=True)
-class CachePolicy:
-    """How a dataset uses the Redis cache. A dataset without one is read live on every load."""
-
-    ttl: timedelta  # how long an entry lives; every query param is in the key, so a new business date is a new entry
-    warm: Callable[[Loader, date], Iterable[Mapping[str, Param]]] | None = None  # the params `optim warm` loads, one entry each
-    live_on_miss: bool = True  # on a miss, or with Redis down, read the source; False fails the run instead
-
-    def __post_init__(self) -> None:
-        if self.ttl <= timedelta(0):
-            msg = f"cache ttl must be positive, got {self.ttl}"
-            raise ValueError(msg)
-        if not (self.live_on_miss or self.warm):
-            msg = "live_on_miss=False needs a warm hook: nothing else would fill the cache"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True)
-class Dataset:
-    """One table: its row schema, where it comes from, its key, and how it is cached."""
-
-    name: str
-    row: type[Row]
-    source: SourceName
-    query: str  # a SQL file's path inside the optim package, or a REST path
-    key: tuple[str, ...]  # columns that must be unique
-    cache: CachePolicy | None = None  # None: always read live
-    check: Callable[[pd.DataFrame], None] | None = None  # cross-row rules; raise ValueError
-
-    def to_frame(self, columns: Columns) -> pd.DataFrame:
-        """Raw columns to this dataset's validated, typed frame, with its key and cross-row rules checked."""
-        frame = self.unique(validate_columns(self.row, columns, name=self.name, key=self.key))
-        if self.check is not None:
-            self.check(frame)
-        return frame
-
-    def unique(self, frame: pd.DataFrame, *, why: str = "") -> pd.DataFrame:
-        """`frame`, once no two rows share a key."""
-        if (duplicated := frame.duplicated(list(self.key))).any():
-            examples = frame.loc[duplicated, list(self.key)].head(3).to_dict("records")
-            msg = f"{self.name}: duplicate {self.key}{why}, e.g. {examples}"
-            raise ValueError(msg)
-        return frame
 
 
 class DatasetRead(Model):

@@ -1,14 +1,17 @@
 """Benchmark constituent weights, from Oracle. They change at the close, so they may be up to 12 hours old."""
 
 from datetime import date, timedelta
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import pandas as pd
 from pydantic import Field
 
-from optim.data.loader import CachePolicy, Dataset, Loader
+from optim.data.dataset import CachePolicy, Dataset
 from optim.schema import Id, Row
 from optim.sources import Param
+
+if TYPE_CHECKING:  # the hook's argument: a dataset module imports no I/O
+    from optim.data.loader import Loader
 
 
 class BenchmarkWeight(Row):

@@ -17,20 +17,20 @@ To load a new table, for example issuer credit scores from Oracle:
 4. Declare the dataset beside its row model:
    `ISSUER_SCORES = Dataset("issuer_scores", IssuerScore, source="oracle", query="datasets/sql/issuer_scores.sql", key=("issuer",))`.
    Without a `cache`, it is read live on every load. To cache it, see the next section.
-5. Load it and prepare it in `src/optim/inputs.py`. Per-security data is loaded once a run: add the dataset to
-   `MARKET`, which also fails the run if it returns no rows. Every `MARKET` dataset is loaded with the business date, so
-   its SQL must bind `:as_of_date`: Oracle refuses a bind its SQL does not use. A REST source receives it as a query
-   parameter. Merge `frames["issuer_scores"]` in `build_market` with `validate="many_to_one"` or `"one_to_one"`, and
-   convert any `Decimal` column to float there. A rule or constraint can then read the new column from
-   `inputs.lines` or `m.lines`.
+5. Load it and prepare it. Per-security data is loaded once a run: add the dataset to `MARKET` in
+   `src/optim/datasets/__init__.py`, which also fails the run if it returns no rows. Every `MARKET` dataset is loaded
+   with the business date, so its SQL must bind `:as_of_date`: Oracle refuses a bind its SQL does not use. A REST source
+   receives it as a query parameter. Merge `frames["issuer_scores"]` in `build_market` (`src/optim/prep/market.py`) with
+   `validate="many_to_one"` or `"one_to_one"`, and convert any `Decimal` column to float there. A rule or constraint can
+   then read the new column from `inputs.lines` or `m.lines`.
 
    Per-portfolio data is loaded in batches of portfolios, each batch in one read-only transaction with the portfolio's
    other datasets, so they are read at one moment. Add the dataset to `PER_PORTFOLIO`, add a line for it to
-   `_load_batch` with the parameters its SQL binds, such as `as_of_date=as_of_date`, and add a field to `Portfolio`
-   named as the dataset is, which `build_portfolios` fills. The SQL unpacks the batch's ids with `OPENJSON`, as
-   `holdings.sql` does. Rules, constraints and terms read it as `inputs.portfolio.<field>` or
-   `m.inputs.portfolio.<field>`. A dataset from another source than SQL Server is loaded in its own scope: a transaction
-   cannot span two databases.
+   `_load_batch` in `src/optim/datasets/load.py` with the parameters its SQL binds, such as `as_of_date=as_of_date`, and
+   add a field to `Portfolio` in `src/optim/prep/__init__.py` named as the dataset is, which `build_portfolios` fills.
+   The SQL unpacks the batch's ids with `OPENJSON`, as `holdings.sql` does. Rules, constraints and terms read it as
+   `inputs.portfolio.<field>` or `m.inputs.portfolio.<field>`. A dataset from another source than SQL Server is loaded
+   in its own scope: a transaction cannot span two databases.
 
    Snapshots and replay need no change: a snapshot saves every frame `load_frames` returns, and replay prepares them
    as a live run does. A snapshot saved before the dataset existed cannot be replayed.
@@ -134,7 +134,8 @@ after trading: `held = cp.Variable(len(m.lines), boolean=True)`, then `m.weights
 A strategy's objective is the sum of its terms, listed under `"objective"`. Without that key, a strategy maximizes
 expected return less trading costs.
 
-1. Write a class in `src/optim/optimizer/objective.py` with a `kind` field, its parameters, and
+1. Pick the module in `src/optim/optimizer/objective/` for the term's family, such as `trading` or `tracking`, or add
+   one. Write a class there with a `kind` field, its parameters, and
    `expression(self, m: OptimizationModel) -> cp.Expression`. Subclass `Scoped` for a term a strategy can apply to one
    sleeve.
 2. Return what the term adds to the objective as a fraction of base value: divide dollars by `m.base`, or by the
@@ -143,7 +144,7 @@ expected return less trading costs.
    every solver. A quadratic term, such as `cp.sum_squares` of weights, sets `quadratic: ClassVar[bool] = True`: HiGHS
    solves it only with `"integer": false`, and a strategy that asks for it with integer trades on HiGHS is refused
    when it is read. Write it in weights, as `TurnoverQuadratic` does, so its coefficients are near 1.
-4. Add the class to the `Term` union at the bottom of the module.
+4. Add the class to the `Term` union in `src/optim/optimizer/objective/__init__.py`.
 
 ## How to configure a solve
 
@@ -245,8 +246,8 @@ If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSetting
      portfolios with `build_portfolios(frames, ids)`, as `optimize.py` does. A job whose portfolios are not in the
      books, such as a prospect's or a model portfolio built from cash, loads none, adds their rows to the per-portfolio
      frames, and builds them the same way, as `hypothetical.py` does.
-2. Add the class to the `Job` union in `src/optim/jobs/__init__.py`. `run` then loads, prepares, solves, reviews and
-   saves it, and `optim replay` replays its snapshots, with nothing else to write.
+2. Add the class to the `Job` union in `src/optim/jobs/__init__.py`. `run` in `jobs/run.py` then loads, prepares,
+   solves, reviews and saves it, and `optim replay` replays its snapshots, with nothing else to write.
 3. Add a subcommand to `_parser()` in `src/optim/cli.py`, and a `case` in `_run` that builds the request.
 
 A job can solve one portfolio more than once. A transition analysis, for example, solves a legacy portfolio once per
@@ -265,7 +266,7 @@ publishes:
    is `accepted`.
 2. If it needs a client or connection, add its settings and open it in `open_context` as for
    [a data source](#how-to-add-a-data-source), and add it to `Context`.
-3. Call it in `run` in `src/optim/jobs/__init__.py`, after `save_run` returns: the snapshot is on disk by then, so a
-   failed output never loses it. An output for one job checks `job.job`, and one for start-of-day runs checks
+3. Call it in `run` in `src/optim/jobs/run.py`, on the run `_solve_and_save` returns: the snapshot is on disk by then,
+   so a failed output never loses it. An output for one job checks `job.job`, and one for start-of-day runs checks
    `job.holdings == "sod"`. Replays do not call it, so a replay never sends a report or writes a row. The engine never
    submits orders.

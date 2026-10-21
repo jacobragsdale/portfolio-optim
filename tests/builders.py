@@ -10,14 +10,18 @@ from pathlib import Path
 import pandas as pd
 
 from optim.context import Context
-from optim.data.loader import Dataset, Loader
+from optim.data.dataset import Dataset
+from optim.data.loader import Loader
+from optim.datasets import MARKET, PER_PORTFOLIO
 from optim.datasets.benchmarks import BENCHMARKS
 from optim.datasets.controls import CONTROLS
 from optim.datasets.portfolios import CASH_FLOWS, HOLDINGS, PORTFOLIOS, SLEEVES
 from optim.datasets.securities import SECURITIES, UNIVERSE
 from optim.datasets.signals import SIGNALS
-from optim.inputs import MARKET, PER_PORTFOLIO, SolverInputs, build_market, build_portfolios
 from optim.jobs.optimize import OptimizeRequest
+from optim.prep import SolverInputs
+from optim.prep.market import build_market
+from optim.prep.portfolios import build_portfolios, inputs_for
 from optim.sources import Columns, Param
 from optim.strategy import Strategy
 
@@ -99,7 +103,7 @@ def portfolio(**frames: pd.DataFrame) -> dict[str, pd.DataFrame]:
 def prepare(frames: Mapping[str, pd.DataFrame], portfolio_id: str = "P1") -> SolverInputs:
     """What P1's solve sees, before any rule, from a run's frames."""
     [one] = build_portfolios(frames, [portfolio_id])
-    return build_market(frames, AS_OF).inputs_for(one)
+    return inputs_for(build_market(frames, AS_OF), one)
 
 
 class Rows:

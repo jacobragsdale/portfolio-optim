@@ -2,7 +2,7 @@
 
 from datetime import timedelta
 
-from optim.data.loader import CachePolicy, Dataset
+from optim.data.dataset import CachePolicy, Dataset
 from optim.schema import Id, Row
 
 
