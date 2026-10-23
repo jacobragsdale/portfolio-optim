@@ -15,4 +15,4 @@ pytestmark = pytest.mark.e2e
 def test_each_model_runs_decides_every_portfolio_and_replays(optim_qa: QA, model: str) -> None:
     portfolios = optim_qa.portfolios(Path(__file__).parent / "sql" / "portfolios.sql")
 
-    optim_qa.smoke(model, REPO / "params" / model / "default.json", portfolios)
+    optim_qa.smoke(model, Path("params") / model / "default.json", portfolios)  # relative to the repo, as inside the image

@@ -126,7 +126,7 @@ def test_qa_picks_portfolios_with_a_select_alone(tmp_path: Path) -> None:
     (query := tmp_path / "portfolios.sql").write_text("-- every portfolio\nDELETE FROM positions")
 
     with pytest.raises(ValueError, match="is not a SELECT"):
-        QA(settings(), ["optim"]).portfolios(query)
+        QA(settings(), ["optim"], tmp_path).portfolios(query)
 
 
 def test_the_smoke_case_runs_replays_and_compares_a_models_trades(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -139,7 +139,7 @@ def test_the_smoke_case_runs_replays_and_compares_a_models_trades(tmp_path: Path
     root = tmp_path / "qa-snapshots"
     monkeypatch.setenv("OPTIM_SNAPSHOT_ROOT", str(root))
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(Path(__file__).parent), *sys.path]))
-    qa = QA(Settings(), [sys.executable, "-m", "optim"])
+    qa = QA(Settings(), [sys.executable, "-m", "optim"], tmp_path)
 
     ran = qa.smoke("toys.basic", params, ["P1", "P2"], "--data", str(data), "--as-of", "2026-10-16")
 

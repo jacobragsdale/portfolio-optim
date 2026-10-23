@@ -11,6 +11,7 @@ uv run optim describe ladder
 uvx --index INDEX_URL optim new repo ladder --from cvxpy
 uv run optim new model model-portfolio --from plain
 uv run optim sync
+uv run optim docs tutorial
 """
 
 import argparse
@@ -110,6 +111,23 @@ def _new_model(args: argparse.Namespace) -> int:
 def _sync(_args: argparse.Namespace) -> int:
     for path in sync.sync(Path.cwd()):
         sys.stdout.write(f"wrote {path}\n")
+    return 0
+
+
+DOCS = Path(__file__).parent / "docs"
+
+
+def _docs(args: argparse.Namespace) -> int:
+    """A page of optim's docs, or the list of them: the same text whichever repo installs this optim."""
+    pages = {path.relative_to(DOCS).with_suffix("").as_posix(): path for path in sorted(DOCS.rglob("*.md"))}
+    sys.stdout.reconfigure(encoding="utf-8")  # ty: ignore[unresolved-attribute] -- a TextIOWrapper's; a redirected Windows console is cp1252
+    if args.page is None:
+        sys.stdout.write("".join(f"{name:36} {path.read_text(encoding='utf-8').partition(chr(10))[0].lstrip('# ')}\n" for name, path in pages.items()))
+        return 0
+    if args.page not in pages:
+        msg = f"no page {args.page!r}: the pages are {', '.join(pages)}"
+        raise LookupError(msg)
+    sys.stdout.write(pages[args.page].read_text(encoding="utf-8"))
     return 0
 
 
@@ -218,6 +236,8 @@ def _parser() -> argparse.ArgumentParser:
     repo_command.add_argument("--index", help="the internal index optim is published to, written into its pyproject (default: UV_INDEX)")
     model_command = _command(new_kind, "model", _new_model, "add a model to the repo this runs in, with its entry point", example)
     model_command.add_argument("name", help="the model's name, which names its module, params and tests")
+    docs_command = _command(commands, "docs", _docs, "print a page of optim's docs, or list them")
+    docs_command.add_argument("page", nargs="?", help="such as tutorial, how-to/add-a-dataset, reference or explanation (default: list the pages)")
     _command(commands, "sync", _sync, "write optim's contract into AGENTS.md and copy its skills, for the installed optim")
 
     warm_command = _command(commands, "warm", _warm, "fill the cache with every cached dataset the models read, before the day's first run", dated)

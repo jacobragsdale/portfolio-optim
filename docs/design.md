@@ -1,12 +1,44 @@
 # The optim framework
 
-This repository becomes `optim`, a Python package that quants' model repos depend on. A model is one module that
-declares its parameters and datasets and decides each portfolio's trades in a pure function. `optim` runs everything
-else the same way for every model: loading, parallelism, rounding, acceptance, snapshots, replay, logging and saving
-orders. The design was agreed on 2026-10-22, and the code does not match it yet. The other pages in `docs/` describe the
-code as it stands, and [Getting there from this repository](#getting-there-from-this-repository) lists the steps.
-Today's taxable SMA optimizer is a mock that exists to test the engine. It becomes the package's `cvxpy` example, and
-only the engine is kept.
+This repository is `optim`, a Python package that quants' model repos depend on. A model is one module that declares
+its parameters and datasets and decides each portfolio's trades in a pure function. `optim` runs everything else the
+same way for every model: loading, parallelism, rounding, acceptance, snapshots, replay, logging and saving orders. The
+design was agreed on 2026-10-22 and is implemented in `optim` 0.1.0, by the steps in
+[Getting there from this repository](#getting-there-from-this-repository). The taxable SMA optimizer this repository
+held was a mock that existed to test the engine; it is the package's `cvxpy` example. The docs for quants are in
+`src/optim/docs/` and ship with the package; this page records the design and its reasons.
+
+## Where the implementation differs
+
+The implementation follows this page, with these differences and additions, each the smallest change that kept the
+design's intent:
+
+| Where | What the code does | Why |
+|---|---|---|
+| `Data` | `optim.Datasets` itself declares `holdings` and `securities`; a model's `Data` lists only its own datasets, and may replace either shared one with a dataset of the same row model. | Every model must read both, so the core declaring them removes a touch point and a way to forget one. |
+| `reserve`, `order` | `reserve(shared, decision)` returns the shared state the next portfolio sees. `order(prepared, shared, params)` takes every prepared portfolio by id and returns the ids in order; one that drops a portfolio fails the run. | The page left `order`'s arguments open. Returning the state keeps `reserve` pure, and the prepared portfolios are what a fairness rule ranks. |
+| `Metrics` | A model may export `Metrics`, a model of float fields, so `optim describe` can print its metrics; a contract test fails when decisions report metrics it does not declare. | `describe` must print a model's metrics without running it. |
+| Repo layout | Each model is a package, `src/PACKAGE/MODEL/`, with its `rules.py` and `README.md`; its params are `params/MODEL/default.json` and its fixture `tests/MODEL/fixture/`, one file per dataset and `fixture.json` with the fixture's as-of date. | A repo can hold several models, so `params/default.json` would be ambiguous, and the contract tests need each model's fixture and date. |
+| `optim run --data DIR` | Reads each dataset that has a file in `DIR` instead of its source. Without `--portfolios`, a run with `--data` decides every portfolio in the holdings file; any other run must name its portfolios. | It is how a laptop, the tutorial and the contract tests run on files without editing `Data`. Per-portfolio queries take the ids, so a run on sources cannot list its portfolios itself. |
+| Caching | A dataset's cache is `cache=timedelta(...)`; `optim warm MODEL ...` fills every cached dataset read whole. Warm hooks, `live_on_miss` and `optim clear` are gone. | Every query takes only the as-of date, so warming needs no parameters, and an entry past its age is read live. |
+| Holdings | The shared holdings are working holdings; `--holdings sod` is gone. | Queries take only the as-of date and the ids. A model that needs start-of-day holdings declares its own dataset with the same row model. |
+| Sources | Every source is optional, so a run on files needs only `OPTIM_SNAPSHOT_ROOT`. The REST source is `rest`, `OPTIM_REST__URL`. | A laptop on files must not need database settings. |
+| Rounding | To the nearest whole increment; a sale within half an increment of the holding sells the holding, so an odd lot sells whole. The core also rejects a portfolio with no holdings, as a likely wrong id. | Nearest rounding keeps a solver's near-integers exact; the holding rule keeps odd lots tradable. |
+| Solved | A decision is solved when the solver stopped `optimal`, within `SolveSettings.mip_gap`; one stopped at its time limit is rejected. There is no separate acceptance gap. | The page names one MIP gap in `Params`; one number means one rule. |
+| Replay | A replay saves its snapshot under `OPTIM_SNAPSHOT_ROOT`, wherever the run it replays is. `run.json` keeps the run's portfolios, and `replay.portfolios` the subset decided. | Replaying a production snapshot on a laptop must write nothing to production storage, and a replay of a replay of a subset must decide the same sequence. |
+| `optim regress` | Takes `--snapshots ROOT`, `--last N` and `--label KEY=VALUE`, such as `purpose=production`, and exits 1 when anything changed. | Production runs are found by their labels, and a non-zero exit lets a pipeline gate an upgrade on it. |
+| `optim sweep` | Writes the table as CSV on stdout, or to `--out`. | Agents read CSV; a file suits a person. |
+| `optim docs` | Prints a page of the docs that ship with the installed `optim`, which the skills point at. | A model repo's agents read the docs for the version the repo installed, without a copy in each repo. |
+| Python API | `optim.run.open_snapshot(root)` and `optim.research.trial(snapshot, portfolio_id, params=None)`, which returns what the portfolio was prepared with, the shared state, the cvxpy problem and the outcome. | The page named the capability, not the names. |
+| Contract tests | Run when pytest runs without paths, as `pyproject.toml::params[MODEL]`, `fixture[MODEL]`, `imports[MODEL]` and `agent-files`; `CLAUDE.md` must contain `@AGENTS.md`. | A run of chosen tests stays fast. |
+| e2e | The plugin's `optim_qa` fixture checks the markers (`optim_qa_markers`) and the allowlist (`optim_e2e_writes`), picks portfolios with a `SELECT` alone, and runs `optim_e2e_command` from the repo's root with repo-relative params paths, such as `docker run ... IMAGE`; `QA.smoke` is each model's smoke case, in the generated `tests/e2e/test_smoke.py`. | The page named the safeguards; these are where they live. Relative paths resolve both in a checkout and in the image, whose workdir holds the repo, and the image holds no pytest. |
+| Orders | Written as `run_id, portfolio_id, security_id, side, quantity`, through `OPTIM_ORDERS__CONNECTION_STRING`, a login that may insert, into `OPTIM_ORDERS__TABLE`. | The read-only credentials that load data must not write. The real table's columns are still to confirm. |
+| `optim.testing` | Builders for behaviour tests: `frame(dataset, *rows)` and `data(Data, **frames)`, with default shared rows. | The page names the core's builders. |
+| Examples | Each example has a `ruff.toml` that sorts imports as a model repo does, where `optim` is a dependency. | Copied code must pass the generated repo's own ruff. |
+
+What is not done here, because it needs what this repository cannot reach: the wrapper example (the internal wrapper is
+proprietary, and `optim.cvxpy.read` covers the problem it hands back), a run of the tests on Windows, publishing by tag,
+and the real pipeline templates in the `azure-pipelines.yml` stub.
 
 ## The problem it solves
 
@@ -241,8 +273,8 @@ stub for the firm's Azure DevOps pipeline framework.
 `.claude/skills/optim-*`, which Claude Code reads. They are copies rather than symlinks because Git on Windows checks a
 symlink out as a plain text file unless Developer Mode and `core.symlinks` are on. A contract test fails when the copies
 do not match the installed `optim`. The skills cover starting a new model, porting a legacy optimizer (keeping a
-`PORTING.md` log, following [Porting another optimizer](porting.md)), running a research sweep, and triaging an e2e
-failure.
+`PORTING.md` log, following [how to port a legacy model](../src/optim/docs/how-to/port-a-legacy-model.md)), running a
+research sweep, and triaging an e2e failure.
 
 Each model's `README.md` states its behaviour in business terms: what it maximises, its constraints, its data and its
 known limits. The machine-readable surfaces are `optim describe`, the JSON logs and the sweep tables.
@@ -269,9 +301,9 @@ internal.
 
 The package's docs are one tutorial that takes a quant from nothing to a working model, replayed and swept, in about
 fifteen minutes; how-to guides (add a dataset, write a rule, decide portfolios one at a time, port a legacy model, run
-in QA); one reference page for the model contract, the CLI and the settings; and one explanation page adapted from
-[How the optimizer is put together](architecture.md). The skills point at these pages instead of repeating them, so
-agents and quants read the same text.
+in QA); one reference page for the model contract, the CLI and the settings; and one explanation page,
+[How optim is put together](../src/optim/docs/explanation.md), adapted from the engine's architecture page. The skills
+point at these pages instead of repeating them, so agents and quants read the same text.
 
 ## Decided against
 
@@ -295,7 +327,8 @@ agents and quants read the same text.
 
 ## Getting there from this repository
 
-Each step is a change that leaves the checks passing:
+Each step was a change that left the checks passing, and every step is done, but for step 4's run on Windows and step
+11's tag:
 
 1. Remove what the design drops: the `hypothetical` job (`jobs/hypothetical.py`) and the runs table (`new_run_id` in
    `context.py`, and `--run-id`). The core creates UUIDv7 run ids.

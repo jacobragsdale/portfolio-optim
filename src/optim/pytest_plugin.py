@@ -199,6 +199,8 @@ class QA:
 
     settings: Settings
     command: Sequence[str]
+    root: Path
+    """The repo, where the command runs, so params paths relative to it resolve in an image whose workdir holds it."""
 
     def portfolios(self, query: Path, *, source: SourceName = "mssql", **params: Param) -> list[str]:
         """Portfolio ids, picked by what they hold with a SELECT in a SQL file that returns `portfolio_id`, read in a
@@ -211,15 +213,17 @@ class QA:
         return list(dict.fromkeys(str(portfolio_id) for portfolio_id in columns["portfolio_id"]))
 
     def run(self, model: str, params: Path, portfolios: Sequence[str], *args: str) -> E2ERun:
-        """`optim run` as the deployed image runs it, labelled `purpose=e2e`."""
-        ran = subprocess.run([*self.command, "run", model, "--params", str(params), "--portfolios", *portfolios, "--label", "purpose=e2e", *args], capture_output=True, text=True, check=False)  # noqa: S603 -- the configured command
+        """`optim run` as the deployed image runs it, labelled `purpose=e2e`, from the repo: `params` is best relative
+        to it, as `params/MODEL/default.json`."""
+        command = [*self.command, "run", model, "--params", params.as_posix(), "--portfolios", *portfolios, "--label", "purpose=e2e", *args]
+        ran = subprocess.run(command, cwd=self.root, capture_output=True, text=True, check=False)  # noqa: S603 -- the configured command
         if not (found := re.search(r"^run (\S+)$", ran.stdout, re.MULTILINE)):
             msg = f"optim run did not complete (exit {ran.returncode}):\n{ran.stderr[-4000:]}"
             raise AssertionError(msg)
         return E2ERun(found.group(1), ran.returncode, Root.at(self.settings.snapshot_root) / found.group(1))
 
     def replay(self, run: E2ERun) -> E2ERun:
-        ran = subprocess.run([*self.command, "replay", run.run_id, "--label", "purpose=e2e"], capture_output=True, text=True, check=False)  # noqa: S603 -- the configured command
+        ran = subprocess.run([*self.command, "replay", run.run_id, "--label", "purpose=e2e"], cwd=self.root, capture_output=True, text=True, check=False)  # noqa: S603 -- the configured command
         if not (found := re.search(r"^run (\S+)$", ran.stdout, re.MULTILINE)):
             msg = f"optim replay did not complete (exit {ran.returncode}):\n{ran.stderr[-4000:]}"
             raise AssertionError(msg)
@@ -252,4 +256,4 @@ def optim_qa(pytestconfig: pytest.Config) -> QA:
     markers, writes = pytestconfig.getini("optim_qa_markers"), pytestconfig.getini("optim_e2e_writes")
     if problems := qa_problems(settings, markers=markers, writes=writes):
         pytest.fail("refusing to run the e2e suite outside QA:\n" + "\n".join(problems), pytrace=False)
-    return QA(settings, pytestconfig.getini("optim_e2e_command"))
+    return QA(settings, pytestconfig.getini("optim_e2e_command"), pytestconfig.rootpath)

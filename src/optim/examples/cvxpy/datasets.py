@@ -16,7 +16,7 @@ type Action = Literal["no_buy", "no_sell", "hold", "must_sell"]
 class Signal(Row):
     security_id: Id
     expected_return: float
-    """Expected annual return on market value, as a decimal."""
+    """Expected annual return on market value, as a fraction: 0.05 is 5%."""
 
 
 class Control(Row):

@@ -1,87 +1,50 @@
-# portfolio-optim
+# optim
 
-An optimizer for taxable fixed income SMA portfolios. "Taxable" describes the mandates: the optimizer trades holdings
-by security, and neither selects tax lots nor harvests losses. It loads holdings, sleeves, eligibility lists, trading
-controls, cash flows, signals, benchmarks and security analytics from Oracle, SQL Server and REST. It applies each
-portfolio's controls and the strategy's rules, then solves each portfolio, all its sleeves together, with cvxpy and
-HiGHS or COPT, in parallel processes: as an integer program that trades exact denominations, or as a faster LP or QP
-whose trades are rounded. Every result is rebuilt from its exact trades and checked before it may trade, and every run
-is saved as a snapshot, and can be replayed from it.
+The run loop that a firm's portfolio models share. A model is one module that declares its parameters and datasets and
+decides each portfolio's trades in a pure function; `optim` runs everything else the same way for every model: loading
+in the parent process, deciding in parallel worker processes, rounding to trading increments, acceptance, snapshots
+that replay, research sweeps, logging and saving orders. Each model lives in its own repo, which depends on `optim`.
 
-The engine is ready; its datasets and business logic are placeholders. The queries, prep, rules, constraints and
-objective terms here are one small example of each, to be replaced by an existing optimizer's
-([porting another optimizer](docs/porting.md)). `grep -rn "TODO(port)" src tests` lists every place the port writes
-code.
+## Start a model repo
 
-## Quick start
-
-You need [uv](https://docs.astral.sh/uv/). It installs Python 3.14 on first use.
+You need [uv](https://docs.astral.sh/uv/) and git. `INDEX_URL` is the internal package index `optim` is published to.
 
 ```sh
-uv sync
+uvx --index INDEX_URL optim new repo ladder --index INDEX_URL
+cd ladder
 uv run pytest
 ```
 
-The tests run every stage, from the loader to the snapshot and its replay, on rows built in memory, with no database.
-`uv sync` also installs COPT, which the tests run without a license, size-limited.
+The new repo holds one model, copied from the `cvxpy` example, with its params, a fixture and tests, plus a
+`Dockerfile`, an `azure-pipelines.yml` stub, and the agent files that `optim sync` keeps current. Its tests include
+`optim`'s contract tests for every model it lists.
 
-To run against real systems, copy `.env.example` to `.env` and fill in every variable, then run a strategy for one
-portfolio:
+## Documentation
+
+The docs ship with the package, so a repo reads the ones for the `optim` it installed: `uv run optim docs` lists them,
+and `uv run optim docs PAGE` prints one.
+
+- [Build, replay and sweep your first model](src/optim/docs/tutorial.md): from nothing to a run, a replay and a sweep,
+  in about fifteen minutes.
+- How-to guides: [add a dataset](src/optim/docs/how-to/add-a-dataset.md),
+  [write a rule](src/optim/docs/how-to/write-a-rule.md),
+  [decide portfolios one at a time](src/optim/docs/how-to/decide-portfolios-in-turn.md),
+  [port a legacy model](src/optim/docs/how-to/port-a-legacy-model.md), and
+  [run a model in QA](src/optim/docs/how-to/run-in-qa.md).
+- [Reference](src/optim/docs/reference.md): the model contract, the command line, the settings, the snapshot files and
+  the pytest plugin.
+- [How optim is put together](src/optim/docs/explanation.md): why the core owns the loop, why model code does no I/O,
+  and how runs replay.
+- [The optim framework](docs/design.md): the design this package implements, and what was decided against.
+
+## Develop optim
 
 ```sh
-uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios PORTFOLIO_ID
+uv sync
+uv run pre-commit run --all-files   # ruff, ty, the lockfile and the import contract
+uv run pytest                        # the core's tests, which also run both examples
 ```
 
-`PORTFOLIO_ID` is an `account_id` in the SQL Server `accounts` table that `src/optim/datasets/sql/portfolios.sql`
-queries; until the port, those queries name made-up tables. The run prints one summary row per portfolio, whose
-`status` is `accepted` when its trades may trade, and writes a snapshot under `OPTIM_SNAPSHOT_ROOT`. `--holdings sod`
-starts from the start of the day's holdings rather than working ones. `uv run optim --help` lists the other commands:
-`replay`, `warm`, `clear` and `schema`.
-
-To try a strategy without access to those systems, replay a saved run with it. Replay reads only the run's snapshot,
-and without `--strategy` re-runs the run as it was, with the code you have now:
-
-```sh
-uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json
-```
-
-## Run as a Job
-
-```sh
-docker build --build-arg GIT_SHA=$(git rev-parse HEAD) -t <registry>.azurecr.io/portfolio-optim:$(git rev-parse HEAD) .
-```
-
-The build fails without `GIT_SHA`: every run's snapshot records the commit it ran, and the image, which the run's
-environment sets as `OPTIM_IMAGE`. The image holds `strategies/` at `/strategies`, so a strategy change ships as a new
-image. It includes COPT, which reads its license from `COPT_LICENSE_DIR`, and connects to Oracle in thin mode; thick mode
-also needs Oracle Instant Client in the image and `OPTIM_ORACLE__MODE=thick`.
-
-The image's entrypoint is the `optim` CLI, which Airflow runs with the command's arguments. Point `OPTIM_SNAPSHOT_ROOT`
-and `OPTIM_CACHE_ROOT` at shared storage, and schedule `optim warm` each business morning, before the first run, so
-runs read cached datasets (see [How to cache a dataset](docs/extending.md#how-to-cache-a-dataset)). Give each run labels, such as
-`--label purpose=production --label dag_run=<Airflow's run id>`: its `run.json` records them, so production runs can be
-told from research, and each run found from the DAG run that started it.
-
-## Layout
-
-The code is under `src/optim/`, one folder per concern and one module per thing that grows: a source, a subject of
-data, a family of rules or constraints, a job. The [agent guide](AGENTS.md) maps every module in the order a run flows
-through them.
-
-## Further reading
-
-- [The optim framework](docs/design.md): the agreed design this repo is moving to, a package that quants' model repos
-  depend on, and the steps to get there.
-- [How the optimizer is put together](docs/architecture.md): how a run flows, the portfolio model (positions, cash,
-  sleeves, value and controls), when a result may trade, and why it is built that way.
-- [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source, solver, job or
-  output; configure a solve; solve a portfolio with several sleeves; compare strategies on a saved run.
-- [Porting another optimizer](docs/porting.md): bring an existing optimizer's data and logic into this one, best
-  effort, with a porting log and a sanity check on the same data.
-- [Snapshot files](docs/snapshots.md): what each run saves, file by file.
-- [Agent guide](AGENTS.md): the code map, the rules to keep, and the checks to run, for coding agents.
-
-## Development
-
-`uv run pre-commit run --all-files` runs ruff, ty and the lockfile check. The git hook runs the same checks on every
-commit after `uv run pre-commit install`.
+`uv sync` also installs COPT, which the tests run without a license, size-limited. [AGENTS.md](AGENTS.md) maps every
+module and lists the rules to keep. The firm's pipeline builds and publishes the package to the internal index when a
+version is tagged; the version is in `pyproject.toml`.
