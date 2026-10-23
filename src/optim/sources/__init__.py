@@ -1,4 +1,5 @@
-"""Where rows come from. Every source answers `fetch(query, params)` with raw columns, and `optim.data` validates them,
+"""Where rows come from: Oracle, SQL Server, REST APIs and files. Every source answers `fetch(query, params)` with raw
+columns, and `optim.data` validates them,
 so all sources are held to the same schemas. `read_only()` scopes several fetches to one read-only transaction, so reads
 that depend on each other see one moment of the source. `optim.context` opens the connections."""
 
@@ -11,7 +12,7 @@ from pydantic import ConfigDict, Field
 
 from optim.schema import Model
 
-type SourceName = Literal["oracle", "mssql", "signals"]
+type SourceName = Literal["oracle", "mssql", "signals", "file"]
 type Param = str | int | float | date | tuple[str, ...]
 type Columns = dict[str, list[object]]
 

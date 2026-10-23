@@ -19,11 +19,11 @@ if TYPE_CHECKING:  # a warm hook's argument: the loader itself is I/O, which a d
 
 @dataclass(frozen=True)
 class CachePolicy:
-    """How a dataset uses the Redis cache. A dataset without one is read live on every load."""
+    """How a dataset uses the cache. A dataset without one is read live on every load."""
 
-    ttl: timedelta  # how long an entry lives; every query param is in the key, so a new business date is a new entry
+    ttl: timedelta  # how long an entry stays fresh; every query param is in the key, so a new business date is a new entry
     warm: Callable[[Loader, date], Iterable[Mapping[str, Param]]] | None = None  # the params `optim warm` loads, one entry each
-    live_on_miss: bool = True  # on a miss, or with Redis down, read the source; False fails the run instead
+    live_on_miss: bool = True  # on a miss, or a stale entry, read the source; False fails the run instead
 
     def __post_init__(self) -> None:
         if self.ttl <= timedelta(0):

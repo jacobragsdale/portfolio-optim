@@ -54,14 +54,15 @@ connection code), and `Settings` composes them under nested environment variable
 
 ## Every run is a Job
 
-Each run is one AKS Job running the CLI. Airflow starts it with the command's arguments, and it loads, solves, saves,
+Each run is one process running the CLI. Airflow starts it with the command's arguments, and it loads, solves, saves,
 writes its outputs and exits. The exit code is the run's status: 0 only when every portfolio solved and its result was
 accepted. Neither Kubernetes nor Airflow retries a run: a rerun is a new run, with its own id and snapshot.
 
 `OPTIM_WORKERS` sizes the run's process pool and should match the Job's CPU request in physical cores: hyperthreads
 add little throughput and slow every solve. Each worker's BLAS gets one thread rather than one per CPU, and COPT one
 thread per solve, so the workers do not compete for cores. A run with one task, the common intraday case, solves in the
-Job's own process and starts no pool. Snapshots go to an Azure Files volume, so they outlive the Job's pod.
+Job's own process and starts no pool. Snapshots go to `OPTIM_SNAPSHOT_ROOT`, a path or URL written through
+`pyarrow.fs`: local disk on a laptop, and shared storage in production, so they outlive the run's machine.
 
 A solver process that dies, as when the Job reaches its memory limit, breaks the pool and loses every portfolio it had
 not finished. Those get one new pool, which covers a one-off kill; if that breaks too, they stay unsolved, and one
@@ -107,24 +108,28 @@ rule can write `rating <= "A-"`.
 
 Caching is a property of the data, not of the code that reads it. A dataset's `CachePolicy` says how long its entry
 lives, whether `optim warm` fills it, and whether a run may read the source when the entry is missing. The per-portfolio
-datasets have no policy, so they are always read live. Every Job is a new process, so the cache is Redis, shared by all
-of them. Nothing is cached in process memory: a job that needs a dataset twice loads it once and passes the frame, as
+datasets have no policy, so they are always read live. Every run is a new process, so the cache is files: a Parquet
+file per entry under `OPTIM_CACHE_ROOT`, written through `pyarrow.fs` as snapshots are, with the time its source was
+read in the file. A laptop points the root at a local folder, and production at shared storage, so every run shares the
+entries; without the setting, nothing is cached. An entry is fresh for its policy's ttl, and a write goes to a
+temporary file that is renamed into place, so a concurrent run never reads half an entry. Nothing is cached in process
+memory: a job that needs a dataset twice loads it once and passes the frame, as
 `Market` does for every portfolio in a run. Cache keys include the query parameters, the SQL text and the row schema.
 The parameters include the business date, so each day starts with new entries, and a deploy that changes a query or a
 schema never reads what the old code cached.
 
 `optim warm` is the morning Job. It finds every declared dataset whose policy has a warm hook, asks the hook which
-parameters to load it with, reads each set live, and overwrites its entry, so the day's runs read them from Redis. A
-failed load does not stop the others, but it fails the Job, as Redis failing does, and so does a load that returns
+parameters to load it with, reads each set live, and overwrites its entry, so the day's runs read them from the cache.
+A failed load does not stop the others, but it fails the Job, as failing to write the cache does, and so does a load
+that returns
 no rows: an empty entry would hide the data for its whole ttl once the feed lands. Runs never cache an empty result
 either.
 
 A run never fails because of the cache, since the cache only saves time. An entry it cannot read, such as a corrupt
-one, is a miss, and the live read replaces it. The first time Redis is unavailable (down, unreachable or refusing the
-password), the run stops asking it, so an outage costs one timeout and one warning, not two per dataset. Each
-dataset's policy decides what a miss means: read the source, or fail. A dataset that is too heavy to read once per Job
-sets `live_on_miss=False`, so an outage cannot turn every Job into a full read of the source. Without Redis, or with
-`--no-cache`, a run reads everything live.
+one, or storage it cannot reach, is a miss, and the live read replaces it. Each dataset's policy decides what a miss
+means: read the source, or fail. A dataset that is too heavy to read once per run sets `live_on_miss=False`, so a
+missing entry cannot turn every run into a full read of the source. Without a cache root, or with `--no-cache`, a run
+reads everything live.
 
 ### Loading at the pace of each source
 
@@ -368,7 +373,7 @@ solver's stop and own status, gap, nodes, and build, compile and solver times), 
 for every rule (what it made unbuyable, how many lines it left sellable, and how many returns it changed).
 
 Every record of a run carries its `run_id`, including the run's failure, so one filter finds the whole run, even one
-that died before writing its snapshot. The snapshot itself is `OPTIM_SNAPSHOT_DIR/<run_id>`.
+that died before writing its snapshot. The snapshot itself is `OPTIM_SNAPSHOT_ROOT/<run_id>`.
 
 Records stay small, because AKS splits lines over 16KB. Bulk data goes in the snapshot: the logs say what happened, and
 the snapshot holds what the run read and returned. A long list of ids in a record, such as a run's portfolios, is cut to

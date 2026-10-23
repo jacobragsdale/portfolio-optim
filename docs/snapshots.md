@@ -1,8 +1,8 @@
 # Snapshot files
 
-Every run saves a snapshot: a directory `OPTIM_SNAPSHOT_DIR/RUN_ID` holding what the run was asked, the datasets it
-loaded, and what it returned. A replay saves its snapshot beside the one it replays. The directory appears only once it
-is complete, and nothing changes it afterwards. `optim replay` reads it, and so does anything that reports on runs.
+Every run saves a snapshot: a directory `OPTIM_SNAPSHOT_ROOT/RUN_ID`, where the root is a path or URL, holding what the
+run was asked, the datasets it loaded, and what it returned. A replay saves its snapshot beside the one it replays. The
+directory appears only once it is complete, and nothing changes it afterwards. `optim replay` reads it, and so does anything that reports on runs.
 
 ```text
 RUN_ID/

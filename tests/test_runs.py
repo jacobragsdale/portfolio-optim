@@ -32,7 +32,7 @@ def test_a_run_records_when_it_ran_who_labelled_it_and_how_each_dataset_was_read
 def test_a_replay_records_the_run_it_replays_and_reads_no_dataset(tmp_path: Path) -> None:
     ran = run(context(tmp_path, sources()), OPTIMIZE)
 
-    replayed = replay(ReplayRequest(snapshot=tmp_path / ran.run_id), workers=1, labels={"purpose": "research"})
+    replayed = replay(ReplayRequest(snapshot=str(tmp_path / ran.run_id)), workers=1, labels={"purpose": "research"})
     info = saved(tmp_path / replayed.run_id)
 
     assert info.replay == Replayed(of=ran.run_id, portfolios=None)

@@ -20,8 +20,9 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 | `context.py`, `settings.py` | The only place connections open; `OPTIM_*` environment variables. |
 | `jobs/` | A request class per job, such as `optimize`, and the solves it makes, collected in `Job`; `run.py`: `run` and `replay` run any job, and `RunInfo` is the snapshot's `run.json`. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. Every number is a float. |
-| `sources/` | Oracle (thin or thick), SQL Server and REST: bounded fetches, read-only transactions. |
-| `data/` | `dataset.py` declares a dataset and `frames.py` validates rows, with no I/O; `loader.py` and `cache.py` fetch, scope reads in read-only transactions, and cache in Redis. |
+| `sources/` | Oracle (thin or thick), SQL Server, REST and files: bounded fetches, read-only transactions. |
+| `storage.py` | The snapshot and cache roots, a path or URL each, through `pyarrow.fs`, with atomic writes. |
+| `data/` | `dataset.py` declares a dataset and `frames.py` validates rows, with no I/O; `loader.py` and `cache.py` fetch, scope reads in read-only transactions, and cache in files. |
 | `datasets/load.py` | `load_frames`: every dataset a run reads (`MARKET`, `PER_PORTFOLIO` in `datasets/__init__.py`), in batches. |
 | `prep/` | Pure prep: the `Market` a run shares (`market.py`); each `Portfolio`, and the `SolverInputs` one solve sees: lines, cash, cash flows (`portfolios.py`, the types in `__init__.py`), with the portfolio's controls applied (`controls.py`). |
 | `engine.py` | Solving tasks in this process or a process pool. |

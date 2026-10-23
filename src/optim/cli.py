@@ -100,8 +100,8 @@ def _label(text: str) -> tuple[str, str]:
 def _warm(settings: Settings, as_of_date: date, names: Sequence[str] | None) -> int:
     """Fill the cache for the business date: every dataset with a warm hook, or only the named ones, say after a data
     correction. Exit 1 if any load failed."""
-    if settings.redis_url is None:
-        msg = "warm needs OPTIM_REDIS_URL: without Redis there is no cache to fill"
+    if settings.cache_root is None:
+        msg = "warm needs OPTIM_CACHE_ROOT: without it there is no cache to fill"
         raise ValueError(msg)
     with open_context(settings) as ctx:
         return 0 if ctx.loader.warm([d for d in all_datasets() if not names or d.name in names], as_of_date) else 1
@@ -110,12 +110,12 @@ def _warm(settings: Settings, as_of_date: date, names: Sequence[str] | None) -> 
 def _clear(settings: Settings, names: Sequence[str]) -> int:
     """Delete every cached entry of the named datasets, whatever their params, say after a data correction. Until they
     are filled again, runs read them live, or fail where the policy forbids that."""
-    if settings.redis_url is None:
-        msg = "clear needs OPTIM_REDIS_URL: without Redis there is no cache to clear"
+    if (cache := open_cache(settings)) is None:
+        msg = "clear needs OPTIM_CACHE_ROOT: without it there is no cache to clear"
         raise ValueError(msg)
-    with open_cache(settings.redis_url) as cache:
-        for name in names:
-            log.info("cleared %d entries of %s", cache.clear(name), name)
+    for name in names:
+        cache.clear(name)
+        log.info("cleared the cache entries of %s", name)
     return 0
 
 
@@ -144,7 +144,7 @@ def _parser() -> argparse.ArgumentParser:
     optimize_command.add_argument("--holdings", choices=["working", "sod"], default="working", help="start from working holdings, or the start of day's (default: working)")
 
     replay_command = commands.add_parser("replay", parents=[labelled], help="run a saved job again, with today's code and any strategy; reads only the snapshot")
-    replay_command.add_argument("snapshot", type=Path, help="the run's snapshot directory")
+    replay_command.add_argument("snapshot", help="the run's snapshot directory, a path or URL")
     replay_command.add_argument("--strategy", type=Path, help="strategy JSON file (default: the strategy the run used)")
     replay_command.add_argument("--portfolios", nargs="+", help="only these portfolios (default: every portfolio in the run)")
     replay_command.add_argument("--workers", type=int, default=1, help="solver processes (default: 1)")

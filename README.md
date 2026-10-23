@@ -34,7 +34,7 @@ uv run --env-file .env optim optimize --strategy strategies/core.json --portfoli
 
 `PORTFOLIO_ID` is an `account_id` in the SQL Server `accounts` table that `src/optim/datasets/sql/portfolios.sql`
 queries; until the port, those queries name made-up tables. The run prints one summary row per portfolio, whose
-`status` is `accepted` when its trades may trade, and writes a snapshot under `OPTIM_SNAPSHOT_DIR`. `--holdings sod`
+`status` is `accepted` when its trades may trade, and writes a snapshot under `OPTIM_SNAPSHOT_ROOT`. `--holdings sod`
 starts from the start of the day's holdings rather than working ones. `uv run optim --help` lists the other commands:
 `replay`, `warm`, `clear` and `schema`.
 
@@ -51,15 +51,14 @@ uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json
 docker build --build-arg GIT_SHA=$(git rev-parse HEAD) -t <registry>.azurecr.io/portfolio-optim:$(git rev-parse HEAD) .
 ```
 
-The build fails without `GIT_SHA`: every run's snapshot records the commit it ran, and the image, which the Job sets as
-`OPTIM_IMAGE`. The image holds `strategies/` at `/strategies`, so a strategy change ships as a new image. It includes
-COPT, which reads its license from the `copt-license` secret that `deploy/job.yaml` mounts, and connects to Oracle in
-thin mode; thick mode also needs Oracle Instant Client in the image and `OPTIM_ORACLE__MODE=thick`.
+The build fails without `GIT_SHA`: every run's snapshot records the commit it ran, and the image, which the run's
+environment sets as `OPTIM_IMAGE`. The image holds `strategies/` at `/strategies`, so a strategy change ships as a new
+image. It includes COPT, which reads its license from `COPT_LICENSE_DIR`, and connects to Oracle in thin mode; thick mode
+also needs Oracle Instant Client in the image and `OPTIM_ORACLE__MODE=thick`.
 
-The image's entrypoint is the `optim` CLI. Every run is an AKS Job that Airflow starts with the command's arguments:
-`deploy/job.yaml` is the Job spec, and `deploy/snapshots-pvc.yaml` the volume that snapshots go to. Schedule
-`optim warm` each business morning, before the first run, so runs read cached datasets from Redis (see
-[How to cache a dataset](docs/extending.md#how-to-cache-a-dataset)). Give each run labels, such as
+The image's entrypoint is the `optim` CLI, which Airflow runs with the command's arguments. Point `OPTIM_SNAPSHOT_ROOT`
+and `OPTIM_CACHE_ROOT` at shared storage, and schedule `optim warm` each business morning, before the first run, so
+runs read cached datasets (see [How to cache a dataset](docs/extending.md#how-to-cache-a-dataset)). Give each run labels, such as
 `--label purpose=production --label dag_run=<Airflow's run id>`: its `run.json` records them, so production runs can be
 told from research, and each run found from the DAG run that started it.
 

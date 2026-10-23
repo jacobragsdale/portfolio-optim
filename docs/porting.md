@@ -111,7 +111,7 @@ Old code hides behaviour outside its optimizer. Search these as well as the opti
 
 ## Where old code goes
 
-Paths are under `src/optim/` unless they start with `strategies/` or `deploy/`.
+Paths are under `src/optim/` unless they start with `strategies/`.
 
 | Old code that | Goes to | Where |
 |---|---|---|
@@ -137,7 +137,7 @@ Paths are under `src/optim/` unless they start with `strategies/` or `deploy/`.
 | Is another entry point, such as start-of-day runs or transition analysis | A job ([how to add a job](extending.md#how-to-add-a-job)); start of day is `optimize --holdings sod` | `jobs/` |
 | Writes reports or database rows | An output, called in `run` in `jobs/run.py` once the snapshot is saved | `outputs/` |
 | Sends orders | Nothing: the engine never sends orders | |
-| Runs on a schedule | An AKS Job that Airflow starts, from the Job spec | `deploy/job.yaml` |
+| Runs on a schedule | An Airflow task that runs the image's `optim` CLI | |
 
 A rule reads only `SolverInputs`. If a rule needs data the inputs lack, add a dataset and a column first.
 

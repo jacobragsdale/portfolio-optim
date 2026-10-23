@@ -1,5 +1,5 @@
-"""The `Loader`, which fetches datasets (`optim.data.dataset`) through their sources, validates them and caches them in
-Redis. Loading is raw acquisition: a frame holds what its source returned, validated against its row model and nothing
+"""The `Loader`, which fetches datasets (`optim.data.dataset`) through their sources, validates them and caches them
+(`optim.data.cache`). Loading is raw acquisition: a frame holds what its source returned, validated against its row model and nothing
 more. Combining frames into what a solve sees is prep (`optim.prep`)."""
 
 import hashlib
@@ -18,9 +18,8 @@ from functools import partial
 from typing import Literal, Self
 
 import pandas as pd
-import redis
 
-from optim.data.cache import RedisCache
+from optim.data.cache import Cache
 from optim.data.dataset import Dataset
 from optim.logs import brief, ms_since, timed, to_json, utc_now
 from optim.schema import Model
@@ -28,7 +27,6 @@ from optim.sources import Param, Source, SourceName
 from optim.sources.sql import read_sql
 
 log = logging.getLogger(__name__)
-_REDIS_DOWN_LOCK = threading.Lock()  # so the first loader thread to find Redis down is the one that says so
 _stop: ContextVar[threading.Event | None] = ContextVar("_stop", default=None)  # set when a call in a `TaskGroup` fails
 
 
@@ -104,12 +102,11 @@ class Loader:
     cache, every dataset is read live. Thread-safe."""
 
     sources: Mapping[SourceName, Source]
-    cache: RedisCache | None = None
+    cache: Cache | None = None
     limits: Mapping[SourceName, threading.Semaphore] = field(default_factory=dict)  # calls each source may serve at once; none: unbounded
-    refresh: bool = False  # set by `warm`: read live, overwrite the cache, and fail if Redis does
+    refresh: bool = False  # set by `warm`: read live, overwrite the cache, and fail if the cache does
     reads: Reads | None = None  # set for a run: where each load got its data, for the run's snapshot
-    clock: Callable[[], datetime] = utc_now  # stamps each source read
-    _redis_down: threading.Event = field(default_factory=threading.Event, init=False, repr=False, compare=False)  # see `_cached`
+    clock: Callable[[], datetime] = utc_now  # stamps each source read, and judges how old a cache entry is
 
     def load(self, dataset: Dataset, **params: Param) -> pd.DataFrame:
         try:
@@ -136,36 +133,28 @@ class Loader:
             if frame.empty:
                 msg = f"{dataset.name} returned no rows; an empty entry would hide the data for {policy.ttl} once it lands"
                 raise ValueError(msg)
-            cache.set(key, frame, fetched_at, policy.ttl)
+            cache.put(key, frame, fetched_at)
             return frame, DatasetRead(read="refresh", fetched_at=fetched_at)
-        if (hit := self._cached(dataset, partial(cache.get, key))) is not None:
+        if (hit := self._cached(dataset, partial(cache.get, key))) is not None and self.clock() - hit[1] < policy.ttl:
             frame, fetched_at = hit
             return frame, DatasetRead(read="hit", fetched_at=fetched_at)
-        if not policy.live_on_miss:  # a miss, Redis down included, and the policy decides what happens next
-            msg = f"{dataset.name} is not in the cache for {to_json(brief(params))}, and its policy forbids reading it live: check that Redis is up and `optim warm` ran"
+        if not policy.live_on_miss:  # a miss, or a stale entry, and the policy decides what happens next
+            msg = f"{dataset.name} has no fresh cache entry for {to_json(brief(params))}, and its policy forbids reading it live: check that `optim warm` ran"
             raise LookupError(msg)
-        if policy.warm and not self._redis_down.is_set():  # warm should have filled it: the warm failed, or this load's params differ from the hook's
+        if policy.warm:  # warm should have filled it: the warm failed, or this load's params differ from the hook's
             log.warning("%s is warmed but missed the cache; reading it live", dataset.name, extra={"params": brief(params)})
         frame, fetched_at = self._fetch(dataset, params, fields)
         if not frame.empty:  # usually a feed that has not landed yet: cached, it would hide the data for a whole ttl
-            self._cached(dataset, partial(cache.set, key, frame, fetched_at, policy.ttl))
+            self._cached(dataset, partial(cache.put, key, frame, fetched_at))
         return frame, DatasetRead(read="miss", fetched_at=fetched_at)
 
     def _cached[T](self, dataset: Dataset, call: Callable[[], T]) -> T | None:
-        """A cache read or write that cannot fail the run, since the cache only saves time: an error is logged and reads as
-        a miss, and the live read then overwrites a bad entry. The first time Redis is unavailable, the cache is off for the
-        rest of the run, so an outage costs one timeout, not two per load."""
-        if self._redis_down.is_set():
-            return None
+        """A cache read or write that cannot fail the run, since the cache only saves time: an error, such as a corrupt
+        entry or storage that cannot be reached, is logged and reads as a miss, and the live read then overwrites a bad
+        entry."""
         try:
             return call()
-        except redis.ConnectionError, redis.TimeoutError:  # AuthenticationError is a ConnectionError
-            with _REDIS_DOWN_LOCK:
-                first = not self._redis_down.is_set()
-                self._redis_down.set()
-            if first:
-                log.warning("Redis is unavailable; reading every dataset live for the rest of this run", exc_info=True)
-        except Exception:  # a corrupt entry, a key holding another type, Redis out of memory: only this key misses
+        except Exception:
             log.warning("could not use the cache for %s; reading it live", dataset.name, exc_info=True)
         return None
 
@@ -222,4 +211,4 @@ def _cache_key(dataset: Dataset, params: Mapping[str, Param]) -> str:
     """Changes whenever the params, the SQL or the row schema change, so a deploy never reads what older code cached."""
     query = read_sql(dataset.query) if dataset.query.endswith(".sql") else dataset.query  # a REST path is keyed as given
     payload = json.dumps([json.dumps(dataset.row.model_json_schema(), sort_keys=True), query, params], sort_keys=True, default=str)
-    return f"{dataset.name}:{hashlib.sha256(payload.encode()).hexdigest()[:16]}"
+    return f"{dataset.name}/{hashlib.sha256(payload.encode()).hexdigest()[:16]}"  # no `:`, which Windows refuses in a file name

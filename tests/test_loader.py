@@ -6,6 +6,8 @@ import threading
 import time
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
+from dataclasses import replace
+from datetime import date
 from decimal import Decimal  # what a driver returns for a DECIMAL column
 from pathlib import Path
 
@@ -19,6 +21,7 @@ from optim.datasets.portfolios import HOLDINGS
 from optim.datasets.securities import SECURITIES
 from optim.schema import Row
 from optim.sources import Columns, Param, TooManyRowsError, oracle
+from optim.sources.file import FileSource
 from optim.sources.sql import SqlSource
 
 
@@ -192,3 +195,18 @@ def test_oracle_in_thick_mode_loads_its_client_libraries_from_the_directory_give
 
 def test_oracle_in_thin_mode_needs_no_client(tmp_path: Path) -> None:
     assert isinstance(oracle.connect(oracle_settings("thin", tmp_path)), SqlSource)  # connects per query, not here
+
+
+def test_a_file_dataset_reads_parquet_or_csv_for_the_run_date_and_a_batch_reads_its_portfolios_rows(tmp_path: Path) -> None:
+    """A CSV's values are text until validation types them, so an id of digits stays a string."""
+    day = tmp_path / "2026-10-16"
+    day.mkdir()
+    (day / "holdings.csv").write_text("portfolio_id,sleeve_id,security_id,quantity\n001,core,USD,1000000\n002,core,USD,5.5\n")
+    frame(HOLDINGS, {"portfolio_id": "001"}, {"portfolio_id": "002"}).to_parquet(day / "holdings.parquet", index=False)
+    loader = Loader({"file": FileSource()})
+
+    for suffix in ("csv", "parquet"):
+        dataset = replace(HOLDINGS, source="file", query=f"{tmp_path}/{{as_of_date}}/holdings.{suffix}")
+        holdings = loader.load(dataset, as_of_date=date(2026, 10, 16), portfolios=("002",))
+        assert holdings["portfolio_id"].tolist() == ["002"]
+        assert holdings["quantity"].dtype == "float64"

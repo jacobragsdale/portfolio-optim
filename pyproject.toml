@@ -16,7 +16,6 @@ dependencies = [
     "pyarrow>=26.0.0",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
-    "redis>=8.1.0",
     "scipy>=1.18.1",
 ]
 
@@ -127,7 +126,7 @@ exclude_also = [
 
 [tool.importlinter]
 root_package = "optim"
-include_external_packages = true  # so a contract can forbid redis or a database driver
+include_external_packages = true  # so a contract can forbid a database driver or an HTTP client
 exclude_type_checking_imports = true  # a hook's type annotation imports nothing at runtime
 
 [[tool.importlinter.contracts]]
@@ -136,6 +135,6 @@ type = "forbidden"
 source_modules = ["optim.prep", "optim.rules", "optim.optimizer", "optim.strategy", "optim.engine"]
 forbidden_modules = [
     "optim.data.loader", "optim.data.cache", "optim.datasets.load", "optim.sources.sql", "optim.sources.oracle",
-    "optim.sources.mssql", "optim.sources.rest", "optim.context", "optim.settings", "optim.outputs", "optim.jobs",
-    "redis", "httpx", "oracledb", "mssql_python",
+    "optim.sources.mssql", "optim.sources.rest", "optim.sources.file", "optim.storage", "optim.context", "optim.settings",
+    "optim.outputs", "optim.jobs", "httpx", "oracledb", "mssql_python",
 ]

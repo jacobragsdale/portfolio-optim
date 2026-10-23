@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
-# The `optim` CLI. Every run is an AKS Job that Airflow starts with the command's arguments, e.g.
-# `optimize --strategy /strategies/core.json --portfolios A1 A2`. deploy/job.yaml is the Job spec.
+# The `optim` CLI, which Airflow runs with the command's arguments, e.g.
+# `optimize --strategy /strategies/core.json --portfolios A1 A2`.
 
 FROM python:3.14.7-slim-trixie AS build
 COPY --from=ghcr.io/astral-sh/uv:0.12.7 /uv /bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never UV_PROJECT_ENVIRONMENT=/opt/venv
 WORKDIR /src
 # Dependencies first, so a code change rebuilds only the last layer.
-# With COPT, which a strategy can name; it reads its license from COPT_LICENSE_DIR (deploy/job.yaml).
+# With COPT, which a strategy can name; it reads its license from COPT_LICENSE_DIR.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \

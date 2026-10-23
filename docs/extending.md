@@ -36,17 +36,17 @@ To load a new table, for example issuer credit scores from Oracle:
 
 ## How to cache a dataset
 
-Give the `Dataset` a policy, such as `cache=CachePolicy(ttl=timedelta(hours=12), warm=_by_date)`. Every Job shares the
-cache through Redis. An entry's key is the dataset, its SQL text, its row schema and every parameter it was loaded
-with, so any query can be cached, whatever it binds. The policy has three settings:
+Give the `Dataset` a policy, such as `cache=CachePolicy(ttl=timedelta(hours=12), warm=_by_date)`. Every run shares the
+cache, a Parquet file per entry under `OPTIM_CACHE_ROOT`. An entry's key is the dataset, its SQL text, its row schema
+and every parameter it was loaded with, so any query can be cached, whatever it binds. The policy has three settings:
 
-- `ttl`: how long an entry lives in Redis.
+- `ttl`: how long an entry stays fresh.
 - `warm`: a hook that returns the parameters `optim warm` loads the dataset with, one entry each. `optim warm` reads
   each one live and overwrites its entry. Schedule it in Airflow before the day's first run; `optim warm --datasets
   NAME ...` warms only the named datasets, for example on a faster schedule or after a data correction. Without a
   hook, the first load of each key reads the source and fills the entry.
-- `live_on_miss=False`: a run fails instead of reading the source when the entry is missing or Redis is down. Use it
-  for queries too heavy to run once per Job. It requires a `warm` hook, because nothing else fills the entry.
+- `live_on_miss=False`: a run fails instead of reading the source when the entry is missing or stale. Use it for
+  queries too heavy to run once per Job. It requires a `warm` hook, because nothing else fills the entry.
 
 A hook takes the loader and the business date, and returns one dict of parameters per entry. It is a short function
 beside the dataset:
@@ -68,8 +68,8 @@ controls and cash flows uncached. A deploy that changes a dataset's SQL or row s
 `optim warm` after it. `optim clear --datasets NAME ...` deletes every entry of the named datasets, whatever their
 parameters, say after a data correction; until they are filled again, runs read them live, or fail where
 `live_on_miss=False`. If one warm load fails, the rest still land, and the Job exits 1; a load that returns no rows
-counts as failed, since runs never cache an empty result. Runs without Redis (`OPTIM_REDIS_URL=none`) or with
-`--no-cache` read every dataset live, whatever its policy.
+counts as failed, since runs never cache an empty result. Runs without `OPTIM_CACHE_ROOT`, or with `--no-cache`, read
+every dataset live, whatever its policy.
 
 ## How to add a rule
 
@@ -158,8 +158,7 @@ Each strategy's `"solve"` block says how its portfolios are solved, and when a s
   terms, and rounds its trades afterwards. That is tens to hundreds of times faster, but rounding can break a binding
   constraint, and acceptance then rejects the result.
 - `solver`: `HIGHS`, free, or `COPT`, licensed. COPT solves quadratic objectives with integer trades, which HiGHS
-  cannot. The image installs COPT and reads its license from `COPT_LICENSE_DIR` (`deploy/job.yaml` mounts the
-  `copt-license` secret there); locally, `uv sync` installs it for tests. Without a license COPT runs size-limited, and
+  cannot. The image installs COPT and reads its license from `COPT_LICENSE_DIR`; locally, `uv sync` installs it for tests. Without a license COPT runs size-limited, and
   refuses an integer problem over 2,000 variables or rows.
 - `time_limit_s`: per portfolio. A solve that reaches it with a solution logs a warning and reports its `gap` in the
   run's summary; acceptance then judges it by `max_gap`. If it found none, the portfolio is unsolved, with status
@@ -209,7 +208,7 @@ uv run optim replay snapshots/RUN_ID --strategy strategies/my-variant.json --wor
 
 Without `--strategy`, it replays the run as it was, which shows whether a code change moved any result. A label such
 as `--label purpose=research` records why in the replay's `run.json`. Replay reads only the snapshot directory. It needs
-no `.env`, database or Redis, and writes nothing but its own snapshot. It applies the strategy's rules, objective,
+no `.env` or database, and writes nothing but its own snapshot. It applies the strategy's rules, objective,
 constraints and solve block, reviews each result, saves the results as a new run of the same job beside the original,
 and prints the summary. `--portfolios A1 A2` replays only some portfolios. Each run's `summary.parquet` holds one row
 per solve, so comparing two runs of `optimize` is a join on `portfolio_id`. [Snapshot files](snapshots.md) describes
@@ -228,7 +227,7 @@ every file.
    login in a thread it stops waiting for.
 2. Add the source's name to `SourceName` in `src/optim/sources/__init__.py`.
 3. Add its settings to `Settings` in `src/optim/settings.py` under that same name, which `open_context` uses to find its
-   limit, and its variables to `.env.example` and `deploy/job.yaml`.
+   limit, and its variables to `.env.example`.
 4. Open it in `open_context` in `src/optim/context.py`, which also gives it its slot limit. If it holds a pool or
    client, enter it on the `ExitStack` so it closes.
 

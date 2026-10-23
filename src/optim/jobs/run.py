@@ -6,7 +6,6 @@ import uuid
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
-from pathlib import Path
 from types import MappingProxyType
 
 from pydantic import AwareDatetime, Field
@@ -22,6 +21,7 @@ from optim.outputs.snapshots import Code, load_run, save_run
 from optim.prep import Frames
 from optim.prep.market import build_market
 from optim.schema import Model, RunId
+from optim.storage import Root
 from optim.strategy import Strategy
 
 NO_LABELS: Mapping[str, str] = MappingProxyType({})
@@ -82,12 +82,12 @@ def run(ctx: Context, job: Job, *, labels: Mapping[str, str] = NO_LABELS) -> Run
     # called here on the run this returns: after the snapshot is saved, so a failed output never loses it, and never on
     # replay.
     return _solve_and_save(
-        ctx.snapshot_dir, run_id, job, frames, job.tasks(frames), started_at=started_at, loaded_at=ctx.clock(), clock=ctx.clock, workers=ctx.workers, labels=labels, datasets=reads, replay=None
+        ctx.snapshot_root, run_id, job, frames, job.tasks(frames), started_at=started_at, loaded_at=ctx.clock(), clock=ctx.clock, workers=ctx.workers, labels=labels, datasets=reads, replay=None
     )
 
 
 class ReplayRequest(Model):
-    snapshot: Path  # the run's snapshot directory
+    snapshot: str  # the run's snapshot directory, a path or URL
     strategy: Strategy | None = None  # None: the strategy the run used
     portfolios: list[str] | None = Field(default=None, min_length=1)  # a subset of the run's portfolios; None: those the run solved
 
@@ -98,19 +98,20 @@ def replay(request: ReplayRequest, *, workers: int, labels: Mapping[str, str] = 
     run_id = str(uuid.uuid7())
     logs.bind(run_id=run_id)
     started_at = clock()
-    loaded, frames = load_run(request.snapshot)
+    snapshot = Root.at(request.snapshot)
+    loaded, frames = load_run(snapshot)
     saved = RunInfo.model_validate(loaded)
     job = saved.request if request.strategy is None else JOB.validate_python(saved.request.model_dump() | {"strategy": request.strategy})
     tasks = job.tasks(frames)
     only = request.portfolios or (saved.replay.portfolios if saved.replay else None)  # a replay of a subset replays that subset
     if only is not None:
-        tasks = _only(tasks, only, request.snapshot)
+        tasks = _only(tasks, only, snapshot)
     replayed = Replayed(of=saved.run_id, portfolios=only)
-    return _solve_and_save(request.snapshot.parent, run_id, job, frames, tasks, started_at=started_at, loaded_at=clock(), clock=clock, workers=workers, labels=labels, datasets=None, replay=replayed)
+    return _solve_and_save(snapshot.parent, run_id, job, frames, tasks, started_at=started_at, loaded_at=clock(), clock=clock, workers=workers, labels=labels, datasets=None, replay=replayed)
 
 
 def _solve_and_save(
-    snapshot_dir: Path,
+    snapshot_root: Root,
     run_id: str,
     job: Job,
     frames: Frames,
@@ -140,13 +141,13 @@ def _solve_and_save(
         request=job,
         replay=replay,
     )
-    save_run(snapshot_dir, run_id, meta=meta, frames=frames, results=results)
+    save_run(snapshot_root, run_id, meta=meta, frames=frames, results=results)
     return Run(run_id, results)
 
 
-def _only(tasks: Sequence[SolveTask], portfolio_ids: Sequence[str], snapshot: Path) -> list[SolveTask]:
+def _only(tasks: Sequence[SolveTask], portfolio_ids: Sequence[str], snapshot: Root) -> list[SolveTask]:
     in_run = {task.portfolio.details.portfolio_id for task in tasks}
     if missing := [i for i in portfolio_ids if i not in in_run]:
-        msg = f"{len(missing)} portfolios are not in {snapshot}, e.g. {missing[:5]}"
+        msg = f"{len(missing)} portfolios are not in {snapshot.location}, e.g. {missing[:5]}"
         raise LookupError(msg)
     return [task for task in tasks if task.portfolio.details.portfolio_id in portfolio_ids]

@@ -4,7 +4,6 @@ any job end to end, snapshot included, with no database."""
 from collections.abc import Generator, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
-from pathlib import Path
 
 import pandas as pd
 
@@ -22,6 +21,7 @@ from optim.prep import SolverInputs
 from optim.prep.market import build_market
 from optim.prep.portfolios import build_portfolios, inputs_for
 from optim.sources import Columns, Param
+from optim.storage import Root
 from optim.strategy import Strategy
 
 AS_OF = date(2026, 10, 16)
@@ -143,10 +143,10 @@ def sources() -> Rows:
     return Rows(rows)
 
 
-def context(snapshot_dir: Path, source: Rows) -> Context:
-    """Runs on `source`, with a clock the run and its loads share."""
+def context(snapshot_root: object, source: Rows) -> Context:
+    """Runs on `source`, saved under `snapshot_root`, a path, with a clock the run and its loads share."""
     clock = Clock()
-    return Context(Loader({"oracle": source, "mssql": source, "signals": source}, clock=clock), snapshot_dir, workers=1, clock=clock)
+    return Context(Loader({"oracle": source, "mssql": source, "signals": source}, clock=clock), Root.at(str(snapshot_root)), workers=1, clock=clock)
 
 
 OPTIMIZE = OptimizeRequest(strategy=STRATEGY, portfolios=["P1", "P2"], as_of_date=AS_OF)

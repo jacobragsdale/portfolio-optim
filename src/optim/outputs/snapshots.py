@@ -5,6 +5,7 @@ same code."""
 
 import logging
 import subprocess
+import uuid
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Self
@@ -17,6 +18,7 @@ from optim.data.frames import to_columns
 from optim.datasets import all_datasets
 from optim.optimizer.results import Result, result_frames
 from optim.schema import Model
+from optim.storage import Root
 
 log = logging.getLogger(__name__)
 _RUN_JSON = TypeAdapter(dict[str, object])
@@ -51,46 +53,44 @@ class Code(Model):
         return cls(git_sha=head, image=built.image, dirty=dirty)
 
 
-def save_run(root: Path, run_id: str, *, meta: Model, frames: Mapping[str, pd.DataFrame], results: Sequence[Result]) -> Path:
+def save_run(root: Root, run_id: str, *, meta: Model, frames: Mapping[str, pd.DataFrame], results: Sequence[Result]) -> Root:
     """`meta` is the run's `run.json`; `frames` are the datasets the run loaded, by name, as `load_frames` returns them."""
     # writes the whole market every run; store it once per content hash if snapshots grow too fast
     inputs = {f"inputs/{name}": frame for name, frame in frames.items()}
     return _write(root, run_id, meta=meta, frames=inputs | result_frames(results))
 
 
-def load_run(path: Path) -> tuple[dict[str, object], dict[str, pd.DataFrame]]:
+def load_run(path: Root) -> tuple[dict[str, object], dict[str, pd.DataFrame]]:
     """A saved run's `run.json` and the datasets it loaded, by name, for `optim replay`. Each dataset is validated as a
     load validates it, so a snapshot saved before a schema change, or written by hand, fails here, naming the column."""
     if not (inputs := path / "inputs").is_dir():
-        msg = f"{path} has no inputs/ directory: it is not a snapshot, or was saved before snapshots kept each dataset as loaded"
+        msg = f"{path.location} has no inputs/ directory: it is not a snapshot, or was saved before snapshots kept each dataset as loaded"
         raise FileNotFoundError(msg)
     meta = _RUN_JSON.validate_json((path / "run.json").read_bytes())
     datasets = {dataset.name: dataset for dataset in all_datasets()}
     frames = {}
-    for file in sorted(inputs.glob("*.parquet")):
-        if file.stem not in datasets:
-            msg = f"{file}: no dataset is named {file.stem!r}"
+    for file in inputs.children():
+        name = file.name.removesuffix(".parquet")
+        if name not in datasets:
+            msg = f"{file.location}: no dataset is named {name!r}"
             raise ValueError(msg)
         try:
-            frames[file.stem] = datasets[file.stem].to_frame(to_columns(pd.read_parquet(file)))
+            frames[name] = datasets[name].to_frame(to_columns(file.read_frame()[0]))
         except ValueError as error:
-            error.add_note(f"while reading {file}")
+            error.add_note(f"while reading {file.location}")
             raise
     return meta, frames
 
 
-def _write(root: Path, run_id: str, *, meta: Model, frames: Mapping[str, pd.DataFrame]) -> Path:
+def _write(root: Root, run_id: str, *, meta: Model, frames: Mapping[str, pd.DataFrame]) -> Root:
     """Write `root/run_id/`, a frame per `frames` key, which may name a subdirectory. The directory appears only once
-    it is complete."""
-    partial, path = root / f".{run_id}.partial", root / run_id
-    partial.mkdir(parents=True)
-    (partial / "run.json").write_text(meta.model_dump_json(indent=2))
+    it is complete: it is written under a hidden name and renamed."""
+    partial, path = root / f".{run_id}.{uuid.uuid4().hex}.partial", root / run_id
+    (partial / "run.json").write_bytes(meta.model_dump_json(indent=2).encode())
     for name, frame in frames.items():
-        file = partial / f"{name}.parquet"
-        file.parent.mkdir(exist_ok=True)
-        frame.to_parquet(file, index=False)
-    partial.rename(path)
-    log.info("saved snapshot %s", path, extra={"run_id": run_id})
+        (partial / f"{name}.parquet").write_frame(frame)
+    partial.move_to(path)
+    log.info("saved snapshot %s", path.location, extra={"run_id": run_id})
     return path
 
 

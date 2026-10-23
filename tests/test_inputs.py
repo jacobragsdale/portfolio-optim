@@ -23,6 +23,7 @@ from optim.optimizer.results import Solved
 from optim.outputs.snapshots import Code, load_run, save_run
 from optim.prep.market import build_market
 from optim.prep.portfolios import build_portfolios
+from optim.storage import Root
 
 THREE_BONDS = frame(SECURITIES, {"security_id": A}, {"security_id": B, "cusip": B}, {"security_id": C, "cusip": None, "isin": "XS0000000009"}, CASH)
 
@@ -209,8 +210,8 @@ def test_a_snapshot_gives_back_the_frames_the_run_loaded_exactly(tmp_path: Path)
         replay=None,
     )
 
-    save_run(tmp_path, "run-1", meta=info, frames=frames, results=[])
-    meta, saved = load_run(tmp_path / "run-1")
+    save_run(Root.at(tmp_path), "run-1", meta=info, frames=frames, results=[])
+    meta, saved = load_run(Root.at(tmp_path) / "run-1")
 
     assert RunInfo.model_validate(meta) == info
     assert saved.keys() == frames.keys()
@@ -220,7 +221,7 @@ def test_a_snapshot_gives_back_the_frames_the_run_loaded_exactly(tmp_path: Path)
 
 def test_a_replay_solves_as_the_run_did(tmp_path: Path) -> None:
     ran = run(context(tmp_path, sources()), OPTIMIZE)
-    replayed = replay(ReplayRequest(snapshot=tmp_path / ran.run_id), workers=1)
+    replayed = replay(ReplayRequest(snapshot=str(tmp_path / ran.run_id)), workers=1)
 
     assert ran.ok
     assert replayed.ok
