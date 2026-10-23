@@ -1,7 +1,8 @@
 """Running a model. `run` validates the params, loads the model's data, decides every portfolio and saves the snapshot;
 `replay` decides a saved run again, with the code you have now and, if given, other params. Both decide through
-`decide_all`, which calls the model's hooks: `prepare` once in this process, then `prepare_portfolio`, `decide` and
-`check` for each portfolio, in worker processes."""
+`decide_all`, which calls the model's hooks: `prepare` once in this process, then for each portfolio, in worker
+processes, `prepare_portfolio` and `decide`; the core rounds the decision and reviews it (`optim.acceptance`), and the
+model's `check` adds its own reasons."""
 
 import hashlib
 import json
@@ -21,6 +22,7 @@ from numpy.typing import ArrayLike
 
 import optim
 from optim import engine, logs, models
+from optim.acceptance import review, round_decision
 from optim.contract import Datasets, Decision, Params, declared
 from optim.data.dataset import Dataset
 from optim.data.loader import Loader, load_data
@@ -206,12 +208,14 @@ def _decide(state: _State, portfolio_id: str) -> Outcome:
         try:
             portfolio = state.portfolio(portfolio_id)
             prepared = model.prepare_portfolio(portfolio, state.shared, state.params) if model.prepare_portfolio else portfolio
-            decision = _decision(model, model.decide(prepared, state.shared, state.params))
-            reasons = _review(model, prepared, decision)
+            decided = _decision(model, model.decide(prepared, state.shared, state.params))
+            decision = round_decision(decided, portfolio.holdings, portfolio.securities)
+            reasons, numbers = review(decision, portfolio.holdings, portfolio.securities)
+            reasons += list(model.check(prepared, decision)) if model.check else []
         except Exception as error:
             log.exception("could not decide %s", portfolio_id)
-            return Outcome(portfolio_id=portfolio_id, decision=None, reasons=[f"error: {error!r}"], seconds=time.perf_counter() - start)
-        outcome = Outcome(portfolio_id=portfolio_id, decision=decision, reasons=reasons, seconds=time.perf_counter() - start)
+            return Outcome(portfolio_id=portfolio_id, decision=None, decided=None, reasons=[f"error: {error!r}"], seconds=time.perf_counter() - start)
+        outcome = Outcome(portfolio_id=portfolio_id, decision=decision, decided=decided, reasons=reasons, numbers=numbers, seconds=time.perf_counter() - start)
         log.info(
             "decided %s: %s",
             portfolio_id,
@@ -228,16 +232,8 @@ def _decision(model: LoadedModel, decided: object) -> Decision:
     return decided
 
 
-def _review(model: LoadedModel, prepared: object, decision: Decision) -> list[str]:
-    """Why the decision may not trade: none when it may. A solver's status alone never makes it acceptable."""
-    reasons = [] if decision.solved else [f"not solved: {decision.solver.stop if decision.solver else 'the model says so'}"]
-    if model.check is not None:
-        reasons += list(model.check(prepared, decision))
-    return reasons
-
-
 def _failed(portfolio_id: str, why: str) -> Outcome:
-    return Outcome(portfolio_id=portfolio_id, decision=None, reasons=[why], seconds=0.0)
+    return Outcome(portfolio_id=portfolio_id, decision=None, decided=None, reasons=[why], seconds=0.0)
 
 
 def _from_dir(dataset: Dataset, directory: Path) -> Dataset:

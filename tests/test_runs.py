@@ -75,7 +75,11 @@ def test_a_portfolio_that_fails_or_is_rejected_leaves_the_others_decided(tmp_pat
     results = read_results(root / run_id)
 
     assert results["decisions"].set_index("portfolio_id")["status"].to_dict() == {"P1": "rejected", "P2": "rejected"}
-    assert results["reasons"].set_index("portfolio_id")["reason"].to_dict() == {"P1": "error: ValueError('cannot decide P1')", "P2": "buys BAD"}
+    assert results["reasons"].to_numpy().tolist() == [
+        ["P1", "error: ValueError('cannot decide P1')"],
+        ["P2", "trades securities that are not loaded: ['BAD']"],  # the core's reason, then the model's
+        ["P2", "buys BAD"],
+    ]
 
 
 def test_a_replay_decides_as_the_run_did_from_its_snapshot_alone(tmp_path: Path) -> None:
@@ -94,7 +98,7 @@ def test_a_replay_with_other_params_records_them_and_a_replay_of_a_subset_replay
     other = replay(root / run_id, root, params_file=params(tmp_path, buy="BAD"), portfolio_ids=["P2"])
     again = replay(root / other.run_id, root)
 
-    assert [(o.portfolio_id, o.reasons) for o in other.outcomes] == [("P2", ["buys BAD"])]
+    assert [(o.portfolio_id, o.reasons[-1]) for o in other.outcomes] == [("P2", "buys BAD")]
     assert [o.portfolio_id for o in again.outcomes] == ["P2"]
     assert read_info(root / other.run_id).params["buy"] == "BAD"
 

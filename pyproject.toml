@@ -134,7 +134,8 @@ exclude_type_checking_imports = true  # a hook's type annotation imports nothing
 name = "Model code and what workers run do no I/O: the parent loads and saves"
 type = "forbidden"
 source_modules = [
-    "optim.contract", "optim.cvxpy", "optim.models", "optim.engine", "optim.datasets", "optim.testing", "optim.examples",
+    "optim.contract", "optim.cvxpy", "optim.models", "optim.engine", "optim.acceptance", "optim.datasets", "optim.testing",
+    "optim.examples",
     "optim.data.dataset", "optim.data.frames", "optim.schema",
 ]
 forbidden_modules = [

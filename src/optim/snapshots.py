@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Literal, Self
 
 import pandas as pd
-from pydantic import AwareDatetime, JsonValue
+from pydantic import AwareDatetime, Field, JsonValue
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from optim.contract import Decision
@@ -113,13 +113,18 @@ class RunInfo(Model):
 
 
 class Outcome(Model):
-    """One portfolio's result: its decision, and why it may not trade, if it may not."""
+    """One portfolio's result: its decision, rounded, and why it may not trade, if it may not."""
 
     portfolio_id: str
     decision: Decision | None
-    """None when the portfolio failed before it was decided."""
+    """Rounded to each security's increment: what may trade, if accepted. None when the portfolio failed before it was
+    decided."""
+    decided: Decision | None
+    """As the model decided it, before rounding."""
     reasons: list[str]
     """Why it may not trade; empty when accepted."""
+    numbers: dict[str, float] = Field(default_factory=dict)
+    """The portfolio's `value` before trading, `cash` after, and `turnover`, from the rounded trades."""
     seconds: float
     """To prepare, decide and check the portfolio."""
 
@@ -135,6 +140,12 @@ class DecisionRow(Row):
     status: Literal["accepted", "rejected"]
     """`accepted`: it may trade. `rejected`: `reasons.parquet` says why not."""
     trades: int
+    value: float | None
+    """The portfolio's value before trading, cash included, at each security's unit value."""
+    cash: float | None
+    """Cash after the rounded trades."""
+    turnover: float | None
+    """The value bought plus the value sold."""
     solved: bool | None
     objective: float | None
     solver: str | None
@@ -156,6 +167,9 @@ class TradeRow(Row):
     security_id: Id
     side: Literal["buy", "sell"]
     quantity: float
+    """Rounded to the security's increment: what trades if the portfolio is accepted; 0 where rounding left nothing."""
+    decided: float | None
+    """As the model decided it; null where rounding made a trade the model did not decide."""
 
 
 class ReasonRow(Row):
@@ -181,10 +195,11 @@ def result_frames(outcomes: Sequence[Outcome]) -> dict[str, pd.DataFrame]:
         reasons += [{"portfolio_id": portfolio_id, "reason": reason} for reason in outcome.reasons]
         row: dict[str, object] = {"portfolio_id": portfolio_id, "status": "accepted" if outcome.accepted else "rejected", "trades": 0, "seconds": outcome.seconds}
         if decision is not None:
-            sides = {"buy": decision.buy, "sell": decision.sell}
-            trades += [{"portfolio_id": portfolio_id, "security_id": security, "side": side, "quantity": quantity} for side, quantities in sides.items() for security, quantity in quantities.items()]
+            decided = outcome.decided or decision
+            for side, rounded, raw in (("buy", decision.buy, decided.buy), ("sell", decision.sell, decided.sell)):
+                trades += [{"portfolio_id": portfolio_id, "security_id": s, "side": side, "quantity": rounded.get(s, 0.0), "decided": raw.get(s)} for s in dict.fromkeys([*raw, *rounded])]
             metrics += [{"portfolio_id": portfolio_id, "metric": name, "value": value} for name, value in decision.metrics.items()]
-            row |= {"trades": len(decision.buy) + len(decision.sell), "solved": decision.solved, "objective": decision.objective}
+            row |= {"trades": len(decision.buy) + len(decision.sell), "solved": decision.solved, "objective": decision.objective} | outcome.numbers
             if (solver := decision.solver) is not None:
                 row |= {
                     "solver": solver.solver,
