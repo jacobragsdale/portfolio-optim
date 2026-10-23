@@ -2,14 +2,14 @@
 
 from collections.abc import Mapping
 
+import optim
 import pandas as pd
 import pytest
-
-import optim
 from optim.datasets import HOLDINGS, SECURITIES
+from optim.testing import CASH, frame
+
 from optim.examples.cvxpy import rules
 from optim.examples.cvxpy.datasets import CONTROLS, SIGNALS
-from optim.testing import CASH, frame
 
 SECURITIES_ = frame(SECURITIES, CASH, {"security_id": "A"}, {"security_id": "B", "issuer": "Issuer B", "rating": "BBB"}, {"security_id": "C", "issuer": "Issuer C"})
 MARKET = rules.market(SECURITIES_, frame(SIGNALS, {"security_id": "A", "expected_return": 0.05}, {"security_id": "B", "expected_return": 0.06}))

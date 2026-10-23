@@ -71,6 +71,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "INP001"]  # pytest asserts; tests/ is not a package
 "src/optim/examples/*/tests/**" = ["S101", "INP001"]  # an example's tests, which a model repo's tests/ gets
+"src/optim/templates/**" = ["INP001"]  # a model repo's files, which the generator copies
 
 [tool.ruff.lint.isort]
 split-on-trailing-comma = false

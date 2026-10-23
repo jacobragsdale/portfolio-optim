@@ -5,7 +5,6 @@ own acceptance check."""
 
 import numpy as np
 import pandas as pd
-
 from optim import Decision
 from optim.datasets import unit_value
 from optim.schema import Rating

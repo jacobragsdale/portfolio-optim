@@ -30,8 +30,9 @@ are under `src/optim/`.
 | `research.py` | `sweep`, `regress`, `describe`, and `trial`, which decides one portfolio of a snapshot from Python. |
 | `testing.py` | Builders for a model's behaviour tests. |
 | `pytest_plugin.py` | The `pytest11` plugin: contract tests for every model a repo lists, the import-graph check, the agent-files check, and the e2e suite's `optim_qa` fixture and safeguards. |
-| `sync.py`, `templates/contract.md` | The agent files `optim sync` writes into a model repo: the contract block in `AGENTS.md` and the skills. |
-| `examples/` | The `cvxpy` example model, with its fixture, params and tests. |
+| `sync.py`, `templates/contract.md`, `skills/` | The agent files `optim sync` writes into a model repo: the contract block in `AGENTS.md` and the `optim-*` skills. |
+| `new.py`, `templates/repo/` | `optim new repo` and `optim new model`: a model repo, or a model in one, from the examples and templates. |
+| `examples/` | The `cvxpy` and `plain` example models, with their fixtures, params and tests, which `optim new` copies. Their `ruff.toml` sorts imports as a model repo does. |
 
 ## Rules to keep
 

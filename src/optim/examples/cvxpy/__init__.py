@@ -6,15 +6,15 @@ from dataclasses import dataclass
 
 import cvxpy as cp
 import numpy as np
-import pandas as pd
-import scipy.sparse as sp
-from pydantic import Field
-
 import optim
 import optim.cvxpy
+import pandas as pd
+import scipy.sparse as sp
+from optim.schema import Rating
+from pydantic import Field
+
 from optim.examples.cvxpy import rules
 from optim.examples.cvxpy.datasets import CONTROLS, SIGNALS
-from optim.schema import Rating
 
 
 class Params(optim.Params):
