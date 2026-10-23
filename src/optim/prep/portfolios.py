@@ -3,7 +3,6 @@
 
 from collections.abc import Sequence
 from dataclasses import replace
-from decimal import Decimal
 
 import pandas as pd
 
@@ -38,7 +37,7 @@ def inputs_for(market: Market, portfolio: Portfolio) -> SolverInputs:
     Its `lines` are one row per sleeve and security: every holding but cash, and every security on a sleeve's
     eligibility list. Besides the security's columns (`build_market`), each line has:
 
-    - `sleeve_id`, and `held`: the quantity held before trading, as loaded (`Decimal`); 0 for a line only listed.
+    - `sleeve_id`, and `held`: the quantity held before trading; 0 for a line only listed.
     - `available`: quantity on offer, where the list is an inventory; NaN otherwise.
     - `buyable`: on its sleeve's list, in the portfolio's currency, traded in round lots, and no control forbids it.
       Rules can only narrow it.
@@ -57,7 +56,7 @@ def inputs_for(market: Market, portfolio: Portfolio) -> SolverInputs:
     # Every portfolio in a process reads the same market, and each solve of a portfolio its frames. Shallow copies cost
     # nothing under copy-on-write, and keep a rule that edits a frame in place from changing what the next solve sees.
     own = {name: value.copy(deep=False) for name, value in vars(portfolio).items() if isinstance(value, pd.DataFrame)}
-    cash_flow = float(sum(portfolio.cash_flows["amount"], Decimal(0)))
+    cash_flow = float(portfolio.cash_flows["amount"].sum())
     # TODO(port): prep that every strategy needs and that depends on the portfolio goes here, such as what a
     # portfolio's restrictions mean for its lines. Prep that only some strategies need is a rule instead.
     return SolverInputs(market.as_of_date, replace(portfolio, **own), lines, cash, cash_flow, market.securities.copy(deep=False), market.benchmarks)
@@ -98,6 +97,6 @@ def _lines(market: Market, portfolio: Portfolio, held: pd.DataFrame) -> pd.DataF
     pairs = holdings.merge(eligible, on=["sleeve_id", "security_id"], how="outer", validate="one_to_one", indicator="listed")
     rows = market.ids.get_indexer(pd.Index(pairs["security_id"]))
     lines = pd.concat([pairs.reset_index(drop=True), market.securities.iloc[rows].drop(columns="security_id").reset_index(drop=True)], axis=1)
-    held_qty = lines["held"].where(lines["held"].notna(), Decimal(0))
+    held_qty = lines["held"].fillna(0.0)
     buyable = (lines["listed"] != "left_only") & (lines["asset_class"] != "cash") & lines["increment"].notna() & (lines["currency"] == portfolio.details.currency)
     return lines.drop(columns="listed").assign(held=held_qty, buyable=buyable.to_numpy(), sellable=(held_qty > 0).to_numpy(dtype=bool), must_sell=False)

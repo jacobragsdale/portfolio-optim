@@ -41,8 +41,7 @@ its `run_id`, tell what happened.
 ## `inputs/`
 
 One Parquet file per dataset, named after its `Dataset` (`securities.parquet` for `SECURITIES`), with exactly the
-fields of its row model, in its order and dtypes, as loaded. `Decimal` fields, such as prices, quantities and cash
-flows, are Parquet decimals, exactly as the source returned them. The row models are in `src/optim/datasets/`: the
+fields of its row model, in its order and dtypes, as loaded. The row models are in `src/optim/datasets/`: the
 market's `securities`, `universe`, `signals` and `benchmarks`, and the portfolios' `portfolios`, `sleeves`, `holdings`,
 `controls` and `cash_flows`. Replay
 validates each file as a load validates the dataset: fields, values, key and cross-row check. A file that fails names

@@ -92,15 +92,14 @@ one module per subject, next to their SQL. One generic `Loader` serves all of th
 a loader class.
 
 Loading is raw acquisition, kept apart from the numerical preparation that follows it. A dataset's frame holds what its
-source returned, validated against its row model and nothing more. Booked values, such as prices, accrued interest,
-quantities, cash flows and target values, are `Decimal` fields: the drivers return them exactly (Oracle's NUMBER
-columns are fetched as `Decimal`, and SQL Server's DECIMAL columns arrive that way), the SQL never casts them to FLOAT,
-and they stay exact in the dataset's frame, its cache entry and its snapshot. A value that must be whole, such as a
-trading denomination, fails validation if it is not, rather than being rounded. Prep is the one place they become
-floats for the solve.
+source returned, validated against its row model and nothing more. Every number is a float, booked values such as
+prices, quantities and cash flows included: with `Decimal` columns, a quant's `holdings.quantity * 0.5` raises
+`TypeError`, and arithmetic on object columns is slow. SQL Server's driver returns DECIMAL columns as `Decimal`s, and
+validation turns them into floats. Rounding to each security's trading increment is what makes trade quantities exact.
+A value that must be whole, such as a trading denomination, fails validation if it is not, rather than being rounded.
 
 Rows are validated column by column: one pydantic `TypeAdapter(list[T])` per field, built from the row model. For
-100,000 securities this takes about 130ms, the two `Decimal` columns about 8ms of it; building a model per row was
+100,000 securities this takes about 130ms; building a model per row was
 measured about 5x slower. Validation stays on even in the hot path. The constraint is that field rules must live in the
 annotation (`Annotated[float, Field(gt=0)]`). A `@field_validator` would silently not run, so the loader refuses models
 that have one. The annotations also choose the pandas dtype. A `Literal` becomes an ordered categorical, which is why a

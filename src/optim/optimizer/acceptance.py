@@ -1,6 +1,6 @@
 """Whether a solve's result may trade. A solver's optimum means it solved the model it was given, within its tolerances;
 it is not permission to trade. So once the trades are exact, `review` rebuilds the result from them, apart from the
-model: each trade's exact quantity (`Decimal`), the holdings and cash after trading, and every dollar in the summary.
+model: each trade's exact quantity, the holdings and cash after trading, and every dollar in the summary.
 Then it runs these checks, and a result that fails any is saved as rejected, and makes the run exit nonzero:
 
 - `sizes`: every trade is a size the market trades. A buy is whole increments of at least the minimum piece, and a
@@ -19,7 +19,6 @@ an answer with no gap to judge it by), and weights for the rest, over `TOLERANCE
 
 import time
 from collections.abc import Mapping
-from decimal import Decimal
 
 import cvxpy as cp
 import numpy as np
@@ -119,9 +118,8 @@ def _bad_controls(lines: pd.DataFrame, bought: np.ndarray, sold: np.ndarray, who
 
 
 def _exact(m: OptimizationModel, rows: np.ndarray, quantity: np.ndarray, whole: np.ndarray) -> np.ndarray:
-    """Whole units as `Decimal`s, or the holding as booked where a sale is whole."""
-    booked = m.lines["held"]
-    return np.array([booked.iloc[i] if whole[i] else Decimal(int(quantity[i])) for i in rows], dtype=object)
+    """Whole units, or the holding as booked where a sale is whole."""
+    return np.where(whole[rows], m.held[rows], np.round(quantity[rows]))
 
 
 def _trades(m: OptimizationModel, bought: np.ndarray, sold: np.ndarray, whole: np.ndarray) -> pd.DataFrame:
@@ -142,6 +140,5 @@ def _trades(m: OptimizationModel, bought: np.ndarray, sold: np.ndarray, whole: n
 def _positions(m: OptimizationModel, bought: np.ndarray, sold: np.ndarray, whole: np.ndarray, weights: np.ndarray) -> pd.DataFrame:
     after = m.held + bought - sold
     rows = np.flatnonzero(after > 1e-9)
-    booked = m.lines["held"]
-    quantity = np.array([booked.iloc[i] + Decimal(int(bought[i])) - sale for i, sale in zip(rows, _exact(m, rows, sold, whole), strict=True)], dtype=object)
+    quantity = m.held[rows] + np.round(bought[rows]) - _exact(m, rows, sold, whole)
     return m.lines.loc[rows, ["sleeve_id", "security_id"]].assign(quantity=quantity, value=m.unit_value[rows] * after[rows], weight=weights[rows]).reset_index(drop=True)

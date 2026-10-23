@@ -2,7 +2,6 @@
 and the cash flows due. All are read live, a batch of portfolios at a time in one read-only transaction, so a batch's
 holdings and cash are from the same moment (see `optim.datasets.load`)."""
 
-from decimal import Decimal
 from typing import Annotated, Literal
 
 import pandas as pd
@@ -17,7 +16,7 @@ class PortfolioDetails(Row):
     currency: Currency
     """Every value in the portfolio is in it. A security in another currency cannot be bought, and holding one fails
     the portfolio: there are no FX rates to value it."""
-    target_value: Annotated[Decimal, Field(gt=0)] | None
+    target_value: Annotated[float, Field(gt=0)] | None
     """The value the portfolio's weights are fractions of, as for a portfolio being funded to an agreed size; null: its
     value after cash flows."""
 
@@ -44,7 +43,7 @@ class Holding(Row):
     portfolio_id: Id
     sleeve_id: Id
     security_id: Id
-    quantity: Decimal
+    quantity: float
     """Face amount for a bond, currency units for cash. Cash may be negative, as when a purchase settles before the sale
     that funds it; any other holding must be positive (prep fails the portfolio otherwise)."""
 
@@ -52,7 +51,7 @@ class Holding(Row):
 class CashFlow(Row):
     portfolio_id: Id
     flow_id: Id
-    amount: Decimal
+    amount: float
     """In the portfolio's currency: positive for a contribution to invest, negative for a withdrawal to raise."""
 
 

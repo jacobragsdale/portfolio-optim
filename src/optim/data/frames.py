@@ -9,7 +9,6 @@ refused rather than silently half-validated.
 import functools
 from collections.abc import Callable, Sequence
 from datetime import date
-from decimal import Decimal
 from types import NoneType
 from typing import Annotated, Literal, TypeAliasType, get_args, get_origin
 
@@ -89,9 +88,8 @@ def _column_adapter(field: FieldInfo) -> TypeAdapter[list[object]]:
 
 
 def _dtype(annotation: object) -> Dtype:
-    """str -> str, float -> float64, int -> int64 (Int64 if optional), bool, date -> datetime64[ms], Decimal -> object
-    holding `Decimal`s (Parquet stores them exactly), Literal -> ordered category in declared order (so `rating <= "A-"`
-    means "A- or better"). Dates are in ms, not s, because Parquet, which the cache and snapshots write, has no seconds
+    """str -> str, float -> float64, int -> int64 (Int64 if optional), bool, date -> datetime64[ms], Literal -> ordered
+    category in declared order (so `rating <= "A-"` means "A- or better"). Dates are in ms, not s, because Parquet, which the cache and snapshots write, has no seconds
     unit: a frame read back would differ from the one loaded."""
     optional = NoneType in get_args(annotation)
     base = next(arg for arg in get_args(annotation) if arg is not NoneType) if optional else annotation
@@ -101,7 +99,7 @@ def _dtype(annotation: object) -> Dtype:
         base = base.__value__
     if get_origin(base) is Literal:
         return pd.CategoricalDtype(list(get_args(base)), ordered=True)
-    dtypes: dict[object, Dtype] = {str: "str", float: "float64", int: "Int64" if optional else "int64", bool: "boolean" if optional else "bool", date: "datetime64[ms]", Decimal: "object"}
+    dtypes: dict[object, Dtype] = {str: "str", float: "float64", int: "Int64" if optional else "int64", bool: "boolean" if optional else "bool", date: "datetime64[ms]"}
     if base not in dtypes:
         msg = f"no pandas dtype for {annotation!r}; add one in optim.data.frames._dtype"
         raise TypeError(msg)

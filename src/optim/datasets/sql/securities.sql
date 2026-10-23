@@ -9,7 +9,6 @@ SELECT s.security_id,
        s.rating,
        s.maturity_date                    AS maturity,
        a.duration,
-       -- prices and amounts are not cast to FLOAT: they arrive as exact decimals, and prep converts them for the solve
        a.clean_price                      AS price,
        a.accrued,
        s.price_per,

@@ -2,7 +2,6 @@
 
 import time
 from dataclasses import replace
-from decimal import Decimal
 
 import numpy as np
 import pandas as pd
@@ -38,7 +37,7 @@ EVERY_BOND = {
 def holding_b(quantity: int = 100_500, *, b_return: float = 0.03, **frames: pd.DataFrame) -> SolverInputs:
     """P1 holds an odd 100,500 of bond B, outside its list, and $1mm cash; its list is bond A, which returns 5%."""
     signals = frame(SIGNALS, {"security_id": A, "expected_return": 0.05}, {"security_id": B, "expected_return": b_return})
-    held = frame(HOLDINGS, {}, {"security_id": B, "quantity": Decimal(quantity)})
+    held = frame(HOLDINGS, {}, {"security_id": B, "quantity": float(quantity)})
     return prepare(market(securities=frame(SECURITIES, *BONDS, CASH), signals=signals) | portfolio(holdings=held) | frames)
 
 
@@ -48,7 +47,7 @@ def accepted(result: Result) -> Solved:
     return result
 
 
-def trades(result: Solved) -> list[tuple[str, str, Decimal, bool, bool]]:
+def trades(result: Solved) -> list[tuple[str, str, float, bool, bool]]:
     return [(t["side"], t["security_id"], t["quantity"], t["liquidates"], t["mandatory"]) for t in result.trades.to_dict("records")]
 
 
@@ -62,7 +61,7 @@ def number(result: Solved, field: str) -> float:
 def test_a_holding_is_sold_by_security_and_an_odd_one_whole_exactly(settings: SolveSettings) -> None:
     result = accepted(solve(holding_b(), Strategy(name="s", solve=settings)))
 
-    assert trades(result)[-1] == ("sell", B, Decimal(100_500), True, False)
+    assert trades(result)[-1] == ("sell", B, 100_500.0, True, False)
     assert trades(result)[0][:2] == ("buy", A)
     assert result.trades["quantity"].iloc[0] % 1000 == 0
 
@@ -75,7 +74,7 @@ def test_a_mandatory_sale_is_sold_whole_whatever_the_strategy_prefers_or_its_rul
 
     result = accepted(solve(restricted, Strategy(name="s", solve=settings)))
 
-    assert ("sell", B, Decimal(100_500), True, True) in trades(result)
+    assert ("sell", B, 100_500.0, True, True) in trades(result)
 
 
 @INTEGER_AND_LP
@@ -118,7 +117,7 @@ def test_sleeves_share_the_cash_and_each_weighs_against_its_own_base() -> None:
 
 def test_inventory_bounds_a_securitys_buys_across_its_sleeves() -> None:
     """One list, with 100,000 of A available, in two sleeves: together they buy at most 100,000."""
-    frames = market(universe=frame(UNIVERSE, {"available": Decimal(100_000)})) | portfolio(
+    frames = market(universe=frame(UNIVERSE, {"available": 100_000.0})) | portfolio(
         sleeves=frame(SLEEVES, {"sleeve_id": "s1", "target_weight": 0.5}, {"sleeve_id": "s2", "target_weight": 0.5}), holdings=frame(HOLDINGS, {"sleeve_id": "s1"})
     )
 
@@ -143,11 +142,11 @@ def test_a_strategy_naming_a_sleeve_the_portfolio_lacks_fails() -> None:
 
 
 def test_an_overdrawn_cash_balance_is_raised_by_selling() -> None:
-    inputs = prepare(market() | portfolio(holdings=frame(HOLDINGS, {"quantity": Decimal(-50_000)}, {"security_id": A})))
+    inputs = prepare(market() | portfolio(holdings=frame(HOLDINGS, {"quantity": -50_000.0}, {"security_id": A})))
 
     result = accepted(solve(inputs, Strategy(name="s")))
 
-    assert trades(result) == [("sell", A, Decimal(51_000), False, False)]
+    assert trades(result) == [("sell", A, 51_000.0, False, False)]
     assert 0 <= number(result, "cash") < 1_000
 
 
@@ -156,7 +155,7 @@ def test_a_portfolio_with_nothing_to_trade_is_reviewed_without_a_solve() -> None
     frozen = {"holdings": frame(HOLDINGS, {}, {"security_id": A}), "controls": frame(CONTROLS, {"security_id": None, "action": "hold", "reason": "legal_hold"})}
 
     still = solve(prepare(market() | portfolio(**frozen)), Strategy(name="s"))
-    short = solve(prepare(market() | portfolio(**frozen, cash_flows=frame(CASH_FLOWS, {"amount": Decimal(-1_500_000)}))), Strategy(name="s"))
+    short = solve(prepare(market() | portfolio(**frozen, cash_flows=frame(CASH_FLOWS, {"amount": -1_500_000.0}))), Strategy(name="s"))
 
     assert accepted(still).trades.empty
     assert isinstance(short, Solved)
@@ -164,18 +163,18 @@ def test_a_portfolio_with_nothing_to_trade_is_reviewed_without_a_solve() -> None
 
 
 def test_a_withdrawal_is_raised_by_selling() -> None:
-    inputs = prepare(market() | portfolio(holdings=frame(HOLDINGS, {"security_id": A}), cash_flows=frame(CASH_FLOWS, {"amount": Decimal(-200_000)})))
+    inputs = prepare(market() | portfolio(holdings=frame(HOLDINGS, {"security_id": A}), cash_flows=frame(CASH_FLOWS, {"amount": -200_000.0})))
 
     result = accepted(solve(inputs, Strategy(name="s")))
 
-    assert trades(result) == [("sell", A, Decimal(201_000), False, False)]  # whole increments, enough for the cost too
+    assert trades(result) == [("sell", A, 201_000.0, False, False)]  # whole increments, enough for the cost too
     assert result.summary["base"] == 800_000
     assert 0 <= number(result, "cash") < 1_000
 
 
 def test_weights_are_fractions_of_the_target_value_where_one_is_set() -> None:
     """$1mm cash, managed as a $2mm portfolio: a 10% position is $200k."""
-    frames = market(**EVERY_BOND) | portfolio(portfolios=frame(PORTFOLIOS, {"target_value": Decimal(2_000_000)}))
+    frames = market(**EVERY_BOND) | portfolio(portfolios=frame(PORTFOLIOS, {"target_value": 2_000_000.0}))
 
     result = accepted(solve(prepare(frames), Strategy(name="s", constraints=[PositionLimit(max_weight=0.1)])))
 
@@ -255,7 +254,7 @@ def test_max_trades_caps_the_number_of_trades() -> None:
 def test_lp_rounding_that_breaks_a_binding_constraint_is_rejected() -> None:
     """An LP sells $450 of B to buy $449 of A within a 0.9% turnover cap; rounded, the sale is a $1,000 piece and the buy
     nothing, which trades 1%."""
-    inputs = holding_b(b_return=0.01, holdings=frame(HOLDINGS, {"security_id": B, "quantity": Decimal(100_000)}))  # and no cash
+    inputs = holding_b(b_return=0.01, holdings=frame(HOLDINGS, {"security_id": B, "quantity": 100_000.0}))  # and no cash
     strategy = Strategy(name="s", constraints=[MaxTurnover(max_weight=0.009)], solve=SolveSettings(integer=False))
 
     result = solve(inputs, strategy)

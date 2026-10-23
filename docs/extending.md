@@ -10,10 +10,9 @@ To load a new table, for example issuer credit scores from Oracle:
 1. Pick the module in `src/optim/datasets/` for its subject, or add one, such as `issuers.py`.
 2. Write its row model there. Field names are the column names the query returns. Put every field rule in the
    annotation, such as `score: Annotated[float, Field(ge=0, le=100)]`, because rows are validated column by column.
-   Type a booked value, such as a price, a quantity or an amount of money, as `Decimal` (`Price`, `Quantity` in
-   `optim.schema`), so it stays exact until prep, and key it to securities by `security_id`.
-3. Add `src/optim/datasets/sql/issuer_scores.sql`. Alias each column to its field name, and do not cast a number to
-   FLOAT: the drivers return exact decimals. Bind parameters as `:name` for Oracle or `%(name)s` for SQL Server.
+   Type every number as a float or an int, booked values such as prices and quantities included (`Price`, `Quantity`
+   in `optim.schema`), and key it to securities by `security_id`.
+3. Add `src/optim/datasets/sql/issuer_scores.sql`. Alias each column to its field name. Bind parameters as `:name` for Oracle or `%(name)s` for SQL Server.
 4. Declare the dataset beside its row model:
    `ISSUER_SCORES = Dataset("issuer_scores", IssuerScore, source="oracle", query="datasets/sql/issuer_scores.sql", key=("issuer",))`.
    Without a `cache`, it is read live on every load. To cache it, see the next section.
@@ -21,7 +20,7 @@ To load a new table, for example issuer credit scores from Oracle:
    `src/optim/datasets/__init__.py`, which also fails the run if it returns no rows. Every `MARKET` dataset is loaded
    with the business date, so its SQL must bind `:as_of_date`: Oracle refuses a bind its SQL does not use. A REST source
    receives it as a query parameter. Merge `frames["issuer_scores"]` in `build_market` (`src/optim/prep/market.py`) with
-   `validate="many_to_one"` or `"one_to_one"`, and convert any `Decimal` column to float there. A rule or constraint can
+   `validate="many_to_one"` or `"one_to_one"`. A rule or constraint can
    then read the new column from `inputs.lines` or `m.lines`.
 
    Per-portfolio data is loaded in batches of portfolios, each batch in one read-only transaction with the portfolio's
@@ -221,8 +220,7 @@ every file.
 1. Add a module to `src/optim/sources/`, such as `pricing.py`, with a settings model and a `connect` function. Its
    settings model subclasses `SourceSettings`, so it has a concurrency limit, a timeout and a row limit like every
    other source. A database with a DB-API driver returns a `SqlSource` over a connection factory, with the statement
-   that begins a read-only transaction in its dialect and `settings.max_rows`; configure the driver to return exact
-   decimals, as `oracle.py` does with `fetch_decimals`. Anything else returns a class with
+   that begins a read-only transaction in its dialect and `settings.max_rows`. Anything else returns a class with
    `fetch(self, query, params) -> Columns`, which refuses more than `max_rows` rows, and `read_only()`, which returns
    `nullcontext(self)` when the source has no transactions, as `RestSource` does. Put a deadline on every call:
    `settings.timeout_s` on each query or request, and a fixed one on the login, as `LOGIN_TIMEOUT_S` in `mssql.py` and

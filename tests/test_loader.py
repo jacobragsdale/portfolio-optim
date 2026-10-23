@@ -1,12 +1,12 @@
 """Loads run concurrently, never more at once than their source's limit, and the first failure stops the rest. A
 read-only scope reads one moment of its source, on one connection its loads take turns on. Rows arrive bounded, and
-booked values exact."""
+booked values as floats."""
 
 import threading
 import time
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
-from decimal import Decimal
+from decimal import Decimal  # what a driver returns for a DECIMAL column
 from pathlib import Path
 
 import oracledb
@@ -169,13 +169,14 @@ def test_a_query_that_returns_more_than_max_rows_fails() -> None:
         loader.load(ITEMS)
 
 
-def test_booked_values_stay_exact_and_a_denomination_that_is_not_whole_fails() -> None:
-    holdings = frame(HOLDINGS, {"quantity": Decimal("1234567.891")})
+def test_a_drivers_decimal_is_a_float_and_a_denomination_that_is_not_whole_fails() -> None:
+    holdings = frame(HOLDINGS, {"quantity": Decimal("1234567.891")})  # SQL Server's driver returns DECIMAL columns so
 
-    assert holdings["quantity"].tolist() == [Decimal("1234567.891")]
-    assert frame(SECURITIES, {"min_piece": Decimal("1000.000")})["min_piece"].tolist() == [1000]
+    assert holdings["quantity"].tolist() == [1234567.891]
+    assert holdings["quantity"].dtype == "float64"
+    assert frame(SECURITIES, {"min_piece": 1000.0})["min_piece"].tolist() == [1000]
     with pytest.raises(ValueError, match=r"securities.min_piece at security_id 'AAAAAAAA1'"):
-        frame(SECURITIES, {"min_piece": Decimal("1000.5")})
+        frame(SECURITIES, {"min_piece": 1000.5})
     with pytest.raises(ValueError, match="all set or all null"):
         frame(SECURITIES, CASH | {"increment": 1000})
 
@@ -189,9 +190,5 @@ def test_oracle_in_thick_mode_loads_its_client_libraries_from_the_directory_give
         oracle.connect(oracle_settings("thick", tmp_path))
 
 
-def test_oracle_in_thin_mode_needs_no_client_and_fetches_exact_decimals(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(oracledb.defaults, "fetch_decimals", False)  # restored after the test: it is process-wide
-
-    oracle.connect(oracle_settings("thin", tmp_path))
-
-    assert oracledb.defaults.fetch_decimals
+def test_oracle_in_thin_mode_needs_no_client(tmp_path: Path) -> None:
+    assert isinstance(oracle.connect(oracle_settings("thin", tmp_path)), SqlSource)  # connects per query, not here

@@ -33,8 +33,7 @@ To port an optimizer:
    - **ask**: nobody can say what it is for. Get an answer before step 4, or drop it and say so in the log.
 4. Port the data. Replace the placeholder datasets and their SQL in `src/optim/datasets/` with the old system's queries,
    one `Dataset` per query ([how to add a dataset](extending.md#how-to-add-a-dataset)). Key securities by the old
-   system's canonical id, as `security_id`, with CUSIP and ISIN as columns where it has them. Leave prices, quantities
-   and amounts as the database's decimals: no `CAST(... AS FLOAT)`. Data cleaning becomes a bound in a field's type,
+   system's canonical id, as `security_id`, with CUSIP and ISIN as columns where it has them. Data cleaning becomes a bound in a field's type,
    such as `Annotated[float, Field(gt=0)]`, or a dataset's `check`, a function that raises on rows that disagree with
    each other, so bad data fails the load instead of being patched silently. Then make `MARKET` and `PER_PORTFOLIO`
    (`src/optim/datasets/__init__.py`), `_load_batch` (`datasets/load.py`), and `build_market` and `build_portfolios`

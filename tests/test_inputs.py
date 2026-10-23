@@ -1,7 +1,6 @@
 """How the datasets a run loads become what its solves see: the same prep live and on replay."""
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 
 import numpy as np
@@ -36,15 +35,15 @@ def test_builder_rows_pass_their_dataset_schemas() -> None:
 def test_lines_are_every_holding_but_cash_and_every_eligible_security() -> None:
     """P1 holds B, which is not on its list, and cash; the list is A and C, a security known by its ISIN alone, with no
     inventory for A and 5mm of C."""
-    frames = market(securities=THREE_BONDS, universe=frame(UNIVERSE, {"security_id": A}, {"security_id": C, "available": Decimal(5_000_000)})) | portfolio(
-        holdings=frame(HOLDINGS, {}, {"security_id": B, "quantity": Decimal("250000.00")}), cash_flows=frame(CASH_FLOWS, {"amount": Decimal("-50000.50")})
+    frames = market(securities=THREE_BONDS, universe=frame(UNIVERSE, {"security_id": A}, {"security_id": C, "available": 5_000_000.0})) | portfolio(
+        holdings=frame(HOLDINGS, {}, {"security_id": B, "quantity": 250000.00}), cash_flows=frame(CASH_FLOWS, {"amount": -50000.50})
     )
 
     inputs = prepare(frames)
 
     assert inputs.lines[["security_id", "held", "buyable", "sellable", "available"]].to_dict("records") == [
         {"security_id": A, "held": 0, "buyable": True, "sellable": False, "available": pytest.approx(np.nan, nan_ok=True)},
-        {"security_id": B, "held": Decimal("250000.00"), "buyable": False, "sellable": True, "available": pytest.approx(np.nan, nan_ok=True)},
+        {"security_id": B, "held": 250000.00, "buyable": False, "sellable": True, "available": pytest.approx(np.nan, nan_ok=True)},
         {"security_id": C, "held": 0, "buyable": True, "sellable": False, "available": 5_000_000.0},
     ]
     assert (inputs.cash, inputs.cash_flow) == (1_000_000.0, -50_000.5)  # cash holdings pooled; flows summed
@@ -61,7 +60,7 @@ def test_a_security_in_another_currency_cannot_be_bought_and_holding_one_fails_t
 
 def test_controls_apply_whatever_the_strategy() -> None:
     """No rules here: a portfolio's controls are prep. A control naming no security applies to every one."""
-    held = frame(HOLDINGS, {}, {"security_id": A, "quantity": Decimal(10_000)}, {"security_id": B, "quantity": Decimal(10_000)}, {"security_id": C, "quantity": Decimal(10_000)})
+    held = frame(HOLDINGS, {}, {"security_id": A, "quantity": 10_000.0}, {"security_id": B, "quantity": 10_000.0}, {"security_id": C, "quantity": 10_000.0})
     controls = frame(
         CONTROLS,
         {"control_id": "R1", "security_id": A, "action": "no_sell", "reason": "client_restriction"},
@@ -110,11 +109,11 @@ def test_a_mandatory_sale_of_a_security_no_longer_held_is_done_and_still_stops_b
 
 
 def test_cash_may_be_overdrawn_but_no_other_holding_may_be_short() -> None:
-    overdrawn = frame(HOLDINGS, {"quantity": Decimal(-50_000)}, {"security_id": A})
+    overdrawn = frame(HOLDINGS, {"quantity": -50_000.0}, {"security_id": A})
 
     assert prepare(market() | portfolio(holdings=overdrawn)).cash == -50_000
     with pytest.raises(ValueError, match="negative quantities of securities that are not cash"):
-        prepare(market() | portfolio(holdings=frame(HOLDINGS, {"security_id": A, "quantity": Decimal(-1000)})))
+        prepare(market() | portfolio(holdings=frame(HOLDINGS, {"security_id": A, "quantity": -1000.0})))
 
 
 def test_a_strategy_cannot_block_a_mandatory_sale() -> None:
@@ -191,8 +190,8 @@ def test_each_portfolio_gets_its_own_rows() -> None:
 
 
 def test_a_snapshot_gives_back_the_frames_the_run_loaded_exactly(tmp_path: Path) -> None:
-    exact = frame(SECURITIES, {"price": Decimal("99.123456789"), "accrued": Decimal("1.0416666667")}, CASH)
-    frames = market(securities=exact) | portfolio(holdings=frame(HOLDINGS, {"quantity": Decimal("1234567.89")}))
+    priced = frame(SECURITIES, {"price": 99.123456789, "accrued": 1.0416666667}, CASH)
+    frames = market(securities=priced) | portfolio(holdings=frame(HOLDINGS, {"quantity": 1234567.89}))
     now = datetime(2026, 10, 16, 13, tzinfo=UTC)
     request = OptimizeRequest(strategy=STRATEGY, portfolios=["P1"], as_of_date=AS_OF)
     info = RunInfo(
@@ -217,8 +216,6 @@ def test_a_snapshot_gives_back_the_frames_the_run_loaded_exactly(tmp_path: Path)
     assert saved.keys() == frames.keys()
     for name, loaded in frames.items():
         assert_frame_equal(saved[name], loaded)  # dtypes included: replay must prepare exactly what the run did
-    assert saved["securities"]["price"].tolist() == [Decimal("99.123456789"), Decimal(1)]
-    assert saved["holdings"]["quantity"].tolist() == [Decimal("1234567.89")]
 
 
 def test_a_replay_solves_as_the_run_did(tmp_path: Path) -> None:

@@ -4,7 +4,6 @@ any job end to end, snapshot included, with no database."""
 from collections.abc import Generator, Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -43,8 +42,8 @@ DEFAULTS: dict[str, dict[str, object]] = {  # one valid row per dataset
         "rating": "AA",
         "maturity": date(2030, 10, 15),
         "duration": 4.0,
-        "price": Decimal(100),
-        "accrued": Decimal(0),
+        "price": 100.0,
+        "accrued": 0.0,
         "price_per": 100,
         "cost_bps": 5.0,
         "min_piece": 1000,
@@ -56,9 +55,9 @@ DEFAULTS: dict[str, dict[str, object]] = {  # one valid row per dataset
     "benchmarks": {"benchmark_id": "B1", "security_id": A, "weight": 1.0},
     "portfolios": {"portfolio_id": "P1", "currency": "USD", "target_value": None},
     "sleeves": {"portfolio_id": "P1", "sleeve_id": "core", "universe_id": "U1", "benchmark_id": "B1", "target_weight": 1.0},
-    "holdings": {"portfolio_id": "P1", "sleeve_id": "core", "security_id": USD, "quantity": Decimal(1_000_000)},
+    "holdings": {"portfolio_id": "P1", "sleeve_id": "core", "security_id": USD, "quantity": 1_000_000.0},
     "controls": {"portfolio_id": "P1", "control_id": "R1", "security_id": A, "action": "no_buy", "reason": "wash_sale"},
-    "cash_flows": {"portfolio_id": "P1", "flow_id": "F1", "amount": Decimal(0)},
+    "cash_flows": {"portfolio_id": "P1", "flow_id": "F1", "amount": 0.0},
 }
 # the cash security: priced at 1 per unit, with no denominations or analytics
 CASH: dict[str, object] = {
@@ -70,7 +69,7 @@ CASH: dict[str, object] = {
     "rating": None,
     "maturity": None,
     "duration": None,
-    "price": Decimal(1),
+    "price": 1.0,
     "price_per": 1,
     "cost_bps": 0.0,
     "min_piece": None,
@@ -137,7 +136,7 @@ def sources() -> Rows:
         BENCHMARKS: [{"security_id": A, "weight": 0.5}, {"security_id": B, "weight": 0.5}],
         PORTFOLIOS: [{"portfolio_id": "P1"}, {"portfolio_id": "P2"}],
         SLEEVES: [{"portfolio_id": "P1"}, {"portfolio_id": "P2"}],
-        HOLDINGS: [{"portfolio_id": "P1", "security_id": B, "quantity": Decimal(100_000)}, {"portfolio_id": "P1"}, {"portfolio_id": "P2"}],
+        HOLDINGS: [{"portfolio_id": "P1", "security_id": B, "quantity": 100_000.0}, {"portfolio_id": "P1"}, {"portfolio_id": "P2"}],
         CONTROLS: [],
         CASH_FLOWS: [],
     }

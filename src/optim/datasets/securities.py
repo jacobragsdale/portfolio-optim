@@ -2,7 +2,6 @@
 eligibility lists that say what each sleeve may buy. Both may be up to 15 minutes old."""
 
 from datetime import date, timedelta
-from decimal import Decimal
 from typing import Annotated, Literal
 
 import pandas as pd
@@ -32,7 +31,7 @@ class Security(Row):
     """Modified duration, years."""
     price: Price
     """Clean price per `price_per` of quantity."""
-    accrued: Decimal
+    accrued: float
     """Accrued interest per `price_per` of quantity; 0 when `price` already includes it."""
     price_per: Annotated[int, Field(gt=0)]
     """The quantity a price is quoted for: 100 for a bond quoted in percent of par, 1 for cash."""

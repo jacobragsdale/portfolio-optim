@@ -1,7 +1,6 @@
 """What a run records about itself in `run.json`, and how its results reconcile."""
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
@@ -64,7 +63,6 @@ def test_cash_after_trading_reconciles_with_the_trades(tmp_path: Path) -> None:
     trades, summary = (pd.read_parquet(tmp_path / ran.run_id / f"{name}.parquet") for name in ("trades", "summary"))
     signed = trades["value"].where(trades["side"] == "sell", -trades["value"]).groupby(trades["portfolio_id"]).sum()
 
-    assert set(trades["quantity"].map(type)) == {Decimal}
     for row in summary.to_dict("records"):
         assert row["cash"] == pytest.approx(1_000_000 + row["cash_flow"] + signed[row["portfolio_id"]] - row["cost"], abs=1e-6)
 

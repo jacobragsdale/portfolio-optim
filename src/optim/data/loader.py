@@ -1,6 +1,6 @@
 """The `Loader`, which fetches datasets (`optim.data.dataset`) through their sources, validates them and caches them in
 Redis. Loading is raw acquisition: a frame holds what its source returned, validated against its row model and nothing
-more, so booked values stay exact `Decimal`s. Turning them into numbers for the solve is prep (`optim.prep`)."""
+more. Combining frames into what a solve sees is prep (`optim.prep`)."""
 
 import hashlib
 import json

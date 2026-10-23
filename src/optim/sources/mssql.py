@@ -1,5 +1,5 @@
-"""SQL Server through mssql-python, Microsoft's DB-API driver. Queries bind `%(name)s`. DECIMAL columns arrive as exact
-`Decimal`s."""
+"""SQL Server through mssql-python, Microsoft's DB-API driver. Queries bind `%(name)s`. DECIMAL columns arrive as
+`Decimal`s, which validation turns into floats."""
 
 from functools import partial
 

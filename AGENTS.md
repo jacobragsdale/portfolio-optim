@@ -19,7 +19,7 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 | `cli.py` | Arguments to a request; exit code 0 only when every portfolio's result was accepted. |
 | `context.py`, `settings.py` | The only place connections open; `OPTIM_*` environment variables. |
 | `jobs/` | A request class per job, such as `optimize`, and the solves it makes, collected in `Job`; `run.py`: `run` and `replay` run any job, and `RunInfo` is the snapshot's `run.json`. |
-| `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. Booked values are exact `Decimal`s. |
+| `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. Every number is a float. |
 | `sources/` | Oracle (thin or thick), SQL Server and REST: bounded fetches, read-only transactions. |
 | `data/` | `dataset.py` declares a dataset and `frames.py` validates rows, with no I/O; `loader.py` and `cache.py` fetch, scope reads in read-only transactions, and cache in Redis. |
 | `datasets/load.py` | `load_frames`: every dataset a run reads (`MARKET`, `PER_PORTFOLIO` in `datasets/__init__.py`), in batches. |
@@ -47,8 +47,6 @@ All paths are under `src/optim/`.
   you may not buy can still be held and sold; a held security without its row fails the solve.
 - A portfolio's controls are prep, never rules: they apply whatever the strategy, a rule cannot block a mandatory sale,
   and a control that cannot be applied fails the portfolio instead of being skipped.
-- Booked values stay exact `Decimal`s from the driver to the snapshot: never cast them to FLOAT in SQL. Prep is the one
-  place they become floats.
 - Constraints and objective terms are in weights of their scope's base value: divide dollars by `scope.base`, or
   `m.base` for the whole portfolio. Acceptance uses one tolerance in weights.
 - A result may trade only when acceptance accepts it, never on the solver's status alone. Never make a strategy

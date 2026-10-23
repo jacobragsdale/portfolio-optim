@@ -1,6 +1,6 @@
 """Loading every dataset a run reads, one validated frame each: the market for the business date, and the portfolios,
-in batches. The only I/O before the solve; the snapshot saves these frames as they are, booked values as exact
-`Decimal`s, and `optim.prep` makes what a solve sees from them."""
+in batches. The only I/O before the solve; the snapshot saves these frames as they are, and `optim.prep` makes what a
+solve sees from them."""
 
 import logging
 from collections.abc import Sequence

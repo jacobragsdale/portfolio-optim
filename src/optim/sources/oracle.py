@@ -1,4 +1,4 @@
-"""Oracle through python-oracledb. Queries bind `:name`. NUMBER columns arrive as exact `Decimal`s, not floats.
+"""Oracle through python-oracledb. Queries bind `:name`. NUMBER columns arrive as floats, or ints where whole.
 
 Thin mode, the default, needs no client libraries. Thick mode loads Oracle Client libraries, which some databases need,
 such as for native network encryption or an older server: install Oracle Instant Client in the image and set
@@ -37,7 +37,6 @@ def connect(settings: OracleSettings) -> SqlSource:
     if settings.mode == "thick":
         # once per process, before the first connection; a second call with the same arguments does nothing
         oracledb.init_oracle_client(lib_dir=str(settings.client_lib_dir) if settings.client_lib_dir else None)
-    oracledb.defaults.fetch_decimals = True  # a float would round a price or a quantity before validation sees it
     return SqlSource(partial(_connect, settings), BEGIN_READ_ONLY, settings.max_rows)
 
 
