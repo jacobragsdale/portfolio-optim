@@ -11,8 +11,8 @@ from typing import Annotated, Protocol
 
 from pydantic import SecretStr, StringConstraints
 
+from optim.decide import Outcome
 from optim.schema import Model
-from optim.snapshots import Outcome
 from optim.sources import mssql
 
 # The table's columns, which the orders table must have; portfolio_id may be aliased in a view of the books.

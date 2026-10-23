@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Literal, Self
 
 import pandas as pd
-from pydantic import AwareDatetime, Field, JsonValue
+from pydantic import AwareDatetime, JsonValue
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from optim.contract import Decision
 from optim.data.dataset import Dataset
 from optim.data.frames import conform, to_columns
 from optim.data.loader import DatasetRead
+from optim.decide import Outcome
 from optim.schema import Id, Model, Row
 from optim.storage import Root
 
@@ -82,7 +82,7 @@ class Replayed(Model):
 
 class RunInfo(Model):
     """A snapshot's `run.json`: what the run was asked, with which code and data, and when. It holds nothing the
-    snapshot's other files hold."""
+    snapshot's other files hold. A field added after 0.1.0 has a default, so older snapshots still load."""
 
     run_id: str
     """A UUIDv7, which names the directory and sorts by when runs started."""
@@ -108,31 +108,10 @@ class RunInfo(Model):
     """When the last decision was made, just before the snapshot was written."""
     datasets: dict[str, DatasetRead] | None
     """Where each dataset was read from, and when. Null for a replay, whose data is the run's it replays."""
-    order: list[Id] | None
+    order: list[Id] | None = None
     """For a model that reserves, the order its portfolios decided in, one at a time; null when they decided at once."""
     replay: Replayed | None
     """A replay only: the run it replayed, and the portfolios it decided."""
-
-
-class Outcome(Model):
-    """One portfolio's result: its decision, rounded, and why it may not trade, if it may not."""
-
-    portfolio_id: str
-    decision: Decision | None
-    """Rounded to each security's increment: what may trade, if accepted. None when the portfolio failed before it was
-    decided."""
-    decided: Decision | None
-    """As the model decided it, before rounding."""
-    reasons: list[str]
-    """Why it may not trade; empty when accepted."""
-    numbers: dict[str, float] = Field(default_factory=dict)
-    """The portfolio's `value` before trading, `cash` after, and `turnover`, from the rounded trades."""
-    seconds: float
-    """To prepare, decide and check the portfolio."""
-
-    @property
-    def accepted(self) -> bool:
-        return not self.reasons
 
 
 class DecisionRow(Row):
@@ -238,7 +217,11 @@ def read_info(snapshot: Root) -> RunInfo:
     if not (snapshot / "run.json").exists():
         msg = f"{snapshot.location} has no run.json: it is not a snapshot"
         raise FileNotFoundError(msg)
-    return RunInfo.model_validate_json((snapshot / "run.json").read_bytes())
+    try:
+        return RunInfo.model_validate_json((snapshot / "run.json").read_bytes())
+    except ValueError as error:
+        error.add_note(f"while reading {snapshot.location}/run.json, which an older optim may have written")
+        raise
 
 
 def read_inputs(snapshot: Root, datasets: Mapping[str, Dataset]) -> dict[str, pd.DataFrame]:

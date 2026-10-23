@@ -12,7 +12,7 @@ are under `src/optim/`.
 
 | Path | Holds |
 |---|---|
-| `cli.py` | `optim run`, `replay` and `warm`; exit code 0 only when every portfolio was accepted. |
+| `cli.py` | `optim run`, `replay`, `sweep`, `regress`, `describe` and `warm`; `run` exits 0 only when every portfolio was accepted. |
 | `settings.py`, `context.py` | `OPTIM_*` environment variables, and the only place sources and the cache open. |
 | `models.py` | Finding a model by its `optim.models` entry point or module path, and reading its hooks. |
 | `contract.py` | `optim.Params` (strict), `optim.Datasets` (typed dataset attributes), `optim.Decision`, `optim.Metrics`. |
@@ -20,10 +20,14 @@ are under `src/optim/`.
 | `data/` | `dataset.py` declares a dataset and `frames.py` validates rows, with no I/O; `loader.py` loads a model's datasets in batches and read-only transactions, and `cache.py` caches them in files. |
 | `sources/` | Oracle (thin or thick), SQL Server, REST and files: bounded fetches, read-only transactions. |
 | `storage.py` | The snapshot and cache roots, a path or URL each, through `pyarrow.fs`, with atomic writes. |
-| `run.py` | `run` and `replay`, and `decide_all`, which calls a model's hooks for every portfolio. |
+| `run.py` | `run` and `replay`, and `open_snapshot`. |
+| `decide.py` | `decide_all`, which calls a model's hooks for every portfolio, at once or in turn when the model reserves. |
 | `engine.py` | One piece of work per portfolio, in this process or a `spawn` process pool. |
+| `acceptance.py` | Rounding each decision to its securities' increments, and the core's checks of whether it may trade. |
 | `cvxpy.py` | `optim.cvxpy`: solving a model's cvxpy problem the same way everywhere, and reading it as a `Decision`. |
 | `snapshots.py` | The snapshot: `run.json` (`RunInfo`), each dataset as loaded, and the result tables. |
+| `orders.py` | Writing accepted portfolios' orders to the orders table, where the environment configures one. |
+| `research.py` | `sweep`, `regress`, `describe`, and `trial`, which decides one portfolio of a snapshot from Python. |
 | `testing.py` | Builders for a model's behaviour tests. |
 | `examples/` | The `cvxpy` example model, with its fixture, params and tests. |
 

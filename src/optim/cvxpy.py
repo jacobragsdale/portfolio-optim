@@ -12,7 +12,9 @@ gap asked; one that stopped at its time limit keeps its trades, for the snapshot
 To read another solver's status exactly, add a reader to `_READERS`; any other solver is read from cvxpy's status."""
 
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Generator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Literal
 
 import cvxpy as cp
@@ -23,6 +25,7 @@ from pydantic import Field
 from optim.contract import Decision, Params, SolverStats, Stop
 
 _NOISE = 1e-6  # a trade smaller than this, in the holdings' units, is solver noise: no trade
+_problems: ContextVar[list[cp.Problem] | None] = ContextVar("_problems", default=None)  # see `captured`
 
 
 class SolveSettings(Params):
@@ -64,6 +67,8 @@ def read(
 ) -> Decision:
     """A solved problem as a `Decision`: its trades, whether it solved, its objective, the solver's statistics, and the
     `metrics` evaluated at the solution. Without a solution, it has no trades."""
+    if (problems := _problems.get()) is not None:
+        problems.append(problem)
     stats = problem.solver_stats
     stop, has_solution, gap, nodes = _READERS.get(stats.solver_name, _from_cvxpy)(problem)
     solver = SolverStats(solver=stats.solver_name, status=str(problem.status), stop=stop, gap=gap, nodes=nodes, iterations=stats.num_iters, seconds=stats.solve_time)
@@ -78,6 +83,17 @@ def read(
         solver=solver,
         metrics={name: float(np.asarray(value.value if isinstance(value, cp.Expression) else value)) for name, value in (metrics or {}).items()},
     )
+
+
+@contextmanager
+def captured() -> Generator[list[cp.Problem]]:
+    """The problems `read` reads in the block, solved: how deciding one portfolio from Python hands back its problem."""
+    problems: list[cp.Problem] = []
+    token = _problems.set(problems)
+    try:
+        yield problems
+    finally:
+        _problems.reset(token)
 
 
 def _quantities(expression: cp.Expression | None, securities: Sequence[str]) -> dict[str, float]:
