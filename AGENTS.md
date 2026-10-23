@@ -6,7 +6,9 @@ worker process with cvxpy and HiGHS or COPT, reviews each result for acceptance,
 file (`strategies/`) says how to optimize. The datasets and business logic are placeholders until an existing optimizer
 is ported in: see [Porting another optimizer](#porting-another-optimizer). Read [docs/architecture.md](docs/architecture.md) for why it
 is built this way, and [docs/extending.md](docs/extending.md) before adding a dataset, rule, constraint, term, source,
-job or output.
+job or output. The repo is becoming the `optim` package that model repos depend on: [docs/design.md](docs/design.md) is
+the agreed target and the order of steps to reach it, while this guide and the other docs describe the code as it
+stands.
 
 ## Where things are
 

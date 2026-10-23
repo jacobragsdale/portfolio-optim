@@ -71,6 +71,8 @@ through them.
 
 ## Further reading
 
+- [The optim framework](docs/design.md): the agreed design this repo is moving to, a package that quants' model repos
+  depend on, and the steps to get there.
 - [How the optimizer is put together](docs/architecture.md): how a run flows, the portfolio model (positions, cash,
   sleeves, value and controls), when a result may trade, and why it is built that way.
 - [Extending the optimizer](docs/extending.md): add a dataset, rule, constraint, objective term, source, solver, job or
