@@ -25,10 +25,11 @@ from optim.strategy import Strategy
 
 log = logging.getLogger(__name__)
 
-_PROCESSES = multiprocessing.get_context("forkserver")
-_PROCESSES.set_forkserver_preload(["optim.engine"])  # new workers fork with numpy, pandas and cvxpy already imported
-# Workers share the cores, so each gets a one-thread BLAS: 11% more portfolios a minute at 8 workers on 8 cores. The
-# forkserver reads it as it starts, with the first pool; this process loaded its BLAS before.
+# `spawn` on every platform: Windows has no other start method, and one start method means a laptop behaves as production
+# does. Each worker imports numpy, pandas and cvxpy itself, which adds a second or two to a run that starts a pool.
+_PROCESSES = multiprocessing.get_context("spawn")
+# Workers share the cores, so each gets a one-thread BLAS: 11% more portfolios a minute at 8 workers on 8 cores. A
+# spawned worker reads it from the environment it inherits; this process loaded its BLAS before.
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 
@@ -115,7 +116,7 @@ _market: Market | None = None  # this worker process's copy, set once by the poo
 def _start_worker(market: Market, fields: dict[str, object]) -> None:
     global _market  # noqa: PLW0603 -- the ProcessPoolExecutor initializer pattern: one copy per worker, not per task
     _market = market
-    logs.setup()  # a forkserver worker starts without the parent's logging; it reads the same OPTIM_LOG_* variables
+    logs.setup()  # a spawned worker starts without the parent's logging; it reads the same OPTIM_LOG_* variables
     logs.bind(**fields)  # nor its bound fields, such as the run's id
 
 

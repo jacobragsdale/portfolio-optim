@@ -1,15 +1,18 @@
 """What a run records about itself in `run.json`, and how its results reconcile."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
 import pytest
 from builders import ALL_DATASETS, OPTIMIZE, context, sources
+from pandas.testing import assert_frame_equal
 
 from optim.cli import main
 from optim.data.loader import DatasetRead, Reads
 from optim.jobs.run import Replayed, ReplayRequest, RunInfo, replay, run
+from optim.optimizer.results import Solved
 from optim.outputs.snapshots import Code
 
 
@@ -74,3 +77,13 @@ def test_a_replay_exits_zero_only_when_every_portfolio_is_accepted(tmp_path: Pat
     path = Path(__file__).parent.parent / "strategies" / f"{strategy}.json"
 
     assert main(["replay", str(tmp_path / ran.run_id), "--strategy", str(path)]) == code
+
+
+def test_spawned_workers_solve_as_this_process_does(tmp_path: Path) -> None:
+    in_process = run(context(tmp_path, sources()), OPTIMIZE)
+    pooled = run(replace(context(tmp_path, sources()), workers=2), OPTIMIZE)
+
+    for one, other in zip(in_process.results, pooled.results, strict=True):
+        assert isinstance(one, Solved)
+        assert isinstance(other, Solved)
+        assert_frame_equal(one.trades, other.trades)
