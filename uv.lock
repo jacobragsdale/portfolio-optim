@@ -830,6 +830,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cvxpy" },
+    { name = "grimp" },
     { name = "highspy" },
     { name = "httpx" },
     { name = "mssql-python" },
@@ -864,6 +865,7 @@ dev = [
 requires-dist = [
     { name = "coptpy", marker = "extra == 'copt'", specifier = ">=8.0.7" },
     { name = "cvxpy", specifier = ">=1.9.3" },
+    { name = "grimp", specifier = ">=3.17" },
     { name = "highspy", specifier = ">=1.15.1" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mssql-python", specifier = ">=1.16.0" },

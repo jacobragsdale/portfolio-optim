@@ -18,6 +18,11 @@ class Data(optim.Datasets):
     pass
 
 
+class Metrics(optim.Metrics):
+    holdings: float
+    """How many securities the portfolio holds."""
+
+
 def decide(prepared: Data, shared: Data, params: Params) -> optim.Decision:  # noqa: ARG001
     if prepared.portfolio_id in params.fail:
         msg = f"cannot decide {prepared.portfolio_id}"

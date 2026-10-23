@@ -31,13 +31,13 @@ def connect_to(connection_string: str, timeout_s: int) -> mssql_python.Connectio
         connection = mssql_python.connect(connection_string, timeout=LOGIN_TIMEOUT_S)
     except mssql_python.Error as error:
         # The driver names neither the server nor the database, and reports a missing database as a failed login.
-        error.add_note(f"while connecting to SQL Server {_target(connection_string)}")
+        error.add_note(f"while connecting to SQL Server {target(connection_string)}")
         raise
     connection.timeout = timeout_s  # seconds, per statement
     return connection
 
 
-def _target(connection_string: str) -> str:
+def target(connection_string: str) -> str:
     """The server and database a connection string names, for errors: never its credentials."""
     parts = {key.strip().lower(): value.strip() for key, _, value in (part.partition("=") for part in connection_string.split(";"))}
     return f"{parts.get('server', '?')}, database {parts.get('database', '?')}"

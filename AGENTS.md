@@ -29,6 +29,8 @@ are under `src/optim/`.
 | `orders.py` | Writing accepted portfolios' orders to the orders table, where the environment configures one. |
 | `research.py` | `sweep`, `regress`, `describe`, and `trial`, which decides one portfolio of a snapshot from Python. |
 | `testing.py` | Builders for a model's behaviour tests. |
+| `pytest_plugin.py` | The `pytest11` plugin: contract tests for every model a repo lists, the import-graph check, the agent-files check, and the e2e suite's `optim_qa` fixture and safeguards. |
+| `sync.py`, `templates/contract.md` | The agent files `optim sync` writes into a model repo: the contract block in `AGENTS.md` and the skills. |
 | `examples/` | The `cvxpy` example model, with its fixture, params and tests. |
 
 ## Rules to keep

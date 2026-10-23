@@ -79,7 +79,7 @@ def run(
     started_at = clock()
     datasets = declared(model.data)
     if data_dir is not None:
-        datasets = {attribute: _from_dir(dataset, data_dir) for attribute, dataset in datasets.items()}
+        datasets = {attribute: from_dir(dataset, data_dir) for attribute, dataset in datasets.items()}
     if portfolio_ids is None:
         portfolio_ids = _portfolios_in(datasets["holdings"])
     portfolio_ids = list(dict.fromkeys(portfolio_ids))
@@ -185,7 +185,8 @@ def replay(
     return Run(run_id, decided.outcomes)
 
 
-def _from_dir(dataset: Dataset, directory: Path) -> Dataset:
+def from_dir(dataset: Dataset, directory: Path) -> Dataset:
+    """The dataset read from `directory`, as `<name>.parquet` or `<name>.csv`, where it has a file there."""
     for suffix in (".parquet", ".csv"):
         if (file := directory / f"{dataset.name}{suffix}").exists():
             return dataset.file(file)
