@@ -7,8 +7,10 @@ from collections.abc import Generator
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 
+from optim import orders
 from optim.data.cache import FileCache
 from optim.data.loader import Loader
+from optim.orders import Orders
 from optim.settings import Settings
 from optim.sources import Source, SourceName, mssql, oracle, rest
 from optim.sources.file import FileSource
@@ -19,6 +21,7 @@ from optim.storage import Root
 class Context:
     loader: Loader
     snapshot_root: Root
+    orders: Orders | None
 
 
 @contextmanager
@@ -36,7 +39,8 @@ def open_context(settings: Settings, *, cache: bool = True) -> Generator[Context
         if settings.rest:
             sources["rest"] = rest.RestSource(stack.enter_context(rest.client(settings.rest)), settings.rest.max_rows)
             limits["rest"] = threading.Semaphore(settings.rest.max_concurrent)
-        yield Context(Loader(sources, open_cache(settings) if cache else None, limits), snapshot_root)
+        orders_table = orders.connect(settings.orders) if settings.orders else None
+        yield Context(Loader(sources, open_cache(settings) if cache else None, limits), snapshot_root, orders_table)
 
 
 def open_cache(settings: Settings) -> FileCache | None:

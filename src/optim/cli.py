@@ -57,8 +57,10 @@ def _run(args: argparse.Namespace) -> int:
         case "run":
             model = models.load(args.model)
             with open_context(settings, cache=not args.no_cache) as ctx:
+                as_of_date = args.as_of or _today()
+                labels = dict(args.labels)
                 ran = run(
-                    ctx.loader, ctx.snapshot_root, model, args.params, as_of_date=args.as_of or _today(), portfolio_ids=args.portfolios, data_dir=args.data, workers=workers, labels=dict(args.labels)
+                    ctx.loader, ctx.snapshot_root, model, args.params, as_of_date=as_of_date, portfolio_ids=args.portfolios, data_dir=args.data, workers=workers, labels=labels, orders=ctx.orders
                 )
             return _report(ran)
         case "replay":  # reads a snapshot and writes one: no sources or cache

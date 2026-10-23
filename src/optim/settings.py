@@ -9,6 +9,7 @@ from typing import Annotated
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from optim.orders import OrdersSettings
 from optim.sources.mssql import MssqlSettings
 from optim.sources.oracle import OracleSettings
 from optim.sources.rest import ApiSettings
@@ -36,3 +37,5 @@ class Settings(BaseSettings):
     oracle: OracleSettings | None = None
     mssql: MssqlSettings | None = None
     rest: ApiSettings | None = None
+    orders: OrdersSettings | None = None
+    """The orders table accepted portfolios' orders are written to. Only production configures one."""

@@ -22,10 +22,11 @@ class MssqlSettings(SourceSettings):
 
 
 def connect(settings: MssqlSettings) -> SqlSource:
-    return SqlSource(partial(_connect, settings.connection_string.get_secret_value(), settings.timeout_s), BEGIN_READ_ONLY, settings.max_rows)
+    return SqlSource(partial(connect_to, settings.connection_string.get_secret_value(), settings.timeout_s), BEGIN_READ_ONLY, settings.max_rows)
 
 
-def _connect(connection_string: str, timeout_s: int) -> mssql_python.Connection:
+def connect_to(connection_string: str, timeout_s: int) -> mssql_python.Connection:
+    """A connection with a deadline on its login and on every statement."""
     try:
         connection = mssql_python.connect(connection_string, timeout=LOGIN_TIMEOUT_S)
     except mssql_python.Error as error:

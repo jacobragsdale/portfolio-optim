@@ -25,6 +25,7 @@ from optim.contract import Datasets, Decision, Params, declared
 from optim.data.dataset import Dataset
 from optim.data.loader import Loader, load_data
 from optim.models import LoadedModel
+from optim.orders import Orders
 from optim.snapshots import Code, ModelInfo, Outcome, ParamsFile, Replayed, RunInfo, checkout, read_info, read_inputs, save
 from optim.storage import Root
 
@@ -66,9 +67,11 @@ def run(
     data_dir: Path | None = None,
     workers: int = 1,
     labels: Mapping[str, str] = NO_LABELS,
+    orders: Orders | None = None,
     clock: Callable[[], datetime] = logs.utc_now,
 ) -> Run:
-    """Load the model's data for `as_of_date` and the portfolios, decide each one, and save the snapshot. `data_dir` reads
+    """Load the model's data for `as_of_date` and the portfolios, decide each one, save the snapshot, and then write the
+    accepted portfolios' orders to `orders`, where the environment configures a table. `data_dir` reads
     each dataset that has a file there, `<name>.parquet` or `<name>.csv`, instead of its source; without
     `portfolio_ids`, the run decides every portfolio in the holdings file there."""
     params, params_file_info = read_params(model, params_file)
@@ -103,6 +106,9 @@ def run(
         replay=None,
     )
     save(snapshot_root, info, frames, outcomes)
+    if orders is not None:
+        with logs.timed(log, "wrote orders", table=orders.table) as fields:
+            fields["orders"] = orders.write(run_id, outcomes)
     return Run(run_id, outcomes)
 
 
