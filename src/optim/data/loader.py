@@ -185,7 +185,7 @@ class Loader:
         start = time.perf_counter()
         with self.limits.get(source) or nullcontext():
             _skip_if_stopped()
-            with self.sources[source].read_only() as transaction:
+            with _configured(self.sources, source).read_only() as transaction:
                 log.info("began read-only transaction", extra={"source": source, "wait_ms": ms_since(start)})
                 yield replace(self, sources={**self.sources, source: transaction}, limits={k: v for k, v in self.limits.items() if k != source})
 
@@ -196,12 +196,17 @@ class Loader:
             fields["wait_ms"] = ms_since(start)
             _skip_if_stopped()
             fetched_at = self.clock()
-            if (source := self.sources.get(dataset.source)) is None:
-                msg = f"{dataset.name} reads from {dataset.source}, which is not configured: set OPTIM_{dataset.source.upper()}__* (see .env.example)"
-                raise LookupError(msg)
-            columns = source.fetch(str(dataset.query), params)
+            columns = _configured(self.sources, dataset.source, reader=dataset.name).fetch(str(dataset.query), params)
         with timed(log, "validated", dataset=dataset.name):
             return dataset.to_frame(columns), fetched_at
+
+
+def _configured(sources: Mapping[SourceName, Source], name: SourceName, *, reader: str = "a dataset read per portfolio") -> Source:
+    """The source, or an error that names the settings it needs."""
+    if (source := sources.get(name)) is None:
+        msg = f"{reader} reads from {name}, which is not configured: set OPTIM_{name.upper()}__* (see .env.example)"
+        raise LookupError(msg)
+    return source
 
 
 def _skip_if_stopped() -> None:

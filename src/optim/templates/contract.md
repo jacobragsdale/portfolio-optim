@@ -29,7 +29,9 @@ returns the `Decision`; a model with no solver returns `optim.Decision(buy={...}
 ### Rules to keep
 
 - Model code does no I/O: no files, databases or HTTP. Data arrives in `Data`; a contract test fails on an import that
-  can reach a source, the loader, the cache, outputs, a database driver or an HTTP client.
+  can reach a source, the loader, the cache, outputs, a database driver or an HTTP client. A model's `__main__.py`, which
+  runs it through `optim.ide` when the file is run, is the one exception: workers never import it. Keep it to that call,
+  under `if __name__ == "__main__":`.
 - Every query takes only the as-of date and the portfolio ids. Params never change what is loaded: select rows after
   loading instead, so a sweep can run every variant from one snapshot.
 - Rules are plain functions in the model's `rules.py`, tested without a solver, and named in its `README.md`.
@@ -42,7 +44,7 @@ returns the `Decision`; a model with no solver returns `optim.Decision(buy={...}
 
 | Path | Holds |
 |---|---|
-| `src/<package>/<model>/` | The model's module, its `rules.py`, its own datasets and its `README.md`. |
+| `src/<package>/<model>/` | The model's module, its `rules.py`, its own datasets, its `README.md`, and `__main__.py`, which runs it from an IDE. |
 | `params/<model>/default.json` | Its default params; other files beside it are variants. |
 | `tests/<model>/` | Its behaviour tests, and `fixture/`: one file per dataset and `fixture.json`, which the contract tests decide on. |
 | `tests/e2e/` | The QA suite, marked `e2e`, which runs only against QA. |
@@ -50,6 +52,7 @@ returns the `Decision`; a model with no solver returns `optim.Decision(buy={...}
 ### Commands
 
 ```sh
+uv run python -m PACKAGE.MODEL                   # run the model's __main__.py: its fixture, unless the call says otherwise
 uv run pytest                                    # behaviour and contract tests
 uv run ruff check . && uv run ty check           # lint and types
 uv run optim describe MODEL                      # params schema, datasets and metrics, as JSON

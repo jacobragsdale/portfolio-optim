@@ -24,7 +24,7 @@ dev = [
     "scipy-stubs>=1.18.1.1",
     "ty>=0.0.89",
 ]
-{{index}}
+{{source}}
 [tool.ruff]
 line-length = 200
 force-exclude = true

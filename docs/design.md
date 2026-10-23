@@ -35,6 +35,8 @@ design's intent:
 | Orders | Written as `run_id, portfolio_id, security_id, side, quantity`, through `OPTIM_ORDERS__CONNECTION_STRING`, a login that may insert, into `OPTIM_ORDERS__TABLE`. | The read-only credentials that load data must not write. The real table's columns are still to confirm. |
 | `optim.testing` | Builders for behaviour tests: `frame(dataset, *rows)` and `data(Data, **frames)`, with default shared rows. | The page names the core's builders. |
 | Examples | Each example has a `ruff.toml` that sorts imports as a model repo does, where `optim` is a dependency. | Copied code must pass the generated repo's own ruff. |
+| Running from an IDE | Each model has a `__main__.py` that calls `optim.ide.run(__file__)`, or `replay`, which run as `optim run` and `optim replay` do, from the repo's root with its `.env`; with no arguments, it decides the model's fixture. The import check leaves a model's `__main__` out. | Quants run models from their IDEs by running a file, and debug them there; workers import a model, never its `__main__`. |
+| `optim new repo` | Needs `--index`, or `--optim-path`, a checkout, editable, and writes that source for `optim` into the repo's `pyproject.toml`. | PyPI has an unrelated package named `optim`, which a repo with no source would install. |
 
 What is not done here, because it needs what this repository cannot reach: the wrapper example (the internal wrapper is
 proprietary, and `optim.cvxpy.read` covers the problem it hands back), a run of the tests on Windows, publishing by tag,

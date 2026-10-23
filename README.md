@@ -15,9 +15,10 @@ cd ladder
 uv run pytest
 ```
 
-The new repo holds one model, copied from the `cvxpy` example, with its params, a fixture and tests, plus a
-`Dockerfile`, an `azure-pipelines.yml` stub, and the agent files that `optim sync` keeps current. Its tests include
-`optim`'s contract tests for every model it lists.
+The new repo holds one model, copied from the `cvxpy` example, with its params, a fixture, tests and a `__main__.py`
+that runs it from an IDE, plus a `Dockerfile`, an `azure-pipelines.yml` stub, and the agent files that `optim sync`
+keeps current. Its tests include `optim`'s contract tests for every model it lists. The second `--index` is required:
+PyPI has an unrelated package named `optim`, which a repo without it would install.
 
 ## Documentation
 
@@ -28,6 +29,7 @@ and `uv run optim docs PAGE` prints one.
   in about fifteen minutes.
 - How-to guides: [add a dataset](src/optim/docs/how-to/add-a-dataset.md),
   [write a rule](src/optim/docs/how-to/write-a-rule.md),
+  [run a model from your IDE](src/optim/docs/how-to/run-from-your-ide.md),
   [decide portfolios one at a time](src/optim/docs/how-to/decide-portfolios-in-turn.md),
   [port a legacy model](src/optim/docs/how-to/port-a-legacy-model.md), and
   [run a model in QA](src/optim/docs/how-to/run-in-qa.md).

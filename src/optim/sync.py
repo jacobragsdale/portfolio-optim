@@ -17,17 +17,16 @@ SKILL_DIRS = (Path(".agents") / "skills", Path(".claude") / "skills")
 def block() -> str:
     """The marked block, stamped with the installed version, so an upgrade makes it stale."""
     contract = (PACKAGE / "templates" / "contract.md").read_text(encoding="utf-8").replace("{version}", optim.__version__)
-    return f"{BEGIN}\n{contract.rstrip()}\n{END}\n"
+    return f"{BEGIN}\n{contract.rstrip()}\n{END}"
 
 
 def expected(repo: Path) -> dict[Path, str]:
     """Every agent file, by its path in the repo, as `optim sync` would write it. `AGENTS.md` keeps what the repo wrote
-    outside the block."""
+    before and after the block exactly as written."""
     agents = repo / "AGENTS.md"
     current = agents.read_text(encoding="utf-8") if agents.exists() else ""
     before, found, rest = current.partition(BEGIN)
-    after = rest.partition(END)[2].lstrip("\n") if found else ""
-    files = {Path("AGENTS.md"): f"{before}{block()}{after}" if found else f"{current.rstrip()}\n\n{block()}".lstrip("\n")}
+    files = {Path("AGENTS.md"): f"{before}{block()}{rest.partition(END)[2]}" if found else f"{current.rstrip()}\n\n{block()}\n".lstrip("\n")}
     claude = repo / "CLAUDE.md"
     text = claude.read_text(encoding="utf-8") if claude.exists() else ""
     files[Path("CLAUDE.md")] = text if "@AGENTS.md" in text.splitlines() else f"@AGENTS.md\n{text}"

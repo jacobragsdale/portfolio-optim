@@ -3,6 +3,7 @@ names one; a module path, such as `optim.examples.cvxpy`, names a model too. Wor
 module path."""
 
 import importlib
+import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from importlib.metadata import entry_points
@@ -37,6 +38,12 @@ class LoadedModel:
 def installed() -> dict[str, str]:
     """Every model the environment lists, by name: its module path."""
     return {point.name: point.value for point in entry_points(group=GROUP)}
+
+
+def listed(repo: Path) -> dict[str, str]:
+    """The models a repo's `pyproject.toml` lists, by name: their module paths."""
+    pyproject = tomllib.loads((repo / "pyproject.toml").read_text(encoding="utf-8"))
+    return dict(pyproject.get("project", {}).get("entry-points", {}).get(GROUP, {}))
 
 
 def load(name: str) -> LoadedModel:

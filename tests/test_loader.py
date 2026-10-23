@@ -14,7 +14,7 @@ import oracledb
 import pytest
 
 from optim.data.dataset import Dataset
-from optim.data.loader import Loader, TaskGroup
+from optim.data.loader import Loader, TaskGroup, load_data
 from optim.datasets import HOLDINGS, SECURITIES, SQL
 from optim.schema import Row
 from optim.sources import Columns, Param, TooManyRowsError, oracle
@@ -99,6 +99,12 @@ def test_loads_in_a_read_only_scope_share_one_transaction_and_take_turns() -> No
     assert len(connection.statements) == 5  # begun, then each load
     assert connection.rolled_back
     assert connection.closed
+
+
+@pytest.mark.parametrize("datasets", [(SECURITIES,), (HOLDINGS,)], ids=["read-whole", "read-per-portfolio"])
+def test_a_dataset_whose_source_is_not_configured_names_the_settings_to_set(datasets: tuple[Dataset, ...]) -> None:
+    with pytest.raises(LookupError, match=r"not configured: set OPTIM_\w+__\*"):
+        load_data(Loader({"file": FileSource()}), {dataset.name: dataset for dataset in datasets}, date(2026, 10, 16), ["P1"])
 
 
 def test_a_transaction_that_cannot_roll_back_still_raises_the_error_that_ended_it() -> None:

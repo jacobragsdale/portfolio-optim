@@ -58,10 +58,11 @@ def test_a_run_of_chosen_tests_leaves_the_contract_tests_out(pytester: pytest.Py
     ("change", "failure"),
     [
         ({"model": TOY + "\nimport httpx  # noqa: E402, F401\n"}, ["*can reach I/O through its imports*", "toyrepo.toy -> httpx"]),
+        ({"model": TOY + "\nimport optim.ide  # noqa: E402, F401\n"}, ["*can reach I/O through its imports*", "toyrepo.toy -> optim.ide"]),
         ({"params": {"unsolved": ["P2"]}}, ["*rejects portfolios of its fixture*", "P2: not solved: the model says so"]),
         ({"synced": False}, ["*run `uv run optim sync`*"]),
     ],
-    ids=["io-import", "fixture-rejected", "stale-agent-files"],
+    ids=["io-import", "ide-import", "fixture-rejected", "stale-agent-files"],
 )
 def test_a_model_that_breaks_the_contract_fails_saying_what_to_do(pytester: pytest.Pytester, change: dict[str, object], failure: list[str]) -> None:
     model_repo(pytester, **change)  # ty: ignore[invalid-argument-type] -- each case's keyword
@@ -70,6 +71,14 @@ def test_a_model_that_breaks_the_contract_fails_saying_what_to_do(pytester: pyte
 
     result.assert_outcomes(passed=3, failed=1)
     result.stdout.fnmatch_lines(failure)
+
+
+def test_a_models_main_may_run_it_through_optim_ide(pytester: pytest.Pytester) -> None:
+    """A model's `__main__.py` runs it from a file; workers import the model, never its `__main__`."""
+    repo = model_repo(pytester)
+    (repo / "toyrepo" / "toy" / "__main__.py").write_text('import optim.ide\n\nif __name__ == "__main__":\n    optim.ide.run(__file__)\n')
+
+    pytester.runpytest("-p", "no:randomly").assert_outcomes(passed=4)
 
 
 def test_misspelled_default_params_fail_the_params_and_the_fixture_tests(pytester: pytest.Pytester) -> None:

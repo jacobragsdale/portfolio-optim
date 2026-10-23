@@ -24,6 +24,10 @@ module path names a model that is not an entry point too, such as `optim.example
 `decide` or `check` rejects that portfolio alone, with `error: ...` as its reason. An exception in `prepare`, `order` or
 `reserve` fails the run.
 
+A model that is a package may also hold `__main__.py`, which runs the model when the file is run, through
+[`optim.ide`](#optimide). It is the one module of a model that may reach I/O: workers import the model, never its
+`__main__`, so the import check leaves it out.
+
 ## `optim.Params`
 
 The base of a model's `Params`, and of any model nested in them. It refuses unknown keys, does not coerce types (a JSON
@@ -175,6 +179,38 @@ P1's $1mm of cash; `AS_OF` is 2026-10-16.
 
 `storage.Root.at(location)` opens a path or URL as a `Root`.
 
+## `optim.ide`
+
+Running a model by running its `__main__.py`, as from an IDE, which calls one of these with its own `__file__`:
+
+```python
+import optim.ide
+
+if __name__ == "__main__":  # each worker process imports this file too, and must not start a run of its own
+    optim.ide.run(__file__)
+```
+
+| Function | Runs as |
+|---|---|
+| `run(file, *, params, portfolios, as_of, data, labels, workers, cache)` | `optim run` |
+| `replay(file, run_id, *, params, portfolios, labels, workers)` | `optim replay` |
+
+Each finds the model whose package holds `file`, by walking up the directories that have an `__init__.py`, and its
+repo, the nearest directory above with a `pyproject.toml`. It names the model as the repo's entry points list it, or by
+its module path. It moves to the repo's root, so a relative path is the repo's, reads the repo's `.env` into the
+environment, where a variable already set wins, and logs as text unless `OPTIM_LOG_FORMAT` says otherwise. It prints
+what the command prints, and returns the `Run`, with its `run_id`, `outcomes` and `ok`. An error raises, rather than
+being logged. A repo with no `.env` fails unless `OPTIM_SNAPSHOT_ROOT` is set.
+
+| Argument | Default | Description |
+|---|---|---|
+| `params` | the model's default params | A params file: `params/MODEL/default.json`, or `params/default.json` beside the model, as optim's examples keep it. |
+| `portfolios` | every portfolio of the fixture | Portfolio ids. With neither `portfolios` nor `data`, `run` decides the model's fixture, `tests/MODEL/fixture/` or `fixture/` beside the model, as of the fixture's date. |
+| `as_of` | the fixture's date, or today in New York | A `date`, or `YYYY-MM-DD`. |
+| `data` | the fixture, or none with `portfolios` | As `--data`: each dataset that has a file in the directory is read from it, the others from their sources. |
+| `run_id` | required | For `replay`: a run under `OPTIM_SNAPSHOT_ROOT`, or a snapshot's path or URL. |
+| `labels`, `workers`, `cache` | none, `OPTIM_WORKERS`, on | As `--label`, `--workers` and `--no-cache`. |
+
 ## Commands
 
 Every command logs JSON lines on stderr and exits 1 on an error, logged once with its root cause.
@@ -245,15 +281,18 @@ schema, or null).
 ### `optim new repo` and `optim new model`
 
 ```text
-optim new repo NAME [--from cvxpy|plain] [--model MODEL] [--dir DIR] [--index URL] [--no-sync]
+optim new repo NAME (--index URL | --optim-path PATH) [--from cvxpy|plain] [--model MODEL] [--dir DIR] [--no-sync]
 optim new model NAME [--from cvxpy|plain] [--no-sync]
 ```
 
 `new repo` makes `DIR/NAME` (default here) with package `NAME`, one model `MODEL` (default `NAME`) copied from the
-example (default `cvxpy`), the templates and the agent files, then runs `git init` and `uv sync`. `--index`, or
-`UV_INDEX`, writes the internal index into its `pyproject.toml` as the source of `optim`. The repo depends on
-`optim>=0.1,<0.2`. `new model` adds a model and its entry point to the repo in the working directory, then runs
-`uv sync`. Hyphens in a name become underscores in its module. `--no-sync` leaves `uv sync` out.
+example (default `cvxpy`), the templates and the agent files, then runs `git init` and `uv sync`. The repo depends on
+`optim>=0.1,<0.2`, from the source its `pyproject.toml` names: `--index`, or `UV_INDEX`, the internal index, or
+`--optim-path`, a checkout of `optim`, editable, to try a change to it. It refuses to make a repo with neither, or both:
+PyPI has an unrelated package named `optim`, which a repo with no source would install. `new model` adds a model and its
+entry point to the repo in the working directory, and a row to the table of models in its `README.md`, then runs
+`uv sync`. Each model gets a `__main__.py` that runs it, through `optim.ide`. Hyphens in a name become underscores in
+its module. `--no-sync` leaves `uv sync` out.
 
 ### `optim sync`, `optim docs` and `optim warm`
 
@@ -329,7 +368,7 @@ for each model `NAME`:
 |---|---|
 | `pyproject.toml::params[NAME]` | `params/NAME/default.json` is missing or does not validate. |
 | `pyproject.toml::fixture[NAME]` | Deciding every portfolio of `tests/NAME/fixture/` with the default params rejects one. The fixture holds a `NAME.csv` or `NAME.parquet` for every dataset, and `fixture.json`, `{"as_of_date": "YYYY-MM-DD"}`. Also fails when decisions report a metric `Metrics` does not declare, or do not report one it declares. |
-| `pyproject.toml::imports[NAME]` | An import chain leads from the model's module to a source, the loader, the cache, outputs, a database driver or an HTTP client. |
+| `pyproject.toml::imports[NAME]` | An import chain leads from the model's module, its `__main__` aside, to a source, the loader, the cache, outputs, a database driver or an HTTP client. |
 | `pyproject.toml::agent-files` | `AGENTS.md`'s block, `CLAUDE.md` or the `optim-*` skills do not match what `optim sync` writes. |
 
 The plugin registers the `e2e` marker and these ini options:

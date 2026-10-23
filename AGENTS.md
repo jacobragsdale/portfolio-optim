@@ -21,6 +21,7 @@ are under `src/optim/`.
 | `sources/` | Oracle (thin or thick), SQL Server, REST and files: bounded fetches, read-only transactions. |
 | `storage.py` | The snapshot and cache roots, a path or URL each, through `pyarrow.fs`, with atomic writes. |
 | `run.py` | `run`, `replay` and `open_snapshot`. |
+| `ide.py` | `optim.ide`: running a model by running its `__main__.py`, as from an IDE, through `run` and `replay`, from the repo's root with its `.env`. |
 | `decide.py` | `decide_all`, which calls a model's hooks for every portfolio, at once or in turn when the model reserves. |
 | `engine.py` | One piece of work per portfolio, in this process or a `spawn` process pool. |
 | `acceptance.py` | Rounding each decision to its securities' increments, and the core's checks of whether it may trade. |
@@ -40,6 +41,8 @@ are under `src/optim/`.
 - Model code and workers do no I/O. The parent loads, the workers compute, and the parent saves; replay and snapshots
   depend on it. `lint-imports` enforces it for the core's pure modules and the examples, and the plugin's import check
   enforces it in model repos.
+- A model's `__main__.py` is the one module of a model that may reach I/O, through `optim.ide`: workers never import
+  it, so the plugin's import check and the core's import contract leave it out. Nothing else may import `optim.ide`.
 - Snapshots hold each dataset as loaded, never a frame derived from one, so replay reruns the model's hooks.
 - Every query takes only the as-of date and, for a dataset read per portfolio, the portfolio ids. Params never change
   what is loaded, so a sweep can run every variant from one snapshot.
@@ -70,13 +73,14 @@ uv run pre-commit run --all-files   # ruff, ty, lockfile, import contracts
 uv run pytest                        # the core's tests and the examples'
 ```
 
-To check what `optim new` generates, make a repo in a scratch directory against this checkout, then run its checks:
+To check what `optim new` generates, make a repo in a scratch directory that takes `optim` from this checkout, then run
+its checks and its model's `__main__.py`:
 
 ```sh
-uv run optim new repo ladder --dir SCRATCH --no-sync
+uv run optim new repo ladder --dir SCRATCH --optim-path .
 cd SCRATCH/ladder
-uv add --editable PATH_TO_THIS_CHECKOUT
 uv run pytest && uv run ruff check . && uv run ruff format --check . && uv run ty check
+cp .env.example .env && uv run python -m ladder.ladder
 ```
 
 `snapshots/` is not in git, and a snapshot written before a schema change may not load.

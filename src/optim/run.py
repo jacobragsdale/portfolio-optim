@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 from types import MappingProxyType
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -24,11 +25,12 @@ from optim.data.loader import Loader, load_data
 from optim.decide import Outcome, decide_all
 from optim.models import LoadedModel
 from optim.orders import Orders
-from optim.snapshots import Code, ModelInfo, ParamsFile, Replayed, RunInfo, checkout, read_info, read_inputs, save
+from optim.snapshots import Code, ModelInfo, ParamsFile, Replayed, RunInfo, checkout, read_info, read_inputs, result_frames, save
 from optim.storage import Root
 
 log = logging.getLogger(__name__)
 NO_LABELS: Mapping[str, str] = MappingProxyType({})
+MARKET_TIME = ZoneInfo("America/New_York")
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,17 @@ class Run:
     def ok(self) -> bool:
         """Every portfolio was accepted: the run may trade."""
         return all(outcome.accepted for outcome in self.outcomes)
+
+    def summary(self) -> str:
+        """What `optim run` prints: the run's id, a row per portfolio, and each reason a portfolio was rejected."""
+        decisions = result_frames(self.outcomes)["decisions"][["portfolio_id", "status", "trades", "solved", "objective", "stop", "seconds"]]
+        reasons = "".join(f"{outcome.portfolio_id}: {reason}\n" for outcome in self.outcomes for reason in outcome.reasons)
+        return f"run {self.run_id}\n{decisions.to_string(index=False)}\n{reasons}"
+
+
+def today() -> date:
+    """The business date a run takes unless it is given one: today in New York."""
+    return datetime.now(MARKET_TIME).date()
 
 
 def read_params(model: LoadedModel, path: Path) -> tuple[Params, ParamsFile]:

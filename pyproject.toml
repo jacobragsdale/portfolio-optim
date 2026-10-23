@@ -17,6 +17,7 @@ dependencies = [
     "pyarrow>=26.0.0",
     "pydantic>=2.14.1",
     "pydantic-settings>=2.16.0",
+    "python-dotenv>=1.2.4",
     "scipy>=1.18.1",
 ]
 
@@ -146,5 +147,6 @@ source_modules = [
 forbidden_modules = [
     "optim.data.loader", "optim.data.cache", "optim.sources.sql", "optim.sources.oracle", "optim.sources.mssql",
     "optim.sources.rest", "optim.sources.file", "optim.storage", "optim.context", "optim.settings", "optim.snapshots",
-    "optim.run", "optim.orders", "optim.cli", "httpx", "oracledb", "mssql_python",
+    "optim.run", "optim.orders", "optim.cli", "optim.ide", "httpx", "oracledb", "mssql_python",
 ]
+ignore_imports = ["optim.examples.*.__main__ -> optim.ide"]  # an example's __main__ runs it from a file; workers never import it

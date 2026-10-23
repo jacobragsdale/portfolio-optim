@@ -21,22 +21,19 @@ import os
 import signal
 import sys
 from collections.abc import Callable, Sequence
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
 from optim import logs, models, new, research, sync
 from optim.context import open_context
 from optim.contract import declared
-from optim.run import Run, open_snapshot, replay, run
+from optim.run import Run, open_snapshot, replay, run, today
 from optim.settings import Settings
-from optim.snapshots import result_frames
 from optim.storage import Root
 
 log = logging.getLogger(__name__)
-MARKET_TIME = ZoneInfo("America/New_York")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -64,7 +61,7 @@ def _stopped(signum: int, _frame: object) -> None:
 def _run(args: argparse.Namespace) -> int:
     settings, model = Settings(), models.load(args.model)
     with open_context(settings, cache=not args.no_cache) as ctx:
-        as_of_date, workers, labels = args.as_of or _today(), args.workers or settings.workers, dict(args.labels)
+        as_of_date, workers, labels = args.as_of or today(), args.workers or settings.workers, dict(args.labels)
         ran = run(ctx.loader, ctx.snapshot_root, model, args.params, as_of_date=as_of_date, portfolio_ids=args.portfolios, data_dir=args.data, workers=workers, labels=labels, orders=ctx.orders)
     return _report(ran)
 
@@ -97,8 +94,8 @@ def _describe(args: argparse.Namespace) -> int:
 
 
 def _new_repo(args: argparse.Namespace) -> int:
-    index = args.index or os.environ.get("UV_INDEX")
-    repo = new.new_repo(args.name, example=args.example, model=args.model, directory=args.dir, index=index, uv_sync=not args.no_sync)
+    index = args.index or (None if args.optim_path else os.environ.get("UV_INDEX"))
+    repo = new.new_repo(args.name, example=args.example, model=args.model, directory=args.dir, index=index, optim_path=args.optim_path, uv_sync=not args.no_sync)
     sys.stdout.write(f"created {repo}: commit it once you have read it\n")
     return 0
 
@@ -138,7 +135,7 @@ def _warm(args: argparse.Namespace) -> int:
         raise ValueError(msg)
     datasets = {dataset.name: dataset for name in args.models for dataset in declared(models.load(name).data).values()}
     with open_context(settings) as ctx:
-        return 0 if ctx.loader.warm(datasets.values(), args.as_of or _today()) else 1
+        return 0 if ctx.loader.warm(datasets.values(), args.as_of or today()) else 1
 
 
 def _write(table: pd.DataFrame, out: Path | None) -> None:
@@ -152,21 +149,13 @@ def _write(table: pd.DataFrame, out: Path | None) -> None:
 
 
 def _report(ran: Run) -> int:
-    decisions = result_frames(ran.outcomes)["decisions"][["portfolio_id", "status", "trades", "solved", "objective", "stop", "seconds"]]
-    sys.stdout.write(f"run {ran.run_id}\n{decisions.to_string(index=False)}\n")
-    for outcome in ran.outcomes:
-        for reason in outcome.reasons:
-            sys.stdout.write(f"{outcome.portfolio_id}: {reason}\n")
+    sys.stdout.write(ran.summary())
     return 0 if ran.ok else 1
 
 
 def _snapshot(run: str) -> Root:
     """A run by the path or URL of its snapshot, or by its id, under `OPTIM_SNAPSHOT_ROOT`."""
     return Root.at(run) if "/" in run or "\\" in run else Root.at(Settings().snapshot_root) / run
-
-
-def _today() -> date:
-    return datetime.now(MARKET_TIME).date()
 
 
 def _label(text: str) -> tuple[str, str]:
@@ -234,6 +223,7 @@ def _parser() -> argparse.ArgumentParser:
     repo_command.add_argument("--model", help="its first model's name (default: the repo's)")
     repo_command.add_argument("--dir", type=Path, default=Path.cwd(), help="where to make it (default: here)")
     repo_command.add_argument("--index", help="the internal index optim is published to, written into its pyproject (default: UV_INDEX)")
+    repo_command.add_argument("--optim-path", type=Path, help="take optim from this checkout of it, editable, instead of an index: to try a change to optim")
     model_command = _command(new_kind, "model", _new_model, "add a model to the repo this runs in, with its entry point", example)
     model_command.add_argument("name", help="the model's name, which names its module, params and tests")
     docs_command = _command(commands, "docs", _docs, "print a page of optim's docs, or list them")

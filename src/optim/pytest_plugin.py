@@ -13,7 +13,6 @@ import json
 import re
 import subprocess
 import sys
-import tomllib
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import date
@@ -30,7 +29,7 @@ from optim.context import open_context
 from optim.contract import declared
 from optim.data.loader import Loader, load_data
 from optim.decide import decide_all
-from optim.models import LoadedModel
+from optim.models import LoadedModel, listed
 from optim.run import from_dir, read_params
 from optim.settings import Settings
 from optim.snapshots import read_results
@@ -42,7 +41,7 @@ from optim.storage import Root
 FORBIDDEN = (
     "optim.sources.sql", "optim.sources.oracle", "optim.sources.mssql", "optim.sources.rest", "optim.sources.file",
     "optim.data.loader", "optim.data.cache", "optim.storage", "optim.snapshots", "optim.orders", "optim.run",
-    "optim.research", "optim.context", "optim.settings", "optim.cli", "oracledb", "mssql_python", "pyodbc", "pymssql",
+    "optim.research", "optim.context", "optim.settings", "optim.cli", "optim.ide", "oracledb", "mssql_python", "pyodbc", "pymssql",
     "cx_Oracle", "sqlalchemy", "psycopg", "psycopg2", "snowflake", "httpx", "requests", "urllib3", "aiohttp",
 )  # fmt: skip
 """What a model's modules may not reach through their imports: a source, the loader, the cache, outputs, a database
@@ -54,12 +53,6 @@ type TracebackStyle = Literal["long", "short", "line", "no", "native", "value", 
 
 class ContractError(AssertionError):
     """A model breaks the contract; the message says how, and what to do."""
-
-
-def listed(repo: Path) -> dict[str, str]:
-    """The models a repo's `pyproject.toml` lists, by name: their module paths."""
-    pyproject = tomllib.loads((repo / "pyproject.toml").read_text(encoding="utf-8"))
-    return dict(pyproject.get("project", {}).get("entry-points", {}).get(models.GROUP, {}))
 
 
 def check_params(model: LoadedModel, params: Path) -> None:
@@ -94,9 +87,11 @@ def check_fixture(model: LoadedModel, fixture: Path, params: Path) -> None:
 
 
 def check_imports(model: LoadedModel) -> None:
-    """No module of the model, or one it imports, can reach what `FORBIDDEN` lists."""
-    graph = _graph(model.module.partition(".")[0])
-    chains = [chain for forbidden in FORBIDDEN if forbidden in graph.modules for chain in graph.find_shortest_chains(importer=model.module, imported=forbidden, as_packages=True)]
+    """No module of the model, or one it imports, can reach what `FORBIDDEN` lists, but its `__main__`, which runs the
+    model from a file through `optim.ide`: workers import the model, never its `__main__`."""
+    graph, main = _graph(model.module.partition(".")[0]), f"{model.module}.__main__"
+    found = (chain for forbidden in FORBIDDEN if forbidden in graph.modules for chain in graph.find_shortest_chains(importer=model.module, imported=forbidden, as_packages=True))
+    chains = [chain for chain in found if chain[0] != main]
     if chains:
         msg = f"{model.name} can reach I/O through its imports, which model code must not do: data arrives in its Data.\n" + "\n".join(" -> ".join(chain) for chain in sorted(chains))
         raise ContractError(msg)

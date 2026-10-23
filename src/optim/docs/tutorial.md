@@ -117,6 +117,9 @@ Notice that P1 sells 46,000 of B, in whole lots of 1,000, which brings B under i
 portfolio buys bond D, which is rated below `A-`, the `min_rating` in the params. `quantity` is what may trade, and
 `decided` what the model decided, before `optim` rounded it to whole lots.
 
+The same run starts from your IDE too: open `src/ladder/ladder/__main__.py` and run it, and it decides the fixture as
+the command did, with the same `.env`, and prints the same table under a new run id.
+
 ## Replay the run with wider limits
 
 Make a variant of the params that allows 20% in a bond and in an issuer. Copy `params/ladder/default.json` to
@@ -176,6 +179,7 @@ rejection. Notice that the wider limits trade more: P1's turnover goes from abou
 ## Next steps
 
 You have built a model repo, run its model, replayed the run with new params and swept two variants. To make the model
-your own, see [how to add a dataset](how-to/add-a-dataset.md) and [how to write a rule](how-to/write-a-rule.md). For
+your own, see [how to add a dataset](how-to/add-a-dataset.md) and [how to write a rule](how-to/write-a-rule.md), and to
+run it as you change it, [how to run a model from your IDE](how-to/run-from-your-ide.md). For
 every command and setting, see the [reference](reference.md). To understand why runs replay and model code does no I/O,
 read [how optim is put together](explanation.md).

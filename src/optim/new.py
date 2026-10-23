@@ -1,6 +1,7 @@
 """`optim new`: a model repo, or a model in one, from the installed package's examples and templates, so a generated repo
 matches the `optim` version that made it. `new_repo` writes the repo, runs `git init` and `uv sync`, and leaves the
-first commit to the quant; `new_model` adds a model to the repo it runs in, with its entry point."""
+first commit to the quant; `new_model` adds a model to the repo it runs in, with its entry point. A repo always says
+where it takes `optim` from, the firm's index or a checkout, because PyPI has an unrelated package of that name."""
 
 import re
 import shutil
@@ -16,17 +17,22 @@ OPTIM = "optim>=0.1,<0.2"  # 0.x: a minor release may break the contract, so a r
 _SKIP = {"__pycache__", "params", "fixture", "tests"}  # copied elsewhere in the repo, or not at all
 # Stored under other names, so they act on no repo but the one they are copied into: without their dot, and
 # pyproject.toml, which ruff would read as this package's config, as .in.
-_STORED = {"gitignore": ".gitignore", "env.example": ".env.example", "python-version": ".python-version", "pyproject.toml.in": "pyproject.toml"}
+_STORED = {"gitignore": ".gitignore", "dockerignore": ".dockerignore", "env.example": ".env.example", "python-version": ".python-version", "pyproject.toml.in": "pyproject.toml"}
 
 
-def new_repo(name: str, *, example: str = "cvxpy", model: str | None = None, directory: Path, index: str | None = None, uv_sync: bool = True) -> Path:
-    """A model repo `directory/name`, with one model, `model` or else the repo's name, copied from `example`."""
+def new_repo(name: str, *, example: str = "cvxpy", model: str | None = None, directory: Path, index: str | None = None, optim_path: Path | None = None, uv_sync: bool = True) -> Path:
+    """A model repo `directory/name`, with one model, `model` or else the repo's name, copied from `example`. It takes
+    `optim` from `index`, the internal index it is published to, or from `optim_path`, a checkout of it, editable."""
+    if (index is None) == (optim_path is None):
+        msg = "say where the repo takes optim from, with one of --index, the internal index it is published to, or --optim-path, a checkout of it"
+        msg += ": PyPI's optim is an unrelated package, which a repo without either would install"
+        raise ValueError(msg)
     repo = directory / name
     if repo.exists() and any(repo.iterdir()):
         msg = f"{repo} exists and is not empty"
         raise FileExistsError(msg)
     model = model or name
-    names = {"repo": name, "package": _identifier(name), "model": model, "module": _identifier(model), "optim": OPTIM, "index": _index(index)}
+    names = {"repo": name, "package": _identifier(name), "model": model, "module": _identifier(model), "optim": OPTIM, "source": _source(index, optim_path)}
     for template in sorted((PACKAGE / "templates" / "repo").rglob("*")):
         if template.is_file() and "__pycache__" not in template.parts:
             relative = template.relative_to(PACKAGE / "templates" / "repo")
@@ -56,9 +62,23 @@ def new_model(name: str, *, example: str = "cvxpy", repo: Path, uv_sync: bool = 
     header = '[project.entry-points."optim.models"]\n'
     line = f'{name} = "{package}.{_identifier(name)}"\n'
     pyproject.write_text(text.replace(header, header + line) if header in text else f"{text.rstrip()}\n\n{header}{line}", encoding="utf-8", newline="\n")
+    _list_in_readme(repo / "README.md", name, f"src/{package}/{_identifier(name)}/")
     if uv_sync:  # the entry point is installed metadata: uv reinstalls the project to list it
         _run(["uv", "sync", "--quiet"], repo)
     return directory
+
+
+def _list_in_readme(readme: Path, model: str, directory: str) -> None:
+    """Add the model to the README's table of models, after its last row, where the README still has the table."""
+    lines = readme.read_text(encoding="utf-8").splitlines(keepends=True) if readme.exists() else []
+    if (header := next((i for i, line in enumerate(lines) if line.startswith("| Model | Module |")), None)) is None:
+        return
+    last = header
+    while last + 1 < len(lines) and lines[last + 1].startswith("|"):
+        last += 1
+    lines.insert(last + 1, f"| `{model}` | `{directory}` |{' |' * (lines[header].count('|') - 3)}\n")
+    lines[last] = lines[last].rstrip("\n") + "\n"
+    readme.write_text("".join(lines), encoding="utf-8", newline="\n")
 
 
 def _copy_model(repo: Path, package: str, model: str, example: str) -> Path:
@@ -91,11 +111,11 @@ def _fill(text: str, names: dict[str, str], rename: dict[str, str] | None = None
     return re.sub(r"\{\{(\w+)\}\}", lambda found: names.get(found.group(1), found.group(0)), text)
 
 
-def _index(url: str | None) -> str:
-    """The internal index, where `optim` is published, as the repo's pyproject says it; empty for uv's own."""
-    if url is None:
-        return ""
-    return f'\n[[tool.uv.index]]\nname = "internal"\nurl = "{url}"\n\n[tool.uv.sources]\noptim = {{ index = "internal" }}\n'
+def _source(index: str | None, checkout: Path | None) -> str:
+    """Where the repo takes `optim` from, as its pyproject says it: the internal index, or a checkout, editable."""
+    if checkout is not None:
+        return f'\n[tool.uv.sources]\noptim = {{ path = "{checkout.resolve().as_posix()}", editable = true }}\n'
+    return f'\n[[tool.uv.index]]\nname = "internal"\nurl = "{index}"\n\n[tool.uv.sources]\noptim = {{ index = "internal" }}\n'
 
 
 def _identifier(name: str) -> str:
