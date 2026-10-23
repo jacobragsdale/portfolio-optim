@@ -89,7 +89,7 @@ def run(
     portfolio_ids = list(dict.fromkeys(portfolio_ids))
     frames, reads = load_data(loader, datasets, as_of_date, portfolio_ids)
     loaded_at = clock()
-    outcomes = decide_all(model, params, model.data(frames, as_of_date=as_of_date), portfolio_ids, workers=workers)
+    decided = decide_all(model, params, model.data(frames, as_of_date=as_of_date), portfolio_ids, workers=workers)
     info = RunInfo(
         run_id=run_id,
         optim_version=optim.__version__,
@@ -105,13 +105,14 @@ def run(
         loaded_at=loaded_at,
         finished_at=clock(),
         datasets=reads,
+        order=decided.order,
         replay=None,
     )
-    save(snapshot_root, info, frames, outcomes)
+    save(snapshot_root, info, frames, decided.outcomes)
     if orders is not None:
         with logs.timed(log, "wrote orders", table=orders.table) as fields:
-            fields["orders"] = orders.write(run_id, outcomes)
-    return Run(run_id, outcomes)
+            fields["orders"] = orders.write(run_id, decided.outcomes)
+    return Run(run_id, decided.outcomes)
 
 
 def replay(
@@ -125,7 +126,8 @@ def replay(
     clock: Callable[[], datetime] = logs.utc_now,
 ) -> Run:
     """Decide a saved run again on the datasets its snapshot holds, with the code you have now and, if given, other
-    params, and save it as a new run under `snapshot_root`. A replay of a subset of portfolios replays that subset."""
+    params, and save it as a new run under `snapshot_root`. A replay of a subset of portfolios replays that subset; for a
+    model that reserves, the portfolios before them in its order decide again too."""
     started_at = clock()
     saved = read_info(snapshot)
     model = models.load(saved.model.name if saved.model.name in models.installed() else saved.model.module)
@@ -138,15 +140,14 @@ def replay(
     if missing := sorted(set(only or ()) - set(saved.portfolios)):
         msg = f"{len(missing)} portfolios are not in {snapshot.location}, e.g. {missing[:5]}"
         raise LookupError(msg)
-    decided = [portfolio_id for portfolio_id in saved.portfolios if only is None or portfolio_id in only]
     loaded_at = clock()
-    outcomes = decide_all(model, params, model.data(frames, as_of_date=saved.as_of_date), decided, workers=workers)
+    decided = decide_all(model, params, model.data(frames, as_of_date=saved.as_of_date), saved.portfolios, workers=workers, only=only)
     info = RunInfo(
         run_id=run_id,
         optim_version=optim.__version__,
         model=ModelInfo(name=model.name, module=model.module),
         as_of_date=saved.as_of_date,
-        portfolios=decided,
+        portfolios=saved.portfolios,
         params=params.model_dump(mode="json"),
         params_file=params_file_info,
         labels=dict(labels),
@@ -156,23 +157,59 @@ def replay(
         loaded_at=loaded_at,
         finished_at=clock(),
         datasets=None,
+        order=decided.order,
         replay=Replayed(of=saved.run_id, portfolios=only),
     )
-    save(snapshot_root, info, frames, outcomes)
-    return Run(run_id, outcomes)
+    save(snapshot_root, info, frames, decided.outcomes)
+    return Run(run_id, decided.outcomes)
 
 
-def decide_all(model: LoadedModel, params: Params, data: Datasets, portfolio_ids: Sequence[str], *, workers: int) -> list[Outcome]:
-    """Run `prepare` once here, then prepare, decide and check each portfolio in up to `workers` processes."""
+@dataclass(frozen=True)
+class Decided:
+    outcomes: list[Outcome]
+    """In the run's portfolio order."""
+    order: list[str] | None
+    """The order the portfolios decided in, one at a time, for a model that reserves; None when they decided at once."""
+
+
+def decide_all(model: LoadedModel, params: Params, data: Datasets, portfolio_ids: Sequence[str], *, workers: int, only: Sequence[str] | None = None) -> Decided:
+    """Run `prepare` once here, then prepare, decide and check each portfolio in up to `workers` processes. A model that
+    defines `reserve` prepares its portfolios in parallel, then decides them one at a time, here, in its `order`. `only`
+    decides and returns those portfolios alone; for a model that reserves, the portfolios before them in its order decide
+    too, since what those reserve is what the later ones see."""
     logs.include(model.module.partition(".")[0])
     with logs.timed(log, "prepared"):
         shared = model.prepare(data, params) if model.prepare else data
     state = _State(model.module, params, data, shared)
     with logs.timed(log, "decided portfolios", portfolios=len(portfolio_ids), workers=workers) as fields:
-        outcomes = engine.each_portfolio(_decide, state, portfolio_ids, workers=workers, failed=_failed)
-        rejected = [outcome.portfolio_id for outcome in outcomes if not outcome.accepted]
-        fields.update(rejected=len(rejected), rejected_examples=rejected[:20])
-    return outcomes
+        if model.reserve is None:
+            chosen = [portfolio_id for portfolio_id in portfolio_ids if only is None or portfolio_id in only]
+            decided = Decided(engine.each_portfolio(_decide, state, chosen, workers=workers, failed=_failed), None)
+        else:
+            decided = _in_turn(model, state, portfolio_ids, workers=workers, only=only)
+        rejected = [outcome.portfolio_id for outcome in decided.outcomes if not outcome.accepted]
+        fields.update(rejected=len(rejected), rejected_examples=rejected[:20], in_turn=decided.order is not None)
+    return decided
+
+
+def _in_turn(model: LoadedModel, state: _State, portfolio_ids: Sequence[str], *, workers: int, only: Sequence[str] | None) -> Decided:
+    """Decide one portfolio at a time, in the model's order, each seeing the shared state the earlier ones left: only an
+    accepted decision reserves, so a rejected portfolio leaves what it would have bought to the next."""
+    prepared = {result.portfolio_id: result for result in engine.each_portfolio(_prepare, state, portfolio_ids, workers=workers, failed=_unprepared)}
+    ready = {portfolio_id: result.prepared for portfolio_id, result in prepared.items() if result.error is None}
+    order = list(model.order(ready, state.shared, state.params)) if model.order else list(ready)
+    if sorted(order) != sorted(ready):
+        msg = f"{model.module}.order must return every prepared portfolio once, in the order they decide: got {logs.brief({'order': order})['order']} for {len(ready)} portfolios"
+        raise ValueError(msg)
+    last = max((order.index(portfolio_id) for portfolio_id in only if portfolio_id in ready), default=-1) if only is not None else len(order) - 1
+    reserve, shared, outcomes = model.reserve, state.shared, {}
+    for portfolio_id in order[: last + 1]:
+        outcome = outcomes[portfolio_id] = _finish(model, state, shared, prepared[portfolio_id])
+        if outcome.accepted and outcome.decision is not None and reserve is not None:
+            shared = reserve(shared, outcome.decision)
+    failed = {portfolio_id: _failed(portfolio_id, result.error) for portfolio_id, result in prepared.items() if result.error is not None}
+    reported = [portfolio_id for portfolio_id in portfolio_ids if only is None or portfolio_id in only]
+    return Decided([(outcomes | failed)[portfolio_id] for portfolio_id in reported], order)
 
 
 @dataclass
@@ -199,22 +236,51 @@ class _State:
         return type(self.data)(frames, as_of_date=self.data.as_of_date, portfolio_id=portfolio_id)
 
 
-def _decide(state: _State, portfolio_id: str) -> Outcome:
-    """One portfolio, logged in whichever process decides it. A failure is logged here, where its traceback is whole,
-    and rejects this portfolio alone."""
-    start = time.perf_counter()
-    model = models.load(state.module)
+@dataclass(frozen=True)
+class _Prepared:
+    portfolio_id: str
+    prepared: object
+    """What `prepare_portfolio` returned, or the portfolio's slice of the data without it."""
+    error: str | None
+    seconds: float
+
+
+def _prepare(state: _State, portfolio_id: str) -> _Prepared:
+    """One portfolio's `prepare_portfolio`, in whichever process runs it. A failure is logged here, where its traceback
+    is whole."""
+    start, model = time.perf_counter(), models.load(state.module)
     with logs.fields(portfolio_id=portfolio_id):
         try:
             portfolio = state.portfolio(portfolio_id)
             prepared = model.prepare_portfolio(portfolio, state.shared, state.params) if model.prepare_portfolio else portfolio
-            decided = _decision(model, model.decide(prepared, state.shared, state.params))
+        except Exception as error:
+            log.exception("could not prepare %s", portfolio_id)
+            return _Prepared(portfolio_id, None, f"error: {error!r}", time.perf_counter() - start)
+    return _Prepared(portfolio_id, prepared, None, time.perf_counter() - start)
+
+
+def _decide(state: _State, portfolio_id: str) -> Outcome:
+    """One portfolio, prepared, decided and checked, in whichever process runs it."""
+    prepared = _prepare(state, portfolio_id)
+    if prepared.error is not None:
+        return _failed(portfolio_id, prepared.error, prepared.seconds)
+    return _finish(models.load(state.module), state, state.shared, prepared)
+
+
+def _finish(model: LoadedModel, state: _State, shared: object, prepared: _Prepared) -> Outcome:
+    """Decide a prepared portfolio with `shared`, round the decision, and review it. A failure is logged here, where its
+    traceback is whole, and rejects this portfolio alone."""
+    start, portfolio_id = time.perf_counter() - prepared.seconds, prepared.portfolio_id
+    with logs.fields(portfolio_id=portfolio_id):
+        try:
+            portfolio = state.portfolio(portfolio_id)
+            decided = _decision(model, model.decide(prepared.prepared, shared, state.params))
             decision = round_decision(decided, portfolio.holdings, portfolio.securities)
             reasons, numbers = review(decision, portfolio.holdings, portfolio.securities)
-            reasons += list(model.check(prepared, decision)) if model.check else []
+            reasons += list(model.check(prepared.prepared, decision)) if model.check else []
         except Exception as error:
             log.exception("could not decide %s", portfolio_id)
-            return Outcome(portfolio_id=portfolio_id, decision=None, decided=None, reasons=[f"error: {error!r}"], seconds=time.perf_counter() - start)
+            return _failed(portfolio_id, f"error: {error!r}", time.perf_counter() - start)
         outcome = Outcome(portfolio_id=portfolio_id, decision=decision, decided=decided, reasons=reasons, numbers=numbers, seconds=time.perf_counter() - start)
         log.info(
             "decided %s: %s",
@@ -232,8 +298,12 @@ def _decision(model: LoadedModel, decided: object) -> Decision:
     return decided
 
 
-def _failed(portfolio_id: str, why: str) -> Outcome:
-    return Outcome(portfolio_id=portfolio_id, decision=None, decided=None, reasons=[why], seconds=0.0)
+def _failed(portfolio_id: str, why: str, seconds: float = 0.0) -> Outcome:
+    return Outcome(portfolio_id=portfolio_id, decision=None, decided=None, reasons=[why], seconds=seconds)
+
+
+def _unprepared(portfolio_id: str, why: str) -> _Prepared:
+    return _Prepared(portfolio_id, None, why, 0.0)
 
 
 def _from_dir(dataset: Dataset, directory: Path) -> Dataset:

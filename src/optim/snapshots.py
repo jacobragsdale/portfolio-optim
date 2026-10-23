@@ -90,7 +90,7 @@ class RunInfo(Model):
     model: ModelInfo
     as_of_date: date
     portfolios: list[Id]
-    """Every portfolio the run decided, in the order asked."""
+    """Every portfolio the run loaded and decided, in the order asked; a replay keeps its run's."""
     params: dict[str, JsonValue]
     """Every param the run decided with, defaults included, as JSON."""
     params_file: ParamsFile
@@ -108,6 +108,8 @@ class RunInfo(Model):
     """When the last decision was made, just before the snapshot was written."""
     datasets: dict[str, DatasetRead] | None
     """Where each dataset was read from, and when. Null for a replay, whose data is the run's it replays."""
+    order: list[Id] | None
+    """For a model that reserves, the order its portfolios decided in, one at a time; null when they decided at once."""
     replay: Replayed | None
     """A replay only: the run it replayed, and the portfolios it decided."""
 

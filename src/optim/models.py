@@ -29,7 +29,7 @@ class LoadedModel:
     prepare: Callable[..., object] | None
     prepare_portfolio: Callable[..., object] | None
     reserve: Callable[..., object] | None
-    order: Callable[..., object] | None
+    order: Callable[..., Iterable[str]] | None
     check: Callable[..., Iterable[str]] | None
     metrics: type[Metrics] | None
 
