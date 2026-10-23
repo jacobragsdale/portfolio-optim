@@ -83,6 +83,14 @@ def today() -> date:
     return datetime.now(MARKET_TIME).date()
 
 
+def fixture_date(directory: Path | None) -> date | None:
+    """The date in `directory`'s `fixture.json`, which a run that reads that folder's files takes unless it is given
+    one; None where the folder has none."""
+    if directory is None or not (file := directory / "fixture.json").exists():
+        return None
+    return date.fromisoformat(json.loads(file.read_text(encoding="utf-8"))["as_of_date"])
+
+
 def read_params(model: LoadedModel, path: Path) -> tuple[Params, ParamsFile]:
     """Validate a params file against the model's `Params`, before anything loads, and record where it came from."""
     raw = path.read_bytes()

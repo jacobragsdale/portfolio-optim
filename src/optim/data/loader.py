@@ -242,7 +242,9 @@ def load_data(loader: Loader, datasets: Mapping[str, Dataset], as_of_date: date,
         if listing is None:
             msg = "give the portfolios to decide: the model does not list its own, in a dataset declared as `portfolios`"
             raise ValueError(msg)
-        listed[listing.name] = loader.load(listing, as_of_date=as_of_date)
+        with TaskGroup() as group:  # in a thread, as every load is: the main thread waits in Python, where a stop signal reaches it
+            first = group.submit(loader.load, listing, as_of_date=as_of_date)
+        listed[listing.name] = first.result()
         portfolio_ids, whole = list(dict.fromkeys(listed[listing.name]["portfolio_id"])), [dataset for dataset in whole if dataset is not listing]
     with timed(log, "loaded data", as_of_date=as_of_date, portfolios=len(portfolio_ids)), TaskGroup() as group:
         market = group.submit(loader.load_all, *whole, as_of_date=as_of_date)

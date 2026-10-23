@@ -32,7 +32,7 @@ To run the e2e suite:
    `optim_qa.portfolios(Path(__file__).parent / "sql" / "portfolios.sql")` instead of `optim_qa.listed(model)`. It runs
    on SQL Server by default, in a read-only transaction.
 3. Point the suite at the deployed image: set `optim_e2e_command`, in the same table, to the command that runs its
-   `optim`, such as `["docker", "run", "--rm", "--env-file", ".env.qa", "IMAGE"]`; the image's entrypoint is `optim`.
+   `optim`, such as `["docker", "run", "--rm", "--env-file", ".env.qa", "IMAGE"]`; the image runs `optim`, under `tini`, with the arguments it is given.
    The suite appends `run MODEL --params models/MODEL/params/default.json --portfolios ... --label purpose=e2e`, and
    later `replay RUN_ID --label purpose=e2e`, and runs the command from the repo's root, so the relative params path
    resolves in the image too, whose workdir holds the repo. Without the setting, the suite runs this checkout's

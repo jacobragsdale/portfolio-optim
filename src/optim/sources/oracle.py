@@ -17,7 +17,7 @@ from pydantic import SecretStr
 from optim.sources import SourceSettings
 from optim.sources.sql import SqlSource
 
-CONNECT_TIMEOUT_S = 30
+CONNECT_TIMEOUT_S = 30  # the longest a login waits, however long its round trips may take
 # Statement-level consistency becomes transaction-level: every query in the transaction sees the database as it began.
 BEGIN_READ_ONLY = "SET TRANSACTION READ ONLY"
 
@@ -41,13 +41,14 @@ def connect(settings: OracleSettings) -> SqlSource:
 
 
 def _connect(settings: OracleSettings) -> oracledb.Connection:
-    """A connection with a deadline on every round trip. Thin mode bounds only the TCP connect: a database that accepts
-    TCP but never answers the login would hang the run, so the login runs in a thread that the run stops waiting for."""
+    """A connection with a deadline on its login, `timeout_s` and at most `CONNECT_TIMEOUT_S`, and on every round trip.
+    Thin mode bounds only the TCP connect: a database that accepts TCP but never answers the login would hang the run,
+    so the login runs in a thread that the run stops waiting for."""
     login = partial(oracledb.connect, user=settings.user, password=settings.password.get_secret_value(), dsn=settings.dsn)
     connected: Future[oracledb.Connection] = Future()
     threading.Thread(target=_resolve, args=(connected, login), daemon=True).start()
-    if not wait([connected], timeout=CONNECT_TIMEOUT_S).done:
-        msg = f"Oracle at {settings.dsn} accepted a connection but did not log in within {CONNECT_TIMEOUT_S}s: the listener or the database is hung"
+    if not wait([connected], timeout=(deadline := min(CONNECT_TIMEOUT_S, settings.timeout_s))).done:
+        msg = f"Oracle at {settings.dsn} accepted a connection but did not log in within {deadline}s: the listener or the database is hung"
         raise TimeoutError(msg)
     connection = connected.result()
     connection.call_timeout = settings.timeout_s * 1000  # milliseconds, per round trip

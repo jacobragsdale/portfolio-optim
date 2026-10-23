@@ -332,7 +332,7 @@ accepted.
 | Option | Default | Description |
 |---|---|---|
 | `--params` | required | The params JSON file. |
-| `--as-of` | today in New York | The business date, `YYYY-MM-DD`. |
+| `--as-of` | the fixture's date with `--data`, or today in New York | The business date, `YYYY-MM-DD`. The fixture's date is `fixture.json`'s, where `--data`'s folder has one, as for `optim.run`. |
 | `--portfolios` | every portfolio the model lists, or with `--data`, every one in its holdings | Portfolio ids, or `@FILE` with one per line. |
 | `--data` | none | Reads each dataset that has a file in the directory, `NAME.parquet` or `NAME.csv`, instead of its source. |
 | `--label` | none | `KEY=VALUE`, recorded in `run.json`; repeat for more. |
@@ -423,7 +423,7 @@ is not set cannot be read: a dataset that reads from it fails its load, naming t
 | `OPTIM_ORACLE__CLIENT_LIB_DIR` | none | Thick mode: where Oracle Instant Client is, if not on the library path. |
 | `OPTIM_MSSQL__CONNECTION_STRING` | required with SQL Server | The primary, not a readable secondary: holdings must include the trades just booked. The database must allow snapshot isolation. |
 | `OPTIM_REST__URL` | required with REST | The base URL of a JSON API that answers a GET with a list of records. |
-| `OPTIM_<SOURCE>__MAX_CONCURRENT`, `__TIMEOUT_S`, `__MAX_ROWS` | required with the source | Calls open at once, seconds per call, and the most rows a call may return; each at least 1. `<SOURCE>` is `ORACLE`, `MSSQL` or `REST`. |
+| `OPTIM_<SOURCE>__MAX_CONCURRENT`, `__TIMEOUT_S`, `__MAX_ROWS` | required with the source | Calls open at once, seconds per call, and the most rows a call may return; each at least 1. `TIMEOUT_S` bounds every query, round trip or request, and a database's login too, which never waits more than 30 seconds. `<SOURCE>` is `ORACLE`, `MSSQL` or `REST`. |
 | `OPTIM_ORDERS__CONNECTION_STRING`, `__TABLE` | none | Production only: a login that may insert, and the table accepted orders are inserted into, as `run_id, portfolio_id, security_id, side, quantity`. `TABLE` is `schema.table`. Only `optim run` writes to it. |
 | `OPTIM_ORDERS__TIMEOUT_S` | `60` | Seconds for the orders write. |
 | `OPTIM_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING` or `ERROR`, for `optim`'s and models' loggers. |

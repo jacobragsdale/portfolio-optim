@@ -5,14 +5,16 @@ from dataclasses import replace
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from builders import EXAMPLE, Rows, loader
 
 from optim import Decision, models
+from optim.cli import main
 from optim.example import model, prep
 from optim.example.datasets.controls import CONTROLS
 from optim.example.tests.builders import MARKET, params, portfolio
 from optim.runs import replay_run, run_model
-from optim.snapshots import read_results
+from optim.snapshots import read_info, read_results
 from optim.storage import Root
 from optim.testing import AS_OF, frame
 
@@ -81,3 +83,13 @@ def test_a_portfolio_with_nothing_it_may_hold_or_buy_decides_nothing() -> None:
     found = portfolio({"security_id": "A"})
 
     assert model.decide(replace(found, universe=found.universe.iloc[0:0]), MARKET, params()) == Decision()
+
+
+def test_optim_run_on_the_fixture_decides_as_of_its_date(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """As a run from Python does: the fixture's rows are of the date in its `fixture.json`."""
+    monkeypatch.setenv("OPTIM_SNAPSHOT_ROOT", str(tmp_path))
+
+    assert main(["run", "optim.example.model", "--params", str(EXAMPLE / "params" / "default.json"), "--data", str(EXAMPLE / "tests" / "fixture")]) == 0
+
+    run_id = capsys.readouterr().out.splitlines()[0].removeprefix("run ")
+    assert read_info(Root.at(tmp_path) / run_id).as_of_date == AS_OF

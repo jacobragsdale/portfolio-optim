@@ -2,14 +2,16 @@
 read-only scope reads one moment of its source, on one connection its loads take turns on. Rows arrive bounded, and
 booked values as floats."""
 
+import socket
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import nullcontext
 from datetime import date
 from decimal import Decimal  # what a driver returns for a DECIMAL column
 from pathlib import Path
 
+import mssql_python
 import oracledb
 import pytest
 
@@ -17,7 +19,7 @@ from optim.data.dataset import Dataset
 from optim.data.loader import Loader, TaskGroup, load_data
 from optim.datasets import HOLDINGS, SECURITIES, SQL
 from optim.schema import Row
-from optim.sources import Columns, Param, TooManyRowsError, oracle
+from optim.sources import Columns, Param, TooManyRowsError, mssql, oracle
 from optim.sources.file import FileSource
 from optim.sources.sql import SqlSource
 from optim.testing import frame
@@ -25,6 +27,10 @@ from optim.testing import frame
 
 class Item(Row):
     item_id: str
+
+
+class Listed(Row):
+    portfolio_id: str
 
 
 ITEMS = Dataset("items", Item, source="mssql", query=SQL / "holdings.sql", key=("item_id",))  # a real file: SqlSource reads it
@@ -196,6 +202,46 @@ def test_oracle_in_thick_mode_loads_its_client_libraries_from_the_directory_give
 
 def test_oracle_in_thin_mode_needs_no_client(tmp_path: Path) -> None:
     assert isinstance(oracle.connect(oracle_settings("thin", tmp_path)), SqlSource)  # connects per query, not here
+
+
+@pytest.fixture
+def hung_database() -> Generator[str]:
+    """An address that accepts connections and never answers, as a hung database does."""
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        yield f"127.0.0.1:{server.getsockname()[1]}"
+
+
+def test_a_login_the_database_never_answers_ends_at_the_sources_timeout(hung_database: str) -> None:
+    """The login waits `timeout_s`, here 1 second, rather than the 30 seconds that are the most a login ever waits.
+    Oracle's login is bounded the same way, in a thread the run stops waiting for, which a test cannot tidy away."""
+    host, port = hung_database.split(":")
+    settings = mssql.MssqlSettings.model_validate({"connection_string": f"Server=tcp:{host},{port};Database=X;UID=u;PWD=p", "max_concurrent": 1, "timeout_s": 1, "max_rows": 10})
+    start = time.monotonic()
+
+    with pytest.raises(mssql_python.OperationalError):
+        Loader({"mssql": mssql.connect(settings)}).load(HOLDINGS, as_of_date=date(2026, 10, 16), portfolios=("P1",))
+
+    assert time.monotonic() - start < 10
+
+
+def test_the_portfolios_a_model_lists_load_off_the_main_thread_where_a_stop_signal_reaches_it() -> None:
+    """A load in the main thread, inside a driver, would hold off the scheduler's SIGTERM until its query returned."""
+    on_main: list[bool] = []
+
+    class Listing:
+        def fetch(self, query: str, params: Mapping[str, Param]) -> Columns:  # noqa: ARG002 -- the source's signature
+            on_main.append(threading.current_thread() is threading.main_thread())
+            return {"portfolio_id": ["P1", "P2"]}
+
+        def read_only(self) -> nullcontext[Listing]:
+            return nullcontext(self)
+
+    listing = Dataset("portfolios", Listed, source="mssql", query=SQL / "holdings.sql", key=("portfolio_id",))
+
+    _, _, portfolio_ids = load_data(Loader({"mssql": Listing()}), {"portfolios": listing}, date(2026, 10, 16), None)
+
+    assert portfolio_ids == ["P1", "P2"]
+    assert on_main == [False]
 
 
 def test_a_file_dataset_reads_parquet_or_csv_for_the_run_date_and_a_batch_reads_its_portfolios_rows(tmp_path: Path) -> None:

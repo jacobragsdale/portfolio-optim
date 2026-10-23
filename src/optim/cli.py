@@ -30,7 +30,7 @@ import pandas as pd
 from optim import logs, models, new, research, sync
 from optim.context import open_context
 from optim.contract import LISTING, declared
-from optim.runs import Run, open_snapshot, replay_run, run_model, today
+from optim.runs import Run, fixture_date, open_snapshot, replay_run, run_model, today
 from optim.settings import Settings
 from optim.storage import Root
 
@@ -63,7 +63,7 @@ def _run(args: argparse.Namespace) -> int:
     """The only thing that writes orders, where the environment configures a table."""
     settings, model = Settings(), models.load(args.model)
     with open_context(settings, cache=not args.no_cache) as ctx:
-        as_of_date, workers, labels = args.as_of or today(), args.workers or settings.workers, dict(args.labels)
+        as_of_date, workers, labels = args.as_of or fixture_date(args.data) or today(), args.workers or settings.workers, dict(args.labels)
         ran = run_model(
             ctx.loader, settings.snapshots(), model, args.params, as_of_date=as_of_date, portfolio_ids=args.portfolios, data_dir=args.data, workers=workers, labels=labels, orders=ctx.orders
         )
@@ -192,7 +192,7 @@ def _parser() -> argparse.ArgumentParser:
     tabled.add_argument("--out", type=Path, help="write the table to this .csv or .parquet file (default: CSV on stdout)")
     tabled.add_argument("--workers", type=int, help="worker processes (default: 1)")
     dated = argparse.ArgumentParser(add_help=False)
-    dated.add_argument("--as-of", type=date.fromisoformat, help="the business date (default: today in New York)")
+    dated.add_argument("--as-of", type=date.fromisoformat, help="the business date (default: the date in --data's fixture.json, where it has one, or today in New York)")
 
     run_command = _command(commands, "run", _run, "decide portfolios with a model, and save the run's snapshot", deciding, dated)
     run_command.add_argument("model", help="a model's name in the optim.models entry points, or its module path")

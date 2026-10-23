@@ -13,7 +13,6 @@ takes the model's module first, `from models.income import model`, and runs as `
 An error raises, with its traceback, so a debugger stops where it surfaced; a hook's error rejects its portfolio alone,
 and its reason names the line of model code that raised."""
 
-import json
 import os
 import sys
 from collections.abc import Generator, Mapping, Sequence
@@ -28,7 +27,7 @@ from dotenv import dotenv_values
 from optim import logs, models, research
 from optim.context import open_context
 from optim.models import LoadedModel
-from optim.runs import NO_LABELS, Run, datasets_of, open_snapshot, replay_run, run_model, today
+from optim.runs import NO_LABELS, Run, datasets_of, fixture_date, open_snapshot, replay_run, run_model, today
 from optim.settings import Settings
 from optim.snapshots import read_info
 from optim.storage import Root
@@ -65,9 +64,7 @@ def run(
         msg = f"there is no {env} in {loaded.directory} or a folder above it: copy .env.example to {env} and set the sources {loaded.name} reads"
         msg += ', or run on its fixture with data="tests/fixture"'
         raise FileNotFoundError(msg)
-    if as_of is None and data_dir is not None and (data_dir / "fixture.json").exists():
-        as_of = json.loads((data_dir / "fixture.json").read_text(encoding="utf-8"))["as_of_date"]
-    as_of_date = date.fromisoformat(as_of) if isinstance(as_of, str) else as_of or today()
+    as_of_date = date.fromisoformat(as_of) if isinstance(as_of, str) else as_of or fixture_date(data_dir) or today()
     with _environment(settings_file):
         settings = Settings()
         with open_context(settings, cache=cache, orders_table=False) as ctx:

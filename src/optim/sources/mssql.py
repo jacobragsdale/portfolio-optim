@@ -9,7 +9,7 @@ from pydantic import SecretStr
 from optim.sources import SourceSettings
 from optim.sources.sql import SqlSource
 
-LOGIN_TIMEOUT_S = 30
+LOGIN_TIMEOUT_S = 30  # the longest a login waits, however long its statements may take
 # The driver runs with autocommit off, so the first query begins the transaction, and every query in it reads the row
 # versions as of that moment. The database must allow it (`ALTER DATABASE ... SET ALLOW_SNAPSHOT_ISOLATION ON`); where it
 # does not, the first read-only transaction fails and says so. Connect to the primary, not an asynchronous readable
@@ -26,9 +26,9 @@ def connect(settings: MssqlSettings) -> SqlSource:
 
 
 def connect_to(connection_string: str, timeout_s: int) -> mssql_python.Connection:
-    """A connection with a deadline on its login and on every statement."""
+    """A connection with a deadline on its login, `timeout_s` and at most `LOGIN_TIMEOUT_S`, and on every statement."""
     try:
-        connection = mssql_python.connect(connection_string, timeout=LOGIN_TIMEOUT_S)
+        connection = mssql_python.connect(connection_string, timeout=min(LOGIN_TIMEOUT_S, timeout_s))
     except mssql_python.Error as error:
         # The driver names neither the server nor the database, and reports a missing database as a failed login.
         error.add_note(f"while connecting to SQL Server {target(connection_string)}")
