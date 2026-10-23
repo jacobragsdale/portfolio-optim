@@ -7,11 +7,15 @@ from pathlib import Path
 import pytest
 from builders import EXAMPLES, Rows, loader
 
-from optim import models
+from optim import Decision, models
+from optim.datasets import HOLDINGS, SECURITIES
+from optim.examples import cvxpy as example
+from optim.examples.cvxpy.datasets import CONTROLS, SIGNALS
 from optim.pytest_plugin import check_fixture, check_imports, check_params
 from optim.run import replay, run
 from optim.snapshots import read_results
 from optim.storage import Root
+from optim.testing import CASH, data, frame
 
 
 @pytest.mark.parametrize("name", ["cvxpy", "plain"])
@@ -61,3 +65,41 @@ def test_the_plain_example_trades_every_portfolio_toward_the_targets(tmp_path: P
     assert trades[("P1", "D", "sell")] == 200_000.0  # sold whole
     assert trades[("P1", "A", "sell")] > 0
     assert {security for portfolio, security, side in trades.index if portfolio == "P2"} == {"A", "B", "C"}
+
+
+def decide_cvxpy(*held: dict[str, object], controls: tuple[dict[str, object], ...] = ()) -> tuple[example.Portfolio, Decision]:
+    """P1, with $100,000 of cash and `held`, decided by the cvxpy example with its default params: bonds A, B and C,
+    at par, each of its own issuer and with a signal, trade in increments of 1,000, at least 5,000 at a time, and a
+    partial sale must leave 5,000."""
+    bond = {"min_piece": 5000.0, "min_remaining": 5000.0}
+    portfolio = data(
+        example.Data,
+        portfolio_id="P1",
+        holdings=frame(HOLDINGS, {"quantity": 100_000.0}, *held),
+        securities=frame(SECURITIES, CASH, bond | {"security_id": "A"}, bond | {"security_id": "B", "issuer": "Issuer B"}, bond | {"security_id": "C", "issuer": "Issuer C"}),
+        signals=frame(SIGNALS, {"security_id": "A"}, {"security_id": "B"}, {"security_id": "C"}, default={"expected_return": 0.05}),
+        controls=frame(CONTROLS, *controls, default={"portfolio_id": "P1", "control_id": "R1", "reason": "client_restriction"}),
+    )
+    params = example.Params()
+    shared = example.prepare(portfolio, params)
+    prepared = example.prepare_portfolio(portfolio, shared, params)
+    return prepared, example.decide(prepared, shared, params)
+
+
+def test_the_cvxpy_example_never_buys_back_what_it_sells() -> None:
+    """7,000 of A is 6.5% of P1, over its 5% limit, and no partial sale leaves 5,000. Selling all of A and buying 5,000
+    back would keep A's income, but it is a wash sale, and two trades that dodge the market's sizes."""
+    _, decision = decide_cvxpy({"security_id": "A", "quantity": 7000.0})
+
+    assert decision.solved
+    assert decision.sell == {"A": 7000.0}
+    assert "A" not in decision.buy
+
+
+def test_the_cvxpy_example_keeps_an_issuer_it_may_not_sell_over_the_issuer_limit() -> None:
+    """15,000 of B is 13% of P1, over the 10% issuer limit, and a control keeps P1 from selling it."""
+    prepared, decision = decide_cvxpy({"security_id": "B", "quantity": 15_000.0}, controls=({"security_id": "B", "action": "no_sell"},))
+
+    assert decision.solved
+    assert "B" not in decision.buy
+    assert example.check(prepared, decision) == []

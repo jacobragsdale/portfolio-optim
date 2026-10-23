@@ -72,6 +72,18 @@ def exclude_issuers(lines: pd.DataFrame, issuers: list[str]) -> pd.DataFrame:
     return lines.assign(buyable=lines["buyable"] & ~lines["issuer"].isin(issuers))
 
 
+def kept(lines: pd.DataFrame, value: float) -> pd.Series:
+    """Each line's weight now where the portfolio may not sell it, which it may keep whatever its limits; 0 where it
+    may sell it."""
+    return (lines["unit_value"] * lines["held"] / value).where(~lines["sellable"], 0.0)
+
+
+def issuer_caps(lines: pd.DataFrame, value: float, max_issuer_weight: float) -> pd.Series:
+    """The most weight each issuer may have after trading: `max_issuer_weight`, or what the portfolio may not sell of
+    it, which it may keep."""
+    return kept(lines, value).groupby(lines["issuer"]).sum().clip(lower=max_issuer_weight)
+
+
 def violations(lines: pd.DataFrame, value: float, decision: Decision, *, max_weight: float, max_issuer_weight: float, max_turnover: float) -> list[str]:
     """Why the decision breaks this model's rules: trade sizes the market does not trade, a control, or a limit."""
     by_id = lines.set_index("security_id")
@@ -94,10 +106,12 @@ def violations(lines: pd.DataFrame, value: float, decision: Decision, *, max_wei
     reasons += [f"sells {s}, which it may not" for s in by_id.index[(sold > 0) & ~by_id["sellable"]]]
     reasons += [f"does not sell all of {s}, which a control says it must" for s in by_id.index[by_id["must_sell"] & ~whole]]
     weights = by_id["unit_value"] * (by_id["held"] + bought - sold) / value
-    cap = np.maximum(max_weight, np.where(by_id["sellable"], 0.0, by_id["unit_value"] * by_id["held"] / value))  # what it may not sell, it may keep
+    cap = np.maximum(max_weight, kept(lines, value).to_numpy())  # what it may not sell, it may keep
     reasons += [f"holds {weights[s]:.2%} in {s}, over its limit of {cap[i]:.2%}" for i, s in enumerate(by_id.index) if weights[s] > cap[i] + TOLERANCE]
-    issuers = weights.groupby(by_id["issuer"]).sum()
-    reasons += [f"holds {weight:.2%} in issuer {issuer}, over {max_issuer_weight:.2%}" for issuer, weight in issuers.items() if weight > max_issuer_weight + TOLERANCE]
+    issuers = pd.DataFrame({"weight": weights.groupby(by_id["issuer"]).sum()})
+    issuers = issuers.assign(cap=issuer_caps(lines, value, max_issuer_weight).reindex(issuers.index))
+    over = issuers[issuers["weight"] > issuers["cap"] + TOLERANCE]
+    reasons += [f"holds {weight:.2%} in issuer {issuer}, over its limit of {limit:.2%}" for issuer, weight, limit in zip(over.index, over["weight"], over["cap"], strict=True)]
     if (turnover := float((by_id["unit_value"] * (bought + sold)).sum() / value)) > max_turnover + TOLERANCE:
         reasons.append(f"trades {turnover:.2%} of its value, over {max_turnover:.2%}")
     return reasons

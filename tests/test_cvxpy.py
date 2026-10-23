@@ -32,6 +32,20 @@ def test_an_integer_problem_solves_to_trades_by_security_and_the_solvers_statist
     assert decision.solver.nodes is not None
 
 
+def test_a_piecewise_term_over_unbounded_integers_solves_without_a_warning() -> None:
+    """cvxpy bounds `cp.pos` by multiplying each coefficient by its variable's bounds, so a 0 coefficient on an
+    unbounded integer is 0 times infinity: numpy warns, and cvxpy drops the NaN bound it made. The warning is noise
+    that a repo's `filterwarnings = ["error"]` would turn into a rejected portfolio."""
+    problem, buy, sell = lots()
+    gain = np.array([0.0, 2.0]) @ buy  # a tax on the gain from B alone
+    taxed = cp.Problem(cp.Maximize(problem.objective.args[0] - 0.3 * cp.pos(gain)), problem.constraints)
+
+    decision = solve(taxed, SolveSettings(), securities=SECURITIES, buy=1000 * buy, sell=sell)
+
+    assert decision.solved
+    assert decision.buy == {"A": 10_000.0}
+
+
 def test_a_problem_a_wrapper_solved_reads_as_one_solve_solved() -> None:
     problem, buy, _ = lots()
     problem.solve(solver=cp.HIGHS)

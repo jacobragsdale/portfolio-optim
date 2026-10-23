@@ -58,7 +58,11 @@ def solve(
     options = {"time_limit": settings.time_limit_s, "mip_rel_gap": settings.mip_gap} if settings.solver == "HIGHS" else {"TimeLimit": settings.time_limit_s, "RelGap": settings.mip_gap, "Threads": 1}
     if problem.size_metrics.num_scalar_variables == 0:  # nothing to decide, as in a portfolio that may not trade: solvers refuse an empty model
         return Decision(objective=float(problem.objective.value), solver=SolverStats(solver=settings.solver, status="no variables", stop="optimal"))
-    problem.solve(solver=settings.solver, warm_start=False, **options | settings.options)
+    # cvxpy bounds a piecewise term, such as `cp.pos`, from its variables' bounds, and 0 times an unbounded variable's
+    # infinite bound is NaN, a bound cvxpy then drops: numpy's warning about it is noise, which a model repo's
+    # `filterwarnings = ["error"]` would turn into a rejected portfolio in its tests alone.
+    with np.errstate(invalid="ignore"):
+        problem.solve(solver=settings.solver, warm_start=False, **options | settings.options)
     return read(problem, securities=securities, buy=buy, sell=sell, metrics=metrics)
 
 

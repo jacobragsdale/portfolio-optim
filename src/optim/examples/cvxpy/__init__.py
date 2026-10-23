@@ -81,7 +81,8 @@ def prepare_portfolio(portfolio: Data, shared: Market, params: Params) -> Portfo
 def decide(prepared: Portfolio, shared: Market, params: Params) -> optim.Decision:  # noqa: ARG001 -- the hook's signature
     """Buys are nothing or whole increments of at least the minimum piece. A sale is the whole holding, which is how an
     odd lot goes and how a mandatory sale must go, or whole increments of at least the minimum piece that leave at least
-    the minimum remaining."""
+    the minimum remaining. A bond is bought or sold, never both: selling it to buy it back is a wash sale, and two
+    trades that dodge the sizes the market trades."""
     lines, value = prepared.lines, prepared.value
     held, unit, increment = (lines[column].to_numpy(dtype=float) for column in ("held", "unit_value", "increment"))
     min_piece = lines["min_piece"].fillna(lines["increment"]).to_numpy(dtype=float)
@@ -97,8 +98,9 @@ def decide(prepared: Portfolio, shared: Market, params: Params) -> optim.Decisio
     cost = (unit * params.cost_bps / 1e4) @ (buy + sell)
     income = (lines["expected_return"].to_numpy(dtype=float) * unit) @ after
     weights = cp.multiply(unit / value, after)
-    cap = np.maximum(params.max_weight, np.where(sellable, 0.0, unit * held / value))  # what it may not sell, it may keep
-    issuers = sp.csr_array(pd.get_dummies(lines["issuer"]).to_numpy(dtype=float).T)
+    cap = np.maximum(params.max_weight, rules.kept(lines, value).to_numpy())  # what it may not sell, it may keep
+    issuers = pd.get_dummies(lines["issuer"])
+    issuer_caps = rules.issuer_caps(lines, value, params.max_issuer_weight).reindex(issuers.columns).to_numpy(dtype=float)
     constraints = [
         buy_steps >= 0,
         buy >= cp.multiply(min_piece, buying),
@@ -108,9 +110,10 @@ def decide(prepared: Portfolio, shared: Market, params: Params) -> optim.Decisio
         partial <= cp.multiply(np.where(sellable, np.maximum(held - min_remaining, 0.0), 0.0), part),
         whole + part <= sellable.astype(float),
         whole >= must_sell.astype(float),
+        buying + whole + part <= 1,
         prepared.cash + unit @ (sell - buy) - cost >= 0,
         weights <= cap,
-        issuers @ weights <= params.max_issuer_weight,
+        sp.csr_array(issuers.to_numpy(dtype=float).T) @ weights <= issuer_caps,
         (unit / value) @ (buy + sell) <= params.max_turnover,
     ]
     problem = cp.Problem(cp.Maximize((income - cost) / value), constraints)
