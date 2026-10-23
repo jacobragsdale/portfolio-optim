@@ -12,7 +12,7 @@ from pydantic import ValidationError
 from optim import models
 from optim.datasets import HOLDINGS, SECURITIES
 from optim.orders import Orders, OrdersSettings
-from optim.run import run
+from optim.runs import run_model
 from optim.storage import Root
 from optim.testing import AS_OF, CASH, frame
 
@@ -47,7 +47,8 @@ def test_a_run_writes_the_accepted_portfolios_orders_after_its_snapshot(tmp_path
     (tmp_path / "params.json").write_text(json.dumps({"unsolved": ["P2"]}))
     source = Rows({HOLDINGS: frame(HOLDINGS, {"portfolio_id": "P1"}, {"portfolio_id": "P2"}), SECURITIES: frame(SECURITIES, CASH, {"security_id": "A"})})
 
-    ran = run(loader(source), root, models.load("toys.basic"), tmp_path / "params.json", as_of_date=AS_OF, portfolio_ids=["P1", "P2"], orders=Orders(table.connect, "trading.orders"), clock=Clock())
+    toy = models.load("toys.basic")
+    ran = run_model(loader(source), root, toy, tmp_path / "params.json", as_of_date=AS_OF, portfolio_ids=["P1", "P2"], orders=Orders(table.connect, "trading.orders"), clock=Clock())
 
     assert table.rows == [{"run_id": ran.run_id, "portfolio_id": "P1", "security_id": "A", "side": "buy", "quantity": 1000.0}]  # P2 was rejected
     assert table.committed

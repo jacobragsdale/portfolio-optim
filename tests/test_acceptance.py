@@ -47,7 +47,7 @@ LIMIT = SolverStats(solver="HIGHS", status="user_limit", stop="limit", gap=0.05)
     ids=["fine", "cash-within-tolerance", "cash", "oversold", "sells-what-it-lacks", "unknown", "negative", "not-solved"],
 )
 def test_review_rejects_what_could_not_trade(decision: optim.Decision, reason: str | None) -> None:
-    reasons, _ = review(decision, HOLDINGS_, SECURITIES_)
+    reasons, _ = review(decision, decision, HOLDINGS_, SECURITIES_)
 
     if reason is None:
         assert reasons == []
@@ -56,12 +56,31 @@ def test_review_rejects_what_could_not_trade(decision: optim.Decision, reason: s
 
 
 def test_review_rebuilds_the_portfolio_after_the_trades_from_the_holdings_and_prices_alone() -> None:
-    _, numbers = review(optim.Decision(buy={"A": 10_000.0}, sell={"B": 500.0}), HOLDINGS_, SECURITIES_)
+    decision = optim.Decision(buy={"A": 10_000.0}, sell={"B": 500.0})
+
+    _, numbers = review(decision, decision, HOLDINGS_, SECURITIES_)
 
     assert numbers == {"value": 1_050_250.0, "cash": 1_000_000.0 + 250.0 - 10_000.0, "turnover": 10_250.0}
 
 
 def test_a_portfolio_with_no_holdings_is_rejected_whatever_it_decides() -> None:
-    reasons, _ = review(optim.Decision(), frame(HOLDINGS), SECURITIES_)
+    reasons, _ = review(optim.Decision(), optim.Decision(), frame(HOLDINGS), SECURITIES_)
 
     assert reasons == ["it has no holdings: is its id right?"]
+
+
+@pytest.mark.parametrize(
+    ("decided", "reason"),
+    [
+        (optim.Decision(buy={"A": 2999.9999999}), None),  # a solver's near-integer lots: rounding moves it $0.0000001
+        (optim.Decision(buy={"A": 1499.0}), "rounding moved its buy of A from 1,499.00 to 1,000.00"),
+        (optim.Decision(buy={"A": 400.0}), "rounding moved its buy of A from 400.00 to 0.00"),
+        (optim.Decision(sell={"B": 100_499.9}), None),  # an odd lot sells whole: $0.05 is within $1.05
+    ],
+    ids=["near-integer", "nearest", "to-nothing", "whole-holding"],
+)
+def test_review_rejects_a_decision_that_rounding_moves(decided: optim.Decision, reason: str | None) -> None:
+    """The solver proved the decision meets its constraints before rounding; a decision rounding moves might not."""
+    reasons, _ = review(round_decision(decided, HOLDINGS_, SECURITIES_), decided, HOLDINGS_, SECURITIES_)
+
+    assert reasons == ([] if reason is None else [f"{reason}: decide whole increments"])

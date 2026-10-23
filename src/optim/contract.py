@@ -1,7 +1,8 @@
 """The model contract: the base classes a model's module subclasses, and the `Decision` its `decide` returns.
 
-A model is a module that exports `Params`, `Data` and `decide(prepared, shared, params)`, plus any of the hooks
-`prepare`, `prepare_portfolio`, `reserve`, `order` and `check`, and optionally `Metrics`. `optim.models` loads one.
+A model is a module, its `model.py`, that exports `Params`, `Data` and `decide(portfolio, market, params)`, plus any of
+the hooks `prepare_market`, `prepare_portfolio`, `reserve`, `order` and `check`, and optionally `Metrics`.
+`optim.models` loads one.
 """
 
 from collections.abc import Mapping
@@ -31,7 +32,10 @@ class Datasets:
     and every other dataset whole.
 
     Every model reads the shared holdings and securities, which acceptance needs, so they are declared here. A model
-    may swap either for a dataset with the same row model, such as `holdings = HOLDINGS.file("whatif.csv")`."""
+    may swap either for a dataset with the same row model, such as `holdings = HOLDINGS.file("whatif.csv")`.
+
+    A dataset declared as `portfolios` lists the portfolios the model manages, one row each: its query takes only the
+    as-of date, a run given no portfolios decides every one it lists, and each portfolio's slice holds its own row."""
 
     holdings = HOLDINGS
     securities = SECURITIES
@@ -42,6 +46,10 @@ class Datasets:
         self.as_of_date = as_of_date
         self.portfolio_id = portfolio_id
         """The portfolio a slice holds; None for the run's whole data."""
+
+
+LISTING = "portfolios"
+"""The attribute of a model's `Data` that lists its portfolios, if it declares one."""
 
 
 def declared(data: type[Datasets]) -> dict[str, Dataset]:

@@ -4,6 +4,7 @@ import sys
 from collections.abc import Generator
 from pathlib import Path
 
+import cvxpy  # noqa: F401 -- numpy's extensions load once per process: loaded here, before a pytester run unloads what it imports
 import pytest
 
 pytest_plugins = ("pytester",)

@@ -13,10 +13,10 @@ from pydantic import JsonValue
 
 import optim
 import optim.cvxpy
-from optim.contract import Decision, Params, declared
+from optim.contract import LISTING, Decision, Params, declared
 from optim.decide import Outcome, State, decide_all, finish, prepare_one, turn_of
-from optim.models import LoadedModel
-from optim.run import Snapshot, open_snapshot, read_params
+from optim.models import HOOKS, LoadedModel
+from optim.runs import Snapshot, open_snapshot, read_params
 from optim.snapshots import read_info, read_results
 from optim.storage import Root
 
@@ -102,10 +102,10 @@ class Trial:
     decided."""
 
     portfolio_id: str
-    prepared: object
+    portfolio: object
     """What the model's `prepare_portfolio` returned, or the portfolio's slice of the data."""
-    shared: object
-    """What every portfolio shares: `prepare`'s result, after the reservations of the portfolios before it."""
+    market: object
+    """What every portfolio shares: `prepare_market`'s result, after the reservations of the portfolios before it."""
     problem: cp.Problem | None
     """The cvxpy problem `optim.cvxpy` solved, if the model solves one."""
     outcome: Outcome
@@ -116,15 +116,15 @@ def trial(snapshot: Snapshot, portfolio_id: str, params: Params | None = None) -
     """Decide one portfolio of a saved run, with the run's params or others, in this process, as a run would: for a
     model that reserves, after the portfolios before it in the model's order."""
     model, values = snapshot.model, params or snapshot.params
-    shared = model.prepare(snapshot.data, values) if model.prepare else snapshot.data
-    state = State(model.module, values, snapshot.data, shared)
+    market = model.prepare_market(snapshot.data, values) if model.prepare_market else snapshot.data
+    state = State(model.module, values, snapshot.data, market)
     if model.reserve is not None:
-        shared, prepared = turn_of(model, state, snapshot.info.portfolios, portfolio_id)
+        market, prepared = turn_of(model, state, snapshot.info.portfolios, portfolio_id)
     else:
         prepared = prepare_one(state, portfolio_id)
     with optim.cvxpy.captured() as problems:
-        outcome = finish(model, state, shared, prepared)
-    return Trial(portfolio_id, prepared.prepared, shared, problems[-1] if problems else None, outcome)
+        outcome = finish(model, state, market, prepared)
+    return Trial(portfolio_id, prepared.prepared, market, problems[-1] if problems else None, outcome)
 
 
 def describe(model: LoadedModel) -> dict[str, JsonValue]:
@@ -134,14 +134,14 @@ def describe(model: LoadedModel) -> dict[str, JsonValue]:
         attribute: {
             "name": dataset.name,
             "source": dataset.source,
-            "per_portfolio": dataset.per_portfolio,
+            "per_portfolio": dataset.per_portfolio and attribute != LISTING,  # read in batches of portfolios
             "key": list(dataset.key),
             "cache_seconds": dataset.cache.total_seconds() if dataset.cache else None,
             "columns": dataset.row.model_json_schema()["properties"],
         }
         for attribute, dataset in declared(model.data).items()
     }
-    hooks = [hook for hook in ("prepare", "prepare_portfolio", "reserve", "order", "check") if getattr(model, hook) is not None]
+    hooks = [hook for hook in HOOKS if getattr(model, hook) is not None]
     return {
         "model": model.name,
         "module": model.module,

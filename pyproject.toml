@@ -1,6 +1,6 @@
 [project]
 name = "optim"
-version = "0.1.0"
+version = "0.2.0"
 description = "The run loop that quants' portfolio models share: loading, parallelism, rounding, acceptance, snapshots and replay"
 readme = "README.md"
 authors = [{ name = "Jacob Ragsdale", email = "jacobragsdale@protonmail.com" }]
@@ -71,7 +71,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "INP001"]  # pytest asserts; tests/ is not a package
-"src/optim/examples/*/tests/**" = ["S101", "INP001"]  # an example's tests, which a model repo's tests/ gets
+"src/optim/example/tests/**" = ["S101"]  # the example's tests, which each model's tests/ gets
+"src/optim/example/{model.py,rules/**}" = ["ARG001"]  # hooks and rules share their signatures, so most leave an argument unused
 "src/optim/templates/**" = ["INP001"]  # a model repo's files, which the generator copies
 
 [tool.ruff.lint.isort]
@@ -105,7 +106,7 @@ error-on-warning = true
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config --import-mode=importlib -m 'not integration'"
-testpaths = ["tests", "src/optim/examples"]
+testpaths = ["tests", "src/optim/example"]
 pythonpath = ["tests"]  # test modules share `builders`
 xfail_strict = true  # An xfail that starts passing is a failure, not a silent pass.
 filterwarnings = [
@@ -141,12 +142,11 @@ name = "Model code and what workers run do no I/O: the parent loads and saves"
 type = "forbidden"
 source_modules = [
     "optim.contract", "optim.cvxpy", "optim.models", "optim.decide", "optim.engine", "optim.acceptance", "optim.datasets",
-    "optim.testing", "optim.examples",
-    "optim.data.dataset", "optim.data.frames", "optim.schema",
+    "optim.example.model", "optim.data.dataset", "optim.data.frames", "optim.schema",
 ]
 forbidden_modules = [
     "optim.data.loader", "optim.data.cache", "optim.sources.sql", "optim.sources.oracle", "optim.sources.mssql",
     "optim.sources.rest", "optim.sources.file", "optim.storage", "optim.context", "optim.settings", "optim.snapshots",
-    "optim.run", "optim.orders", "optim.cli", "optim.ide", "httpx", "oracledb", "mssql_python",
+    "optim.runs", "optim.api", "optim.orders", "optim.cli", "httpx", "oracledb", "mssql_python",
 ]
-ignore_imports = ["optim.examples.*.__main__ -> optim.ide"]  # an example's __main__ runs it from a file; workers never import it
+ignore_imports = ["optim -> optim.api"]  # `optim.run` and friends load on first use, which model code never makes

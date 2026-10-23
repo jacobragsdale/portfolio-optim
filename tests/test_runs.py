@@ -13,7 +13,7 @@ import optim
 from optim import models
 from optim.cli import main
 from optim.datasets import HOLDINGS, SECURITIES
-from optim.run import replay, run
+from optim.runs import replay_run, run_model
 from optim.snapshots import read_info, read_inputs, read_results
 from optim.storage import Root
 from optim.testing import AS_OF, CASH, frame
@@ -31,7 +31,7 @@ def params(tmp_path: Path, **values: object) -> Path:
 
 def toy_run(tmp_path: Path, source: Rows | None = None, **values: object) -> tuple[Root, str]:
     root = Root.at(tmp_path / "snapshots")
-    ran = run(
+    ran = run_model(
         loader(source or Rows({HOLDINGS: HELD, SECURITIES: MARKET})), root, TOY, params(tmp_path, **values), as_of_date=AS_OF, portfolio_ids=["P1", "P2"], labels={"purpose": "test"}, clock=Clock()
     )
     return root, ran.run_id
@@ -76,7 +76,7 @@ def test_a_portfolio_that_fails_or_is_rejected_leaves_the_others_decided(tmp_pat
 
     assert results["decisions"].set_index("portfolio_id")["status"].to_dict() == {"P1": "rejected", "P2": "rejected"}
     assert results["reasons"].to_numpy().tolist() == [
-        ["P1", "error: ValueError('cannot decide P1')"],
+        ["P1", "ValueError: cannot decide P1, at tests/toys/basic.py:29 in decide"],  # the error, and the model's line that raised it
         ["P2", "trades securities that are not loaded: ['BAD']"],  # the core's reason, then the model's
         ["P2", "buys BAD"],
     ]
@@ -85,7 +85,7 @@ def test_a_portfolio_that_fails_or_is_rejected_leaves_the_others_decided(tmp_pat
 def test_a_replay_decides_as_the_run_did_from_its_snapshot_alone(tmp_path: Path) -> None:
     root, run_id = toy_run(tmp_path, unsolved=["P2"])
 
-    replayed = replay(root / run_id, root, workers=1)
+    replayed = replay_run(root / run_id, root, workers=1)
 
     assert [o.reasons for o in replayed.outcomes] == [[], ["not solved: the model says so"]]
     info = read_info(root / replayed.run_id)
@@ -95,8 +95,8 @@ def test_a_replay_decides_as_the_run_did_from_its_snapshot_alone(tmp_path: Path)
 def test_a_replay_with_other_params_records_them_and_a_replay_of_a_subset_replays_that_subset(tmp_path: Path) -> None:
     root, run_id = toy_run(tmp_path)
 
-    other = replay(root / run_id, root, params_file=params(tmp_path, buy="BAD"), portfolio_ids=["P2"])
-    again = replay(root / other.run_id, root)
+    other = replay_run(root / run_id, root, params_file=params(tmp_path, buy="BAD"), portfolio_ids=["P2"])
+    again = replay_run(root / other.run_id, root)
 
     assert [(o.portfolio_id, o.reasons[-1]) for o in other.outcomes] == [("P2", "buys BAD")]
     assert [o.portfolio_id for o in again.outcomes] == ["P2"]
@@ -106,7 +106,7 @@ def test_a_replay_with_other_params_records_them_and_a_replay_of_a_subset_replay
 def test_spawned_workers_decide_as_this_process_does(tmp_path: Path) -> None:
     root, run_id = toy_run(tmp_path)
 
-    pooled = replay(root / run_id, root, workers=2)
+    pooled = replay_run(root / run_id, root, workers=2)
 
     assert_frame_equal(read_results(root / pooled.run_id)["trades"], read_results(root / run_id)["trades"])
 
@@ -144,3 +144,22 @@ def test_the_command_exits_zero_only_when_every_portfolio_is_accepted(tmp_path: 
     [first, _] = sorted(path.name for path in (tmp_path / "snapshots").iterdir())
     assert main(["replay", first]) == 0
     assert pd.read_parquet(tmp_path / "snapshots" / first / "decisions.parquet")["portfolio_id"].tolist() == ["P1", "P2"]
+
+
+def test_a_model_that_lists_its_portfolios_decides_every_one_it_lists_when_given_none(tmp_path: Path) -> None:
+    """`toys.listed` lists P1, P2 and P3; P3 holds nothing."""
+    ran = run_model(loader(Rows({HOLDINGS: HELD, SECURITIES: MARKET})), Root.at(tmp_path), models.load("toys.listed"), params(tmp_path), as_of_date=AS_OF, clock=Clock())
+
+    assert read_info(Root.at(tmp_path) / ran.run_id).portfolios == ["P1", "P2", "P3"]
+    assert [outcome.reasons[:1] for outcome in ran.outcomes] == [[], [], ["it has no holdings: is its id right?"]]
+
+
+def test_a_portfolio_given_that_the_model_does_not_list_is_rejected(tmp_path: Path) -> None:
+    ran = run_model(loader(Rows({HOLDINGS: HELD, SECURITIES: MARKET})), Root.at(tmp_path), models.load("toys.listed"), params(tmp_path), as_of_date=AS_OF, portfolio_ids=["P1", "P9"])
+
+    assert [outcome.reasons for outcome in ran.outcomes] == [[], ["not one of the portfolios the model lists on 2026-10-16"]]
+
+
+def test_a_model_that_lists_no_portfolios_must_be_given_them_unless_its_holdings_are_a_file(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="give the portfolios to decide"):
+        run_model(loader(Rows({HOLDINGS: HELD, SECURITIES: MARKET})), Root.at(tmp_path), TOY, params(tmp_path), as_of_date=AS_OF)

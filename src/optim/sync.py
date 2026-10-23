@@ -1,8 +1,9 @@
 """The agent files `optim sync` writes into a model repo, from the installed `optim`: the core's one-page contract, as
-a marked block in `AGENTS.md`, `CLAUDE.md` pointing at it, and the core's skills, copied into `.agents/skills/optim-*`,
-which Codex reads, and `.claude/skills/optim-*`, which Claude Code reads. They are copies rather than symlinks because
-Git on Windows checks a symlink out as a plain text file unless Developer Mode and `core.symlinks` are on. A contract
-test fails when the files do not match the installed `optim`, so an upgrade brings its guidance with it."""
+a marked block in `AGENTS.md`, and the core's skills, copied into `.agents/skills/optim-*`. They are the open
+conventions every agent reads, Copilot's included, so no repo holds a vendor's own files. The skills are copies rather
+than symlinks because Git on Windows checks a symlink out as a plain text file unless Developer Mode and
+`core.symlinks` are on. The repo's `tests/test_agent_files.py` fails when the files do not match the installed `optim`,
+so an upgrade brings its guidance with it."""
 
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import optim
 PACKAGE = Path(__file__).parent
 SKILLS = PACKAGE / "skills"
 BEGIN, END = "<!-- optim:begin -->", "<!-- optim:end -->"
-SKILL_DIRS = (Path(".agents") / "skills", Path(".claude") / "skills")
+SKILL_DIRS = (Path(".agents") / "skills",)
 
 
 def block() -> str:
@@ -27,9 +28,6 @@ def expected(repo: Path) -> dict[Path, str]:
     current = agents.read_text(encoding="utf-8") if agents.exists() else ""
     before, found, rest = current.partition(BEGIN)
     files = {Path("AGENTS.md"): f"{before}{block()}{rest.partition(END)[2]}" if found else f"{current.rstrip()}\n\n{block()}\n".lstrip("\n")}
-    claude = repo / "CLAUDE.md"
-    text = claude.read_text(encoding="utf-8") if claude.exists() else ""
-    files[Path("CLAUDE.md")] = text if "@AGENTS.md" in text.splitlines() else f"@AGENTS.md\n{text}"
     for skill in sorted(SKILLS.glob("*/SKILL.md")):
         for directory in SKILL_DIRS:
             files[directory / skill.parent.name / "SKILL.md"] = skill.read_text(encoding="utf-8")

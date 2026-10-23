@@ -5,16 +5,17 @@ description: Run a research sweep of params variants over a saved optim run and 
 
 # Run a research sweep
 
+Follow `uv run optim docs how-to/compare-params-with-a-sweep`. In short:
+
 1. Learn what the model takes and reports: `uv run optim describe MODEL` prints its params schema, datasets and
    metrics as JSON.
-2. Pick a saved run to sweep, a run id under `OPTIM_SNAPSHOT_ROOT` or a snapshot's path; production snapshots are on
-   shared storage.
-3. Write one params file per variant in a directory, such as `params/MODEL/sweep/`, each a whole, valid params file.
-   Params are strict: a misspelled key fails the sweep before anything decides.
-4. Sweep: `uv run optim sweep RUN params/MODEL/sweep --out sweep.csv`. Each row is a variant and a portfolio: whether
-   it was accepted, its objective, turnover, trades, cash, solve time, the model's metrics and its reasons.
-5. To look inside one portfolio, decide it from Python with `optim.research.trial(open_snapshot(...), portfolio_id)`,
-   which hands back what it was prepared with, the cvxpy problem and the outcome.
+2. Pick a saved run to sweep: a run id in the repo's `snapshots/`, or under the settings file's `OPTIM_SNAPSHOT_ROOT`,
+   such as production's in `.env.prod`.
+3. Write one params file per variant beside `default.json`, in `models/MODEL/params/`, each a whole, valid params file.
+   Constraints and the objective are lists in the params, so a variant can add, drop or change one. Params are strict:
+   a misspelled key fails the sweep before anything decides.
+4. Sweep from Python, `sweep(model, RUN, params=[...])`, or `uv run --env-file .env optim sweep RUN DIR --out
+   sweep.csv`. Each row is a variant and a portfolio: whether it was accepted, its objective, turnover, trades, cash,
+   solve time, the model's metrics and its reasons.
 
-A sweep reads only the snapshot. `uv run optim docs reference` describes the sweep table, and the tutorial ends with
-one.
+A sweep reads only the snapshot and saves nothing. `uv run optim docs reference` describes the sweep table.

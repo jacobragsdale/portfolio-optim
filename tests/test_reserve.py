@@ -9,7 +9,7 @@ from builders import Clock, Rows, loader
 
 from optim import models
 from optim.datasets import HOLDINGS, SECURITIES
-from optim.run import replay, run
+from optim.runs import replay_run, run_model
 from optim.snapshots import read_info
 from optim.storage import Root
 from optim.testing import AS_OF, CASH, frame
@@ -21,7 +21,7 @@ SOURCE = Rows({HOLDINGS: frame(HOLDINGS, *({"portfolio_id": p, "quantity": q} fo
 
 def bought(root: Root, tmp_path: Path, *, workers: int = 1, **values: object) -> tuple[str, dict[str, float]]:
     (tmp_path / "params.json").write_text(json.dumps(values))
-    ran = run(loader(SOURCE), root, SCARCE, tmp_path / "params.json", as_of_date=AS_OF, portfolio_ids=list(CASH_HELD), workers=workers, clock=Clock())
+    ran = run_model(loader(SOURCE), root, SCARCE, tmp_path / "params.json", as_of_date=AS_OF, portfolio_ids=list(CASH_HELD), workers=workers, clock=Clock())
     return ran.run_id, {o.portfolio_id: o.decision.buy.get("NEW", 0.0) if o.decision and o.accepted else 0.0 for o in ran.outcomes}
 
 
@@ -45,7 +45,7 @@ def test_replaying_one_portfolio_decides_the_portfolios_before_it_again(tmp_path
     root = Root.at(tmp_path / "snapshots")
     run_id, _ = bought(root, tmp_path, order=["P1", "P2", "P3"])
 
-    replayed = replay(root / run_id, root, portfolio_ids=["P3"])
+    replayed = replay_run(root / run_id, root, portfolio_ids=["P3"])
 
     assert [(o.portfolio_id, o.decision and o.decision.buy) for o in replayed.outcomes] == [("P3", {})]  # P1 and P2 took it all
     assert read_info(root / replayed.run_id).order == ["P1", "P2", "P3"]

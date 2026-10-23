@@ -23,12 +23,12 @@ class Metrics(optim.Metrics):
     """How many securities the portfolio holds."""
 
 
-def decide(prepared: Data, shared: Data, params: Params) -> optim.Decision:  # noqa: ARG001
-    if prepared.portfolio_id in params.fail:
-        msg = f"cannot decide {prepared.portfolio_id}"
+def decide(portfolio: Data, market: Data, params: Params) -> optim.Decision:  # noqa: ARG001
+    if portfolio.portfolio_id in params.fail:
+        msg = f"cannot decide {portfolio.portfolio_id}"
         raise ValueError(msg)
-    return optim.Decision(buy={params.buy: 1000.0}, solved=prepared.portfolio_id not in params.unsolved, metrics={"holdings": len(prepared.holdings)})
+    return optim.Decision(buy={params.buy: 1000.0}, solved=portfolio.portfolio_id not in params.unsolved, metrics={"holdings": len(portfolio.holdings)})
 
 
-def check(prepared: Data, decision: optim.Decision) -> list[str]:  # noqa: ARG001
+def check(portfolio: Data, decision: optim.Decision) -> list[str]:  # noqa: ARG001
     return ["buys BAD"] if "BAD" in decision.buy else []

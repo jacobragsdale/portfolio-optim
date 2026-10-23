@@ -1,31 +1,48 @@
 # {{repo}}
 
-Portfolio models that run on `optim`, which loads their data, decides each
-portfolio, checks each decision and saves every run as a snapshot that replays. Each model's own README, beside its
-module in `src/{{package}}/`, states what it does in business terms.
+Portfolio models that run on `optim`, which loads their data, decides each portfolio, checks each decision, and saves
+every run as a snapshot that replays. Each model is a folder in `models/`, and its own `README.md` says what it does in
+business terms.
 
-| Model | Module |
+| Model | Folder |
 |---|---|
-| `{{model}}` | `src/{{package}}/{{module}}/` |
+| `{{model}}` | `models/{{module}}/` |
 
-## Set up
+## Start here
 
-You need [uv](https://docs.astral.sh/uv/), which installs Python 3.14 on first use.
+1. Install [uv](https://docs.astral.sh/uv/), which installs Python on first use, then install the repo and run its
+   tests, which need no database:
 
-```sh
-uv sync
-uv run pytest
-```
+   ```sh
+   uv sync
+   uv run pytest
+   ```
 
-## Run a model
+2. Open the repo in your editor, with `.venv` as its Python interpreter.
+3. Copy `.env.example` to `.env`, and set the sources your machine reads: it says which variables each source needs.
+4. Open `models/{{module}}/main.py` and press Run. It decides portfolios with live data and prints a row for each.
+   Add `data="tests/fixture"` to its `run(...)` to run on the model's fixture instead, with no database.
 
-Copy `.env.example` to `.env` and set what this machine reads. A run on the model's fixture needs only
-`OPTIM_SNAPSHOT_ROOT`, which it sets. To run a model from your IDE, run its `__main__.py`, such as
-`src/{{package}}/{{module}}/__main__.py`, which decides its fixture; from a terminal:
+Each run from `main.py` saves its snapshot in `snapshots/`, which git ignores; delete it whenever you like. A run from
+`main.py` never writes orders: only `optim run`, in production, does.
 
-```sh
-uv run --env-file .env optim run {{model}} --params params/{{model}}/default.json --data tests/{{model}}/fixture --as-of 2026-10-16
-uv run --env-file .env optim replay RUN_ID
-```
+## To change something, edit this
 
-`uv run optim docs` lists optim's own guides; `uv run optim docs tutorial` is the place to start.
+Paths are in a model's folder, `models/MODEL/`. `uv run optim docs PAGE` prints each guide.
+
+| To | Edit | Guide |
+|---|---|---|
+| change a param | `params/default.json`; a new param is a field of `Params` in `model.py` | `reference` |
+| add a dataset | a module in `datasets/`, an attribute of `Data` in `model.py`, and a CSV in `tests/fixture/` | `how-to/add-a-dataset` |
+| join data, or add a column every rule reads | `prep.py` | `how-to/add-a-dataset` |
+| add a rule | a function in `rules/`, called in `prepare_portfolio` in `model.py` | `how-to/write-a-rule` |
+| add a constraint | `constraints` in the params; or a dataset and a rule; or cvxpy in `optimizer/constraints.py` | `how-to/add-a-constraint` |
+| change the objective | `objective` in `Params`, or a params file | `how-to/change-the-objective` |
+| run on QA or production data | `env=".env.qa"` or `env=".env.prod"` in `main.py` | `how-to/run-on-live-data` |
+| find out why a portfolio was rejected | `replay(...)` in `main.py`, as its docstring shows | `how-to/find-out-why-a-portfolio-was-rejected` |
+| compare params | `sweep(...)` in `main.py`, as its docstring shows | `how-to/compare-params-with-a-sweep` |
+| add a model | `uv run optim new model NAME` | `how-to/share-code-between-models` |
+| share code between models | `models/shared/`, which the second model brings | `how-to/share-code-between-models` |
+
+`uv run optim docs` lists every guide, and `uv run optim docs tutorial` is the place to start. `AGENTS.md` holds the
+contract every model keeps, for people and agents alike.

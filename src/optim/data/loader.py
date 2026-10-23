@@ -1,6 +1,6 @@
 """The `Loader`, which fetches datasets (`optim.data.dataset`) through their sources, validates them and caches them
 (`optim.data.cache`). Loading is raw acquisition: a frame holds what its source returned, validated against its row model and nothing
-more. Combining frames into what a solve sees is prep (`optim.prep`)."""
+more. Combining frames into what a solve sees is the model's prep."""
 
 import hashlib
 import json
@@ -20,6 +20,7 @@ from typing import Literal, Self
 
 import pandas as pd
 
+from optim.contract import LISTING
 from optim.data.cache import Cache
 from optim.data.dataset import Dataset
 from optim.data.frames import empty_frame
@@ -159,11 +160,12 @@ class Loader:
         return None
 
     def warm(self, datasets: Iterable[Dataset], as_of_date: date) -> bool:
-        """`optim warm`: read each cached dataset read whole live for `as_of_date`, and overwrite its entry, so the day's
-        runs read it from the cache. A failed load is logged and the rest still land; returns whether all of them did."""
+        """`optim warm`: read each of `datasets`, read whole, that is cached live for `as_of_date`, and overwrite its
+        entry, so the day's runs read it from the cache. A failed load is logged and the rest still land; returns
+        whether all of them did."""
         loader = replace(self, refresh=True)
         with ThreadPoolExecutor() as pool:
-            futures = {pool.submit(loader.load, d, as_of_date=as_of_date): d.name for d in datasets if d.cache and not d.per_portfolio}
+            futures = {pool.submit(loader.load, d, as_of_date=as_of_date): d.name for d in datasets if d.cache}
         failed = [(name, error) for future, name in futures.items() if (error := future.exception())]
         for name, error in failed:
             log.error("could not warm %s", name, exc_info=error)
@@ -224,19 +226,29 @@ def _cache_key(dataset: Dataset, params: Mapping[str, Param]) -> str:
 BATCH = 1000  # portfolios per query
 
 
-def load_data(loader: Loader, datasets: Mapping[str, Dataset], as_of_date: date, portfolio_ids: Sequence[str]) -> tuple[dict[str, pd.DataFrame], dict[str, DatasetRead]]:
+def load_data(loader: Loader, datasets: Mapping[str, Dataset], as_of_date: date, portfolio_ids: Sequence[str] | None) -> tuple[dict[str, pd.DataFrame], dict[str, DatasetRead], list[str]]:
     """Every dataset a model reads, by name, all loading at once: those read whole for `as_of_date`, and those read per
     portfolio in batches, each batch's datasets from one source in one read-only transaction, so a portfolio's holdings
-    and the rest of its rows are from one moment. Also returns where each dataset came from, for the run's snapshot."""
-    whole = [dataset for dataset in datasets.values() if not dataset.per_portfolio]
-    per_portfolio = [dataset for dataset in datasets.values() if dataset.per_portfolio]
+    and the rest of its rows are from one moment. The model's `portfolios` dataset, by its attribute in `datasets`, is
+    read whole; without `portfolio_ids`, it loads first, and the portfolios it lists are the ones loaded. Also returns
+    where each dataset came from, for the run's snapshot, and the portfolios loaded."""
+    listing = datasets.get(LISTING)
+    whole = [dataset for attribute, dataset in datasets.items() if attribute == LISTING or not dataset.per_portfolio]
+    per_portfolio = [dataset for attribute, dataset in datasets.items() if attribute != LISTING and dataset.per_portfolio]
     reads = Reads()
     loader = replace(loader, reads=reads)  # this run's loads alone
+    listed: dict[str, pd.DataFrame] = {}
+    if portfolio_ids is None:
+        if listing is None:
+            msg = "give the portfolios to decide: the model does not list its own, in a dataset declared as `portfolios`"
+            raise ValueError(msg)
+        listed[listing.name] = loader.load(listing, as_of_date=as_of_date)
+        portfolio_ids, whole = list(dict.fromkeys(listed[listing.name]["portfolio_id"])), [dataset for dataset in whole if dataset is not listing]
     with timed(log, "loaded data", as_of_date=as_of_date, portfolios=len(portfolio_ids)), TaskGroup() as group:
         market = group.submit(loader.load_all, *whole, as_of_date=as_of_date)
         batches = [group.submit(_load_batch, loader, per_portfolio, batch, as_of_date) for batch in batched(portfolio_ids, BATCH, strict=False)]
-    frames = market.result() | {dataset.name: _concat(dataset, [batch.result()[dataset.name] for batch in batches]) for dataset in per_portfolio}
-    return frames, reads.by_dataset()
+    frames = listed | market.result() | {dataset.name: _concat(dataset, [batch.result()[dataset.name] for batch in batches]) for dataset in per_portfolio}
+    return frames, reads.by_dataset(), list(portfolio_ids)
 
 
 def _load_batch(loader: Loader, datasets: Sequence[Dataset], portfolios: tuple[str, ...], as_of_date: date) -> dict[str, pd.DataFrame]:

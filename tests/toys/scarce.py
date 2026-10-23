@@ -32,23 +32,23 @@ class Portfolio:
     cash: float
 
 
-def prepare(data: Data, params: Params) -> Supply:  # noqa: ARG001
+def prepare_market(data: Data, params: Params) -> Supply:  # noqa: ARG001
     return Supply(params.supply)
 
 
-def prepare_portfolio(portfolio: Data, shared: Supply, params: Params) -> Portfolio:  # noqa: ARG001
-    holdings = portfolio.holdings
-    return Portfolio(str(portfolio.portfolio_id), float(holdings.loc[holdings["security_id"] == "USD", "quantity"].sum()))
+def prepare_portfolio(data: Data, market: Supply, params: Params) -> Portfolio:  # noqa: ARG001
+    holdings = data.holdings
+    return Portfolio(str(data.portfolio_id), float(holdings.loc[holdings["security_id"] == "USD", "quantity"].sum()))
 
 
-def order(prepared: Mapping[str, Portfolio], shared: Supply, params: Params) -> list[str]:  # noqa: ARG001
-    return params.order if params.order is not None else sorted(prepared, key=lambda portfolio_id: (-prepared[portfolio_id].cash, portfolio_id))
+def order(portfolios: Mapping[str, Portfolio], market: Supply, params: Params) -> list[str]:  # noqa: ARG001
+    return params.order if params.order is not None else sorted(portfolios, key=lambda portfolio_id: (-portfolios[portfolio_id].cash, portfolio_id))
 
 
-def decide(prepared: Portfolio, shared: Supply, params: Params) -> optim.Decision:
-    quantity = min(prepared.cash, shared.left) // 1000 * 1000
-    return optim.Decision(buy={"NEW": quantity} if quantity else {}, solved=prepared.portfolio_id not in params.unsolved)
+def decide(portfolio: Portfolio, market: Supply, params: Params) -> optim.Decision:
+    quantity = min(portfolio.cash, market.left) // 1000 * 1000
+    return optim.Decision(buy={"NEW": quantity} if quantity else {}, solved=portfolio.portfolio_id not in params.unsolved)
 
 
-def reserve(shared: Supply, decision: optim.Decision) -> Supply:
-    return Supply(shared.left - decision.buy.get("NEW", 0.0))
+def reserve(market: Supply, decision: optim.Decision) -> Supply:
+    return Supply(market.left - decision.buy.get("NEW", 0.0))

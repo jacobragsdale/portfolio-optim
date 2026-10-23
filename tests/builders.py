@@ -14,7 +14,7 @@ from optim.data.loader import Loader
 from optim.sources import Columns, Param
 from optim.sources.file import FileSource
 
-EXAMPLES = Path(__file__).parent.parent / "src" / "optim" / "examples"
+EXAMPLE = Path(__file__).parent.parent / "src" / "optim" / "example"
 
 
 class Rows:

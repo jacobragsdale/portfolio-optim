@@ -18,9 +18,12 @@ def anchors(page: Path) -> set[str]:
     return {re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-") for heading in re.findall(r"^#+ (.+)$", page.read_text(encoding="utf-8"), re.MULTILINE)}
 
 
-def test_every_page_the_skills_and_the_contract_name_exists(capsys: pytest.CaptureFixture[str]) -> None:
-    guidance = [*(PACKAGE / "skills").glob("*/SKILL.md"), PACKAGE / "templates" / "contract.md"]
+def test_every_page_the_skills_the_contract_and_a_new_repo_name_exists(capsys: pytest.CaptureFixture[str]) -> None:
+    """The skills, the contract block and the example's READMEs name pages as `optim docs PAGE`; the new repo's README
+    names them in its table's guide column."""
+    guidance = [*(PACKAGE / "skills").glob("*/SKILL.md"), PACKAGE / "templates" / "contract.md", *(PACKAGE / "example").rglob("README.md"), PACKAGE / "templates" / "shared" / "README.md"]
     named = {page for file in guidance for page in re.findall(r"optim docs ([\w/-]+)", file.read_text(encoding="utf-8")) if page != "PAGE"}
+    named |= set(re.findall(r"\| `((?:how-to/)?[\w-]+)` \|$", (PACKAGE / "templates" / "repo" / "README.md").read_text(encoding="utf-8"), re.MULTILINE))
 
     for page in sorted(named):
         assert main(["docs", page]) == 0, page

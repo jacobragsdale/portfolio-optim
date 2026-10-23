@@ -1,93 +1,17 @@
-"""The pytest plugin a model repo gets with optim: contract tests for every model it lists, and the e2e suite's
-safeguards, which refuse to run anywhere but QA and to write anywhere but the allowlist."""
+"""The pytest plugin a model repo gets with optim: the e2e suite's safeguards, which refuse to run anywhere but QA and to
+write anywhere but the allowlist, and its smoke case."""
 
-import json
 import os
 import sys
 from pathlib import Path
 
 import pytest
 
-from optim import sync
 from optim.datasets import HOLDINGS, SECURITIES
 from optim.pytest_plugin import QA, qa_problems
 from optim.settings import Settings
 from optim.storage import Root
 from optim.testing import CASH, frame
-
-TOY = (Path(__file__).parent / "toys" / "basic.py").read_text()
-
-
-def model_repo(pytester: pytest.Pytester, *, model: str = TOY, params: dict[str, object] | None = None, synced: bool = True) -> Path:
-    """A model repo with one model, `toy`, its default params and its fixture: P1 and P2 hold cash, and A is bought."""
-    repo = pytester.path
-    (repo / "pyproject.toml").write_text('[project]\nname = "toyrepo"\nversion = "0"\n\n[project.entry-points."optim.models"]\ntoy = "toyrepo.toy"\n')
-    (repo / "toyrepo" / "toy").mkdir(parents=True)
-    (repo / "toyrepo" / "__init__.py").write_text("")
-    (repo / "toyrepo" / "toy" / "__init__.py").write_text(model)
-    (repo / "params" / "toy").mkdir(parents=True)
-    (repo / "params" / "toy" / "default.json").write_text(json.dumps(params or {}))
-    fixture = repo / "tests" / "toy" / "fixture"
-    fixture.mkdir(parents=True)
-    frame(HOLDINGS, {"portfolio_id": "P1"}, {"portfolio_id": "P2"}).to_csv(fixture / "holdings.csv", index=False)
-    frame(SECURITIES, CASH, {"security_id": "A"}).to_csv(fixture / "securities.csv", index=False)
-    (fixture / "fixture.json").write_text('{"as_of_date": "2026-10-16"}')
-    if synced:
-        sync.sync(repo)
-    pytester.syspathinsert()
-    return repo
-
-
-def test_a_model_that_keeps_the_contract_passes_its_contract_tests(pytester: pytest.Pytester) -> None:
-    model_repo(pytester)
-
-    result = pytester.runpytest("-p", "no:randomly")
-
-    result.assert_outcomes(passed=4)  # params, fixture, imports and agent files
-    result.stdout.no_fnmatch_line("*FAILED*")
-
-
-def test_a_run_of_chosen_tests_leaves_the_contract_tests_out(pytester: pytest.Pytester) -> None:
-    model_repo(pytester)
-    (pytester.path / "tests" / "toy" / "test_one.py").write_text("def test_one() -> None:\n    pass\n")
-
-    pytester.runpytest("-p", "no:randomly", "tests/toy/test_one.py").assert_outcomes(passed=1)
-
-
-@pytest.mark.parametrize(
-    ("change", "failure"),
-    [
-        ({"model": TOY + "\nimport httpx  # noqa: E402, F401\n"}, ["*can reach I/O through its imports*", "toyrepo.toy -> httpx"]),
-        ({"model": TOY + "\nimport optim.ide  # noqa: E402, F401\n"}, ["*can reach I/O through its imports*", "toyrepo.toy -> optim.ide"]),
-        ({"params": {"unsolved": ["P2"]}}, ["*rejects portfolios of its fixture*", "P2: not solved: the model says so"]),
-        ({"synced": False}, ["*run `uv run optim sync`*"]),
-    ],
-    ids=["io-import", "ide-import", "fixture-rejected", "stale-agent-files"],
-)
-def test_a_model_that_breaks_the_contract_fails_saying_what_to_do(pytester: pytest.Pytester, change: dict[str, object], failure: list[str]) -> None:
-    model_repo(pytester, **change)  # ty: ignore[invalid-argument-type] -- each case's keyword
-
-    result = pytester.runpytest("-p", "no:randomly")
-
-    result.assert_outcomes(passed=3, failed=1)
-    result.stdout.fnmatch_lines(failure)
-
-
-def test_a_models_main_may_run_it_through_optim_ide(pytester: pytest.Pytester) -> None:
-    """A model's `__main__.py` runs it from a file; workers import the model, never its `__main__`."""
-    repo = model_repo(pytester)
-    (repo / "toyrepo" / "toy" / "__main__.py").write_text('import optim.ide\n\nif __name__ == "__main__":\n    optim.ide.run(__file__)\n')
-
-    pytester.runpytest("-p", "no:randomly").assert_outcomes(passed=4)
-
-
-def test_misspelled_default_params_fail_the_params_and_the_fixture_tests(pytester: pytest.Pytester) -> None:
-    model_repo(pytester, params={"by": "A"})
-
-    result = pytester.runpytest("-p", "no:randomly")
-
-    result.assert_outcomes(passed=2, failed=2)
-    result.stdout.fnmatch_lines(["*by*", "*Extra inputs are not permitted*"])
 
 
 def settings(**values: object) -> Settings:
@@ -154,3 +78,8 @@ def test_the_smoke_case_runs_replays_and_compares_a_models_trades(tmp_path: Path
 
     assert ran.exit_code == 0
     assert len(Root.at(root).children()) == 2  # the run and its replay
+
+
+def test_qa_picks_the_first_portfolios_a_model_lists() -> None:
+    """`toys.listed` lists P1, P2 and P3 in a file, which stands in for QA's table."""
+    assert QA(settings(), ["optim"], Path()).listed("toys.listed", count=2) == ["P1", "P2"]

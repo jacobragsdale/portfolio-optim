@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
-# The image Airflow runs: `optim run MODEL --params FILE --as-of DATE --portfolios ...`. Build it with the commit, which
-# every run's snapshot records: docker build --build-arg GIT_SHA=$(git rev-parse HEAD) .
+# The image Airflow runs: `optim run MODEL --params models/MODEL/params/default.json --as-of DATE`, with the portfolios
+# the model lists, or `--portfolios ...`. Build it with the commit, which every run's snapshot records:
+# docker build --build-arg GIT_SHA=$(git rev-parse HEAD) .
 FROM python:3.14-slim
 COPY --from=ghcr.io/astral-sh/uv:0.12.7 /uv /bin/uv
 # SQL Server's driver, mssql-python, bundles its ODBC driver, which links against these.

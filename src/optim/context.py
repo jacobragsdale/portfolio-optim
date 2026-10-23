@@ -1,6 +1,6 @@
-"""The process's connections, opened once per command: the CLI opens one. Every source, the cache and the snapshot root
-are wired here and nowhere else. A source the environment does not configure is not opened, and a dataset that reads
-from it fails when it loads, naming the settings it needs."""
+"""The process's connections, opened once per command or call: the CLI opens one, and so does a run from Python.
+Every source, the cache and the orders table are wired here and nowhere else. A source the environment does not
+configure is not opened, and a dataset that reads from it fails when it loads, naming the settings it needs."""
 
 import threading
 from collections.abc import Generator
@@ -20,15 +20,14 @@ from optim.storage import Root
 @dataclass(frozen=True)
 class Context:
     loader: Loader
-    snapshot_root: Root
     orders: Orders | None
+    """The orders table, where the environment configures one and the caller writes orders."""
 
 
 @contextmanager
-def open_context(settings: Settings, *, cache: bool = True) -> Generator[Context]:
-    """Everything closes on exit. `cache=False`, or no cache root, reads every dataset live."""
-    snapshot_root = Root.at(settings.snapshot_root)
-    snapshot_root.make_dir()  # storage that cannot be written fails the run before it loads, not after it decides
+def open_context(settings: Settings, *, cache: bool = True, orders_table: bool = True) -> Generator[Context]:
+    """Everything closes on exit. `cache=False`, or no cache root, reads every dataset live; `orders_table=False`
+    leaves the orders table closed, whatever the environment configures, as a run from Python does."""
     with ExitStack() as stack:
         sources: dict[SourceName, Source] = {"file": FileSource()}
         limits: dict[SourceName, threading.Semaphore] = {}
@@ -39,8 +38,8 @@ def open_context(settings: Settings, *, cache: bool = True) -> Generator[Context
         if settings.rest:
             sources["rest"] = rest.RestSource(stack.enter_context(rest.client(settings.rest)), settings.rest.max_rows)
             limits["rest"] = threading.Semaphore(settings.rest.max_concurrent)
-        orders_table = orders.connect(settings.orders) if settings.orders else None
-        yield Context(Loader(sources, open_cache(settings) if cache else None, limits), snapshot_root, orders_table)
+        table = orders.connect(settings.orders) if settings.orders and orders_table else None
+        yield Context(Loader(sources, open_cache(settings) if cache else None, limits), table)
 
 
 def open_cache(settings: Settings) -> FileCache | None:

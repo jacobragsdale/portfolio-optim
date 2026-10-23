@@ -8,13 +8,13 @@ from pathlib import Path
 import cvxpy as cp
 import pandas as pd
 import pytest
-from builders import EXAMPLES, Clock, Rows, loader
+from builders import EXAMPLE, Clock, Rows, loader
 from toys.scarce import Supply
 
 from optim import models, research
 from optim.cli import main
 from optim.datasets import HOLDINGS, SECURITIES
-from optim.run import open_snapshot, run
+from optim.runs import open_snapshot, run_model
 from optim.storage import Root
 from optim.testing import AS_OF, CASH, frame
 
@@ -29,7 +29,7 @@ SOURCE = Rows(
 def saved(tmp_path: Path, model: str, *, labels: dict[str, str] | None = None, **values: object) -> Root:
     root = Root.at(tmp_path / "snapshots")
     (tmp_path / "params.json").write_text(json.dumps(values))
-    ran = run(loader(SOURCE), root, models.load(model), tmp_path / "params.json", as_of_date=AS_OF, portfolio_ids=["P1", "P2", "P3"], labels=labels or {}, clock=Clock())
+    ran = run_model(loader(SOURCE), root, models.load(model), tmp_path / "params.json", as_of_date=AS_OF, portfolio_ids=["P1", "P2", "P3"], labels=labels or {}, clock=Clock())
     return root / ran.run_id
 
 
@@ -71,14 +71,13 @@ def test_regress_lists_every_trade_and_status_that_today_s_code_changes(tmp_path
 
 
 def test_one_portfolio_decided_from_python_hands_back_what_it_saw_and_the_problem_it_solved(tmp_path: Path) -> None:
-    example = EXAMPLES / "cvxpy"
-    ran = run(loader(Rows({})), Root.at(tmp_path), models.load("optim.examples.cvxpy"), example / "params" / "default.json", as_of_date=date(2026, 10, 16), data_dir=example / "fixture")
+    ran = run_model(loader(Rows({})), Root.at(tmp_path), models.load("optim.example.model"), EXAMPLE / "params" / "default.json", as_of_date=date(2026, 10, 16), data_dir=EXAMPLE / "tests" / "fixture")
 
     trial = research.trial(open_snapshot(Root.at(tmp_path) / ran.run_id), "P1")
 
     assert isinstance(trial.problem, cp.Problem)
     assert trial.problem.status == "optimal"
-    assert set(trial.prepared.lines["security_id"]) == {"A", "B", "C", "D"}  # ty: ignore[unresolved-attribute] -- the example's Portfolio
+    assert set(trial.portfolio.universe["security_id"]) == {"A", "B", "C", "D", "E"}  # ty: ignore[unresolved-attribute] -- the example's Portfolio
     assert trial.outcome.accepted
     assert trial.outcome.decision is not None
     assert trial.outcome.decision.sell == {"B": 46_000.0}
@@ -88,24 +87,26 @@ def test_one_portfolio_of_a_model_that_reserves_decides_after_those_before_it(tm
     """Largest cash first: P1 takes 1,000,000 of the 1,100,000, P3 80,000, and P2 the 20,000 left."""
     trial = research.trial(open_snapshot(saved(tmp_path, "toys.scarce", supply=1_100_000.0)), "P2")
 
-    assert trial.shared == Supply(left=20_000.0)
+    assert trial.market == Supply(left=20_000.0)
     assert trial.outcome.decision is not None
     assert trial.outcome.decision.buy == {"NEW": 20_000.0}
 
 
 def test_describe_tells_an_agent_what_a_model_takes_reads_and_reports(capsys: pytest.CaptureFixture[str]) -> None:
-    assert main(["describe", "optim.examples.cvxpy"]) == 0
+    assert main(["describe", "optim.example.model"]) == 0
 
     described = json.loads(capsys.readouterr().out)
-    assert "most of the portfolio's value" in described["params"]["properties"]["max_weight"]["description"]
+    assert "Buy only bonds rated this or better" in described["params"]["properties"]["min_rating"]["description"]
     assert {name: (d["source"], d["per_portfolio"]) for name, d in described["datasets"].items()} == {
         "holdings": ("mssql", True),
         "securities": ("oracle", False),
+        "portfolios": ("mssql", False),
         "signals": ("rest", False),
         "controls": ("mssql", True),
+        "mandates": ("mssql", True),
     }
     assert set(described["metrics"]["properties"]) == {"income", "cost"}
-    assert described["hooks"] == ["prepare", "prepare_portfolio", "check"]
+    assert described["hooks"] == ["prepare_market", "prepare_portfolio"]
 
 
 def test_the_sweep_command_writes_its_table(tmp_path: Path) -> None:

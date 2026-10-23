@@ -105,7 +105,7 @@ def module(**exports: object) -> types.ModuleType:
     return model
 
 
-def decide(prepared: Data, shared: Data, params: Params) -> optim.Decision:  # noqa: ARG001
+def decide(portfolio: Data, market: Data, params: Params) -> optim.Decision:  # noqa: ARG001
     return optim.Decision()
 
 
@@ -114,7 +114,7 @@ def test_a_model_is_read_with_whichever_hooks_it_defines() -> None:
 
     assert (model.params, model.data, model.decide) == (Params, Data, decide)
     assert model.check is not None
-    assert model.prepare is model.reserve is None
+    assert model.prepare_market is model.reserve is None
 
 
 class Lax(BaseModel):

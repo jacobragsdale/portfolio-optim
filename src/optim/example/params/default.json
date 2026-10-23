@@ -1,0 +1,11 @@
+{
+  "constraints": [
+    {"kind": "weight", "per": "security_id", "max": 0.05},
+    {"kind": "weight", "per": "issuer", "max": 0.1},
+    {"kind": "turnover", "max": 0.25}
+  ],
+  "min_rating": "A-",
+  "exclude_sectors": [],
+  "exclude_issuers": [],
+  "solve": {"solver": "HIGHS", "time_limit_s": 30.0, "mip_gap": 0.001}
+}

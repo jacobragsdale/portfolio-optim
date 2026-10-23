@@ -1,15 +1,16 @@
-"""The command line. Settings come from `OPTIM_*` environment variables; choose the environment file explicitly:
+"""The command line, for Airflow, Docker, CI and agents; an analyst runs a model's `main.py` instead, which calls the
+same code (`optim.api`). Settings come from `OPTIM_*` environment variables; choose the settings file explicitly:
 
-uv run --env-file .env optim run ladder --params params/ladder/default.json --portfolios P1 P2
-uv run --env-file .env optim run ladder --params params/ladder/default.json --portfolios @portfolios.txt --as-of 2026-10-16
-uv run --env-file .env optim run ladder --params params/ladder/default.json --data tests/ladder/fixture --as-of 2026-10-16
-uv run --env-file .env optim replay RUN_ID --params params/ladder/wider.json
-uv run --env-file .env optim sweep RUN_ID params/ladder/sweep --out sweep.csv
-uv run --env-file .env optim regress ladder --snapshots //share/optim/snapshots --label purpose=production
-uv run --env-file .env optim warm ladder
-uv run optim describe ladder
-uvx --index INDEX_URL optim new repo ladder --from cvxpy
-uv run optim new model model-portfolio --from plain
+uv run --env-file .env optim run income --params models/income/params/default.json
+uv run --env-file .env optim run income --params models/income/params/default.json --portfolios P1 P2 --as-of 2026-10-16
+uv run --env-file .env optim run income --params models/income/params/default.json --data models/income/tests/fixture
+uv run --env-file .env optim replay RUN_ID --params models/income/params/wider.json
+uv run --env-file .env optim sweep RUN_ID models/income/params/sweep --out sweep.csv
+uv run --env-file .env optim regress income --snapshots //share/optim/snapshots --label purpose=production
+uv run --env-file .env optim warm income
+uv run optim describe income
+uvx --index INDEX_URL optim new repo sma-optimizer income --index INDEX_URL
+uv run optim new model ladder
 uv run optim sync
 uv run optim docs tutorial
 """
@@ -28,8 +29,8 @@ import pandas as pd
 
 from optim import logs, models, new, research, sync
 from optim.context import open_context
-from optim.contract import declared
-from optim.run import Run, open_snapshot, replay, run, today
+from optim.contract import LISTING, declared
+from optim.runs import Run, open_snapshot, replay_run, run_model, today
 from optim.settings import Settings
 from optim.storage import Root
 
@@ -59,17 +60,20 @@ def _stopped(signum: int, _frame: object) -> None:
 
 
 def _run(args: argparse.Namespace) -> int:
+    """The only thing that writes orders, where the environment configures a table."""
     settings, model = Settings(), models.load(args.model)
     with open_context(settings, cache=not args.no_cache) as ctx:
         as_of_date, workers, labels = args.as_of or today(), args.workers or settings.workers, dict(args.labels)
-        ran = run(ctx.loader, ctx.snapshot_root, model, args.params, as_of_date=as_of_date, portfolio_ids=args.portfolios, data_dir=args.data, workers=workers, labels=labels, orders=ctx.orders)
+        ran = run_model(
+            ctx.loader, settings.snapshots(), model, args.params, as_of_date=as_of_date, portfolio_ids=args.portfolios, data_dir=args.data, workers=workers, labels=labels, orders=ctx.orders
+        )
     return _report(ran)
 
 
 def _replay(args: argparse.Namespace) -> int:
     """Reads a snapshot and writes one: no sources or cache."""
     settings = Settings()
-    ran = replay(_snapshot(args.run), Root.at(settings.snapshot_root), params_file=args.params, portfolio_ids=args.portfolios, workers=args.workers or settings.workers, labels=dict(args.labels))
+    ran = replay_run(_snapshot(args.run), settings.snapshots(), params_file=args.params, portfolio_ids=args.portfolios, workers=args.workers or settings.workers, labels=dict(args.labels))
     return _report(ran)
 
 
@@ -83,7 +87,7 @@ def _sweep(args: argparse.Namespace) -> int:
 
 
 def _regress(args: argparse.Namespace) -> int:
-    changes = research.regress(models.load(args.model), Root.at(args.snapshots or Settings().snapshot_root), last=args.last, labels=dict(args.labels), workers=args.workers or 1)
+    changes = research.regress(models.load(args.model), Root.at(args.snapshots) if args.snapshots else Settings().snapshots(), last=args.last, labels=dict(args.labels), workers=args.workers or 1)
     _write(changes, args.out)
     return 1 if len(changes) else 0
 
@@ -95,13 +99,13 @@ def _describe(args: argparse.Namespace) -> int:
 
 def _new_repo(args: argparse.Namespace) -> int:
     index = args.index or (None if args.optim_path else os.environ.get("UV_INDEX"))
-    repo = new.new_repo(args.name, example=args.example, model=args.model, directory=args.dir, index=index, optim_path=args.optim_path, uv_sync=not args.no_sync)
+    repo = new.new_repo(args.name, args.model, directory=args.dir, index=index, optim_path=args.optim_path, uv_sync=not args.no_sync)
     sys.stdout.write(f"created {repo}: commit it once you have read it\n")
     return 0
 
 
 def _new_model(args: argparse.Namespace) -> int:
-    sys.stdout.write(f"created {new.new_model(args.name, example=args.example, repo=Path.cwd(), uv_sync=not args.no_sync)}\n")
+    sys.stdout.write(f"created {new.new_model(args.name, repo=Path.cwd(), uv_sync=not args.no_sync)}\n")
     return 0
 
 
@@ -119,7 +123,8 @@ def _docs(args: argparse.Namespace) -> int:
     pages = {path.relative_to(DOCS).with_suffix("").as_posix(): path for path in sorted(DOCS.rglob("*.md"))}
     sys.stdout.reconfigure(encoding="utf-8")  # ty: ignore[unresolved-attribute] -- a TextIOWrapper's; a redirected Windows console is cp1252
     if args.page is None:
-        sys.stdout.write("".join(f"{name:36} {path.read_text(encoding='utf-8').partition(chr(10))[0].lstrip('# ')}\n" for name, path in pages.items()))
+        width = max(map(len, pages)) + 2
+        sys.stdout.write("".join(f"{name:{width}}{path.read_text(encoding='utf-8').partition(chr(10))[0].lstrip('# ')}\n" for name, path in pages.items()))
         return 0
     if args.page not in pages:
         msg = f"no page {args.page!r}: the pages are {', '.join(pages)}"
@@ -133,7 +138,8 @@ def _warm(args: argparse.Namespace) -> int:
     if settings.cache_root is None:
         msg = "warm needs OPTIM_CACHE_ROOT: without it there is no cache to fill"
         raise ValueError(msg)
-    datasets = {dataset.name: dataset for name in args.models for dataset in declared(models.load(name).data).values()}
+    read_whole = (dataset for name in args.models for attribute, dataset in declared(models.load(name).data).items() if attribute == LISTING or not dataset.per_portfolio)
+    datasets = {dataset.name: dataset for dataset in read_whole}
     with open_context(settings) as ctx:
         return 0 if ctx.loader.warm(datasets.values(), args.as_of or today()) else 1
 
@@ -155,7 +161,7 @@ def _report(ran: Run) -> int:
 
 def _snapshot(run: str) -> Root:
     """A run by the path or URL of its snapshot, or by its id, under `OPTIM_SNAPSHOT_ROOT`."""
-    return Root.at(run) if "/" in run or "\\" in run else Root.at(Settings().snapshot_root) / run
+    return Root.at(run) if "/" in run or "\\" in run else Settings().snapshots() / run
 
 
 def _label(text: str) -> tuple[str, str]:
@@ -191,7 +197,7 @@ def _parser() -> argparse.ArgumentParser:
     run_command = _command(commands, "run", _run, "decide portfolios with a model, and save the run's snapshot", deciding, dated)
     run_command.add_argument("model", help="a model's name in the optim.models entry points, or its module path")
     run_command.add_argument("--params", type=Path, required=True, help="the params JSON file")
-    run_command.add_argument("--portfolios", nargs="+", help="portfolio ids, or @file with one per line (default, with --data: every portfolio in its holdings)")
+    run_command.add_argument("--portfolios", nargs="+", help="portfolio ids, or @file with one per line (default: every portfolio the model lists, or with --data, every one in its holdings)")
     run_command.add_argument("--data", type=Path, help="read each dataset that has a file here, NAME.parquet or NAME.csv, instead of its source")
     run_command.add_argument("--no-cache", action="store_true", help="read every dataset live")
 
@@ -213,19 +219,18 @@ def _parser() -> argparse.ArgumentParser:
     describe_command = _command(commands, "describe", _describe, "print a model's params schema, datasets and metrics as JSON")
     describe_command.add_argument("model", help="a model's name in the optim.models entry points, or its module path")
 
-    new_command = commands.add_parser("new", help="make a model repo, or add a model to this one, from an example")
+    new_command = commands.add_parser("new", help="make a model repo, or add a model to this one, from optim's example")
     new_kind = new_command.add_subparsers(dest="what", required=True)
-    example = argparse.ArgumentParser(add_help=False)
-    example.add_argument("--from", dest="example", choices=new.EXAMPLES, default="cvxpy", help="the example to copy: cvxpy, which solves through optim.cvxpy, or plain (default: cvxpy)")
-    example.add_argument("--no-sync", action="store_true", help="leave out `uv sync`")
-    repo_command = _command(new_kind, "repo", _new_repo, "make a model repo with one model, run git init and uv sync", example)
-    repo_command.add_argument("name", help="the repo, and its package")
-    repo_command.add_argument("--model", help="its first model's name (default: the repo's)")
+    syncing = argparse.ArgumentParser(add_help=False)
+    syncing.add_argument("--no-sync", action="store_true", help="leave out `uv sync`")
+    repo_command = _command(new_kind, "repo", _new_repo, "make a model repo with one model, run git init and uv sync", syncing)
+    repo_command.add_argument("name", help="the repo")
+    repo_command.add_argument("model", help="its first model, which names its folder in models/ and its entry point")
     repo_command.add_argument("--dir", type=Path, default=Path.cwd(), help="where to make it (default: here)")
     repo_command.add_argument("--index", help="the internal index optim is published to, written into its pyproject (default: UV_INDEX)")
     repo_command.add_argument("--optim-path", type=Path, help="take optim from this checkout of it, editable, instead of an index: to try a change to optim")
-    model_command = _command(new_kind, "model", _new_model, "add a model to the repo this runs in, with its entry point", example)
-    model_command.add_argument("name", help="the model's name, which names its module, params and tests")
+    model_command = _command(new_kind, "model", _new_model, "add a model to the repo this runs in, with its entry point, and models/shared/ with the second", syncing)
+    model_command.add_argument("name", help="the model's name, which names its folder in models/ and its entry point")
     docs_command = _command(commands, "docs", _docs, "print a page of optim's docs, or list them")
     docs_command.add_argument("page", nargs="?", help="such as tutorial, how-to/add-a-dataset, reference or explanation (default: list the pages)")
     _command(commands, "sync", _sync, "write optim's contract into AGENTS.md and copy its skills, for the installed optim")

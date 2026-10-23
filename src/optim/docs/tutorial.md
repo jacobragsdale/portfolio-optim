@@ -1,39 +1,40 @@
 # Build, replay and sweep your first model
 
-In this tutorial, we will make a model repo, run its model on a small fixture, replay the run with wider limits, and
-sweep both limits side by side, in about fifteen minutes. The model rebalances fixed income portfolios as an integer
-program; you will not need to change its code.
+In this tutorial, we will make a model repo, run its model on its fixture from `main.py`, add a rule and a
+constraint, replay the first run, and sweep two params files side by side, in about twenty minutes. The model
+rebalances fixed income portfolios as an integer program. Everything runs on the model's fixture, a few rows of test
+data, so you will need no database and no credentials.
 
 Before you start, you need:
 
 - [uv](https://docs.astral.sh/uv/), which installs Python 3.14 on first use, and git.
-- A terminal: PowerShell on Windows, or any shell elsewhere. The commands are the same in both.
+- An editor, such as PyCharm or VS Code, and a terminal: PowerShell on Windows, or any shell elsewhere. The commands
+  are the same in both.
 - The address of the firm's internal package index, where `optim` is published, which we call `INDEX_URL`. If the
-  index needs a login, set uv's credentials for it first, as the index's owner describes. uv downloads Python itself, so
-  it also needs to reach the internet, or a Python 3.14 your firm installs.
+  index needs a login, set uv's credentials for it first, as the index's owner describes. To try a checkout of `optim`
+  instead, run `uv run optim new repo sma-optimizer income --optim-path . --dir DIR` in the checkout, where `DIR` is
+  the folder to make the repo in, and go on from `cd DIR/sma-optimizer`.
 
 ## Make the repo
 
-Make a model repo named `ladder` from the `cvxpy` example:
+Make a model repo named `sma-optimizer`, with one model, `income`:
 
 ```sh
-uvx --index INDEX_URL optim new repo ladder --index INDEX_URL
-cd ladder
+uvx --index INDEX_URL optim new repo sma-optimizer income --index INDEX_URL
+cd sma-optimizer
 ```
 
-Replace `INDEX_URL` with the index's address. The first `--index` is where `uvx` finds `optim`; the second is written
-into the new repo, so that its own `uv sync` finds it too.
-
-The last line of the output should be:
+The first `--index` is where `uvx` finds `optim`; the second is written into the new repo, so that its own `uv sync`
+finds it too. The last line of the output names the folder it made:
 
 ```text
-created ladder: commit it once you have read it
+created /home/you/sma-optimizer: commit it once you have read it
 ```
 
 `optim` has made the repo, run `git init`, and installed its dependencies; the first commit is yours, whenever you
-like. Notice where the model is: its code is in `src/ladder/ladder/`, its default params in
-`params/ladder/default.json`, and a small set of test data, its fixture, in `tests/ladder/fixture/`, one CSV file per
-dataset.
+like. Open the folder in your editor, with `.venv` as its Python interpreter. Notice that everything about the model
+is in one folder, `models/income/`: its code, its params in `params/default.json`, and its tests, with its fixture in
+`tests/fixture/`, one CSV file per dataset.
 
 ## Run the tests
 
@@ -44,142 +45,244 @@ uv run pytest
 The output should end with:
 
 ```text
-pyproject.toml ....                                                      [ 36%]
-tests/ladder/test_rules.py .......                                       [100%]
+models/income/tests/test_contract.py ...                                 [ 21%]
+models/income/tests/test_optimizer.py ....                               [ 50%]
+models/income/tests/test_rules.py ......                                 [ 92%]
+tests/test_agent_files.py .                                              [100%]
 
-======================= 11 passed, 1 deselected in 1.44s =======================
+======================= 14 passed, 1 deselected in 1.57s =======================
 ```
 
-The four tests on the `pyproject.toml` line come from `optim` itself. They check that the model's default params are
-valid, that it accepts every portfolio of its fixture, that its code cannot reach a database or an API through its
-imports, and that the repo's `AGENTS.md` matches the installed `optim`. The deselected test is the e2e suite, which
-runs only against QA.
+The three tests in `test_contract.py` check that the model's default params are valid, that it accepts every
+portfolio of its fixture, and that its code cannot reach a database or an API through its imports. The deselected
+test is the QA suite, which runs only against QA.
 
 ## Look at the model
 
-Open `src/ladder/ladder/__init__.py`. A model is three things:
+Open `models/income/model.py`. It is the model's table of contents:
 
-- `Params`, the settings a run takes from its params file, such as `max_weight`, the most of a portfolio's value in
-  any one bond.
-- `Data`, the datasets it reads: holdings and securities, which every model reads, and its own `signals` and
-  `controls`.
-- `decide`, which builds an integer program for one portfolio and solves it through `optim.cvxpy`. It maximizes
-  expected income net of trading costs, as a fraction of the portfolio's value.
+- `Params`, the settings a run takes from its params file, such as `constraints`, the limits every portfolio keeps,
+  and `min_rating`, the rating floor for what it buys.
+- `Data`, the datasets it reads: holdings and securities, which every model reads, and its own `portfolios`,
+  `signals`, `controls` and `mandates`.
+- The hooks: `prepare_market` and `prepare_portfolio`, which call `prep.py` and then each rule in `rules/`, one per
+  line, and `decide`, which solves the portfolio's integer program in `optimizer/`.
 
-The file also defines `prepare`, `prepare_portfolio` and `check`, hooks that the how-to guides cover; you will not
-need them here. The fixture has two portfolios. P1 holds $1mm of cash and 100,500 face of bond B, worth about $101,000,
-or 9% of P1's value. P2 holds $500,000 of cash.
+The fixture has two portfolios. P1 holds $1mm of cash and 100,500 face of bond B, worth about $101,000, or 9% of its
+value. P2 holds $500,000 of cash, has its own rating floor of AA-, and has a mandate that caps Financials at 4% of its
+value.
 
 ## Run the model on its fixture
 
-A run needs to know where to save its snapshot, and reads that from the environment. Copy the example settings:
+Open `models/income/main.py`. It holds one call, which decides portfolios with live data. Add
+`data="tests/fixture"`, so that it reads every dataset from the fixture instead:
 
-```sh
-cp .env.example .env
+```python
+    results = run(model, params="params/default.json", portfolios=None, env=".env", data="tests/fixture")
 ```
 
-The file sets `OPTIM_SNAPSHOT_ROOT=snapshots`, and a run on files needs nothing else.
-
-Run the model on the fixture, for the fixture's date:
+Paths are the model's folder's, wherever your editor runs the file from. Run the file: press Run in your editor, or
+from a terminal:
 
 ```sh
-uv run --env-file .env optim run ladder --params params/ladder/default.json --data tests/ladder/fixture --as-of 2026-10-16
+uv run python models/income/main.py
 ```
 
-The run logs what it does as JSON lines, then prints a row per portfolio:
+The run logs what it does, then prints a row per portfolio:
 
 ```text
-run 01a166b6-22e5-7492-bd7b-67af298d5869
+run 01a169a6-1c9f-7638-8326-80b6ee410ff7
 portfolio_id   status  trades  solved  objective    stop  seconds
-          P1 accepted       2    True   0.004592 optimal 0.033753
-          P2 accepted       3    True   0.006723 optimal 0.020721
+          P1 accepted       3    True   0.006741 optimal 0.031582
+          P2 accepted       3    True   0.006447 optimal 0.022347
 ```
 
-Your run id and times will differ. Both portfolios are `accepted`: their trades may trade. The run has saved a snapshot
-in `snapshots/RUN_ID/`, holding every dataset as it was loaded and every decision. Look at the trades:
+Your run id and times will differ; keep the id, which this tutorial calls `FIRST_RUN`. Both portfolios are
+`accepted`: their trades may trade. The run decided every portfolio the fixture lists, as of the fixture's date,
+2026-10-16, and saved a snapshot in the repo's `snapshots/FIRST_RUN/`, holding every dataset as it was loaded and
+every decision. A run from `main.py` never writes orders.
+
+## Look at the results
+
+`results` holds the run's decisions, trades, reasons and metrics as tables. To see them, set a breakpoint on the
+`results = run(...)` line, debug the file, and step over the line: your editor's debugger shows `results`. From a
+terminal, `uv run python -i models/income/main.py` runs the file and leaves you at a Python prompt:
+
+```text
+>>> results.trades
+  portfolio_id security_id  side  quantity  decided
+0           P1           A   buy   54000.0  54000.0
+1           P1           E   buy   55000.0  55000.0
+2           P1           B  sell   46000.0  46000.0
+3           P2           A   buy   24000.0  24000.0
+4           P2           C   buy   19000.0  19000.0
+5           P2           E   buy   25000.0  25000.0
+```
+
+Notice that P1 sells 46,000 of B, in whole lots of 1,000, which brings B under the 5% cap per bond in the params, and
+that neither portfolio buys D, which is rated below `A-`, the params' `min_rating`. P2 buys no B, which is rated below
+its own floor, and only 19,000 of C, a Financials bond, under its mandate's 4% cap. `quantity` is what may trade, and
+`decided` what the model decided, before `optim` rounded it to whole lots.
+
+## Add a rule
+
+A rule changes what a portfolio may trade before the optimizer sees it. Add one that buys only bonds maturing within
+a number of years. Make `models/income/rules/maturity.py`:
+
+```python
+"""Maturity: what the portfolio may buy, by when it matures."""
+
+from dataclasses import replace
+
+import pandas as pd
+
+from models.income import model
+
+
+def max_years(portfolio: model.Portfolio, market: model.Market, params: model.Params) -> model.Portfolio:
+    """Buy only bonds that mature within `params.max_years` of the business date."""
+    universe = portfolio.universe
+    cutoff = pd.Timestamp(portfolio.data.as_of_date) + pd.DateOffset(years=params.max_years)
+    return replace(portfolio, universe=universe.assign(buyable=universe["buyable"] & (universe["maturity"] <= cutoff)))
+```
+
+Every rule has this signature: it takes the portfolio, the market and the params, and returns the portfolio, changed.
+Here it narrows the `buyable` flag of the portfolio's universe, a row per bond it holds or may buy.
+
+In `model.py`, add the param to `Params`, after `exclude_issuers`:
+
+```python
+    max_years: int = Field(default=30, gt=0)
+    """Buy only bonds that mature within this many years of the business date."""
+```
+
+Import the rule, by adding `maturity` to the `from models.income.rules import ...` line, and call it in
+`prepare_portfolio`, after the rating floor:
+
+```python
+    portfolio = credit.min_rating(portfolio, market, params)
+    portfolio = maturity.max_years(portfolio, market, params)
+```
+
+In `params/default.json`, add `"max_years": 6,` after `"exclude_issuers": [],`. Then test the rule on two bonds: in
+`tests/test_rules.py`, add `from datetime import date` to the imports and `maturity` to the rules' import, and add:
+
+```python
+def test_a_bond_that_matures_after_the_limit_may_not_be_bought() -> None:
+    found = portfolio({"security_id": "A", "maturity": date(2030, 10, 15)}, {"security_id": "B", "maturity": date(2040, 1, 15)})
+
+    after = maturity.max_years(found, MARKET, params(max_years=6))
+
+    assert after.universe.set_index("security_id")["buyable"].to_dict() == {"A": True, "B": False}
+```
+
+`portfolio` builds a portfolio from a few bonds, each filled in from a default bond, and `params` is `default.json`
+with the changes given. Run the tests:
 
 ```sh
-uv run python -c "import pandas as pd; print(pd.read_parquet('snapshots/RUN_ID/trades.parquet'))"
+uv run pytest
 ```
 
-Replace `RUN_ID` with your run's id. The output should be:
+The output should end with `15 passed, 1 deselected`. Run `main.py` again. The trades should now be:
 
 ```text
   portfolio_id security_id  side  quantity  decided
 0           P1           A   buy   54000.0  54000.0
 1           P1           B  sell   46000.0  46000.0
 2           P2           A   buy   24000.0  24000.0
-3           P2           B   buy   24000.0  24000.0
-4           P2           C   buy   24000.0  24000.0
+3           P2           C   buy   19000.0  19000.0
 ```
 
-Notice that P1 sells 46,000 of B, in whole lots of 1,000, which brings B under its 5% limit, and that neither
-portfolio buys bond D, which is rated below `A-`, the `min_rating` in the params. `quantity` is what may trade, and
-`decided` what the model decided, before `optim` rounded it to whole lots.
+Neither portfolio buys E any more: it matures in May 2033, more than six years after the business date.
 
-The same run starts from your IDE too: open `src/ladder/ladder/__main__.py` and run it, and it decides the fixture as
-the command did, with the same `.env`, and prints the same table under a new run id.
+## Add a constraint
 
-## Replay the run with wider limits
+Constraints are data: each is a dict in `constraints`, which `optimizer/problem.py` compiles into the integer
+program. Cap Financials at 2% of every portfolio's value. In `params/default.json`, add a line to `constraints`, after
+the turnover cap:
 
-Make a variant of the params that allows 20% in a bond and in an issuer. Copy `params/ladder/default.json` to
-`params/ladder/wider.json`, and in the copy change `"max_weight": 0.05` to `"max_weight": 0.2` and
-`"max_issuer_weight": 0.1` to `"max_issuer_weight": 0.2`.
-
-Replay the run with the variant:
-
-```sh
-uv run --env-file .env optim replay RUN_ID --params params/ladder/wider.json
+```json
+    {"kind": "turnover", "max": 0.25},
+    {"kind": "weight", "where": {"sector": "Financials"}, "max": 0.02}
 ```
 
-The output should look like this:
+Run `main.py` again. The trades should now be:
 
 ```text
-run 01a166b6-4ff0-717f-95ad-746365648335
+  portfolio_id security_id  side  quantity  decided
+0           P1           A   buy   54000.0  54000.0
+1           P1           B  sell   79000.0  79000.0
+2           P2           A   buy   24000.0  24000.0
+3           P2           C   buy    9000.0   9000.0
+```
+
+P1 sells more of B, a Financials bond, to bring Financials under 2%. P2 buys 9,000 of C instead of 19,000: its mandate
+allows 4%, but the params' cap applies too, and the tighter one binds.
+
+## Replay the first run
+
+A replay decides a saved run again from its snapshot alone, with the code you have now. In `main.py`, import `replay`
+instead of `run`, and replace the call with one that names your first run's id:
+
+```python
+from optim import replay
+
+from models.income import model
+
+if __name__ == "__main__":  # each worker process the run starts imports this file, and must not start a run itself
+    results = replay(model, "FIRST_RUN")
+```
+
+Run the file. The output should look like this:
+
+```text
+run 01a169a7-3d4d-740c-954b-c5bacbd74f14
 portfolio_id   status  trades  solved  objective    stop  seconds
-          P1 accepted       2    True   0.016083 optimal 0.032369
-          P2 accepted       2    True   0.012614 optimal 0.026301
+          P1 accepted       3    True   0.006741 optimal 0.055126
+          P2 accepted       3    True   0.006447 optimal 0.026879
 ```
 
-The replay read nothing but the snapshot: it decided the same data again with the new params, and saved itself as a
-new run beside the first. Notice that both objectives, the expected income net of costs, rose, because each portfolio
-could put more in its best bonds.
+The replay read nothing but the snapshot, and saved itself as a new run beside the first. Notice that it decided as
+the first run did, E included: a replay takes its run's params, which had no Financials cap and no `max_years`, so the
+rule's default of 30 years applied. Your new rule leaves an old run as it was. Add `params="params/default.json"` to
+the call to decide the first run's data with today's params instead.
 
-## Sweep both variants
+## Sweep two params files
 
-A sweep decides a saved run once per params file in a directory, and writes one table. Make the directory and put both
-params files in it:
+A sweep decides a saved run once per params file, saves nothing, and returns one table. Make a variant of the params
+that allows 4% in Financials: copy `params/default.json` to `params/loose.json`, and in the copy change the Financials
+cap's `"max": 0.02` to `"max": 0.04`.
 
-```sh
-mkdir params/ladder/sweep
-cp params/ladder/default.json params/ladder/sweep/default.json
-cp params/ladder/wider.json params/ladder/sweep/wider.json
+In `main.py`, import `sweep` instead of `replay`, and replace the call:
+
+```python
+    table = sweep(model, "FIRST_RUN", params=["params/default.json", "params/loose.json"])
 ```
 
-Sweep the first run:
-
-```sh
-uv run --env-file .env optim sweep RUN_ID params/ladder/sweep
-```
-
-The sweep prints a CSV table, a row per variant and portfolio; `--out sweep.csv` would write it to a file instead. Its
-first columns should be:
+Run the file with `uv run python -i models/income/main.py`, and look at the table's first columns:
 
 ```text
-variant,portfolio_id,accepted,objective,turnover,trades,cash,...
-default,P1,True,0.004591928739783337,101267.00000000001,2,991377.0,...
-default,P2,True,0.006722724,72780.0,3,427220.0,...
-wider,P1,True,0.01608340874325227,275165.00000000006,2,724835.0,...
-wider,P2,True,0.012614245,124915.0,2,375085.0,...
+>>> table[["variant", "portfolio_id", "accepted", "objective", "turnover", "trades", "income"]]
+   variant portfolio_id  accepted  objective  turnover  trades     income
+0  default           P1      True   0.003340  134498.0       2  3744.8105
+1  default           P2      True   0.003359   33492.0       2  1696.2240
+2    loose           P1      True   0.004174  112344.0       2  4653.1245
+3    loose           P2      True   0.004296   43572.0       2  2169.9840
 ```
 
-The table also has each decision's solve time, the model's own metrics, `income` and `cost`, and the reasons for any
-rejection. Notice that the wider limits trade more: P1's turnover goes from about $101,000 to $275,000.
+There is a row per params file and portfolio. Notice that the looser cap earns more income in both portfolios, and
+that P1 trades less, since it sells less of B. The table also has each portfolio's cash after trading, its solve
+time, the model's other metric, `cost`, and the reasons for any rejection.
+
+When you are done, put `main.py`'s import and call back as they were, with `run`. Its docstring shows the `replay`
+and `sweep` calls, for when you need them again.
 
 ## Next steps
 
-You have built a model repo, run its model, replayed the run with new params and swept two variants. To make the model
-your own, see [how to add a dataset](how-to/add-a-dataset.md) and [how to write a rule](how-to/write-a-rule.md), and to
-run it as you change it, [how to run a model from your IDE](how-to/run-from-your-ide.md). For
-every command and setting, see the [reference](reference.md). To understand why runs replay and model code does no I/O,
-read [how optim is put together](explanation.md).
+You have built a model repo, run its model on its fixture, added a rule and a constraint, replayed a run and swept two
+params files. To run the model on real data, see [how to run a model on live data](how-to/run-on-live-data.md). To
+make the model your own, see [how to add a dataset](how-to/add-a-dataset.md),
+[how to write a rule](how-to/write-a-rule.md) and [how to add a constraint](how-to/add-a-constraint.md). For every
+hook, setting and command, see the [reference](reference.md). To understand why runs replay and model code does no
+I/O, read
+[how optim is put together](explanation.md).
