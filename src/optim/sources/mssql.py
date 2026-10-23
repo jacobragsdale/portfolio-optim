@@ -1,7 +1,6 @@
 """SQL Server through mssql-python, Microsoft's DB-API driver. Queries bind `%(name)s`. DECIMAL columns arrive as exact
 `Decimal`s."""
 
-import uuid
 from functools import partial
 
 import mssql_python
@@ -24,14 +23,6 @@ class MssqlSettings(SourceSettings):
 
 def connect(settings: MssqlSettings) -> SqlSource:
     return SqlSource(partial(_connect, settings.connection_string.get_secret_value(), settings.timeout_s), BEGIN_READ_ONLY, settings.max_rows)
-
-
-def new_run_id() -> str:
-    """Register a run in the runs table and return its id."""
-    # TODO(port): a mock until the runs table is wired in; its id may be numeric, as `str(id)`. The real one takes the
-    # connection and inserts, so it must commit: mssql-python defaults to autocommit=False, and `SqlSource.fetch` never
-    # commits.
-    return str(uuid.uuid7())
 
 
 def _connect(connection_string: str, timeout_s: int) -> mssql_python.Connection:

@@ -3,14 +3,11 @@ an API built it, with `portfolio_ids`, the portfolios it loads, `holdings`, whic
 the solves it makes from the loaded datasets. `run.run` loads, prepares, solves and saves any job, and `run.replay` runs
 it again from its snapshot. A new job is a request class added to `Job`, and a CLI subcommand."""
 
-from typing import Annotated
+from pydantic import TypeAdapter
 
-from pydantic import Field, TypeAdapter
-
-from optim.jobs.hypothetical import HypotheticalRequest
 from optim.jobs.optimize import OptimizeRequest
 
 # TODO(port): the old system's other entry points, such as model portfolios or transition analysis, are request classes
-# beside these, added here. See docs/extending.md.
-Job = Annotated[OptimizeRequest | HypotheticalRequest, Field(discriminator="job")]
+# beside this one, joined here in a union discriminated on `job`. See docs/extending.md.
+Job = OptimizeRequest
 JOB: TypeAdapter[Job] = TypeAdapter(Job)

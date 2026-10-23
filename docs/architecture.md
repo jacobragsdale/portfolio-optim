@@ -13,10 +13,9 @@ terms and model formulation in this repository are placeholders until an existin
 ## One run, end to end
 
 A run starts with a validated request, such as `OptimizeRequest`, and a `Context`, which `run` in `jobs/` takes. Its
-first step takes a run id and binds it to the logs, so every record of the run carries `run_id`, solver workers' records
-included. The id also names the run's snapshot. A scheduler can pass its own id, such as a numeric one (`--run-id`);
-otherwise ids come from a runs table in SQL Server, and until that table is wired in, `mssql.new_run_id` returns a
-UUIDv7. A run refuses an id that already names a snapshot. A replay makes its own id and is not registered.
+first step creates a run id, a UUIDv7, and binds it to the logs, so every record of the run carries `run_id`, solver
+workers' records included. The id also names the run's snapshot, and ids sort by when their runs started. A scheduler's
+own ids, such as Airflow's DAG run, arrive as labels.
 
 `load_frames` in `datasets/load.py` loads every dataset a run reads, one validated frame each: the data every portfolio
 shares, for the business date, and each portfolio's details, sleeves, holdings, controls and cash flows, in batches of a
@@ -45,8 +44,8 @@ business date, and which holdings they start from. The CLI builds requests from 
 can build the same models from JSON. Because the request goes into the snapshot whole, every run records exactly what
 produced it, and replay can run it again.
 
-The `Context` is everything the process is connected to: the loader with its sources and cache, the runs table that
-issues run ids, and the snapshot directory. `open_context` in `context.py` is the only place that opens connections,
+The `Context` is everything the process is connected to: the loader with its sources and cache, and the snapshot
+directory. `open_context` in `context.py` is the only place that opens connections,
 and it closes them on exit. Jobs never read settings or build clients, so a new job needs no infrastructure code, and a
 test can give a job fake sources through the same `Context`.
 
@@ -346,9 +345,7 @@ in `violations.parquet`, and makes the run exit nonzero, so nothing downstream m
 ## Jobs and replay
 
 A job is its request class, and jobs differ only in the solves they ask for. `optimize` solves real portfolios, one
-solve each, from working or start-of-day holdings. `hypothetical` solves portfolios given whole in the request, such as
-a prospect's: their rows are validated by the same row models as loaded ones, the run loads no portfolio, and the
-snapshot's `run.json` holds them, so replay solves them again. Another job asks for other tasks from the same engine: a
+solve each, from working or start-of-day holdings. Another job asks for other tasks from the same engine: a
 transition analysis, for example, would solve a legacy portfolio once per turnover budget, each a strategy variant with
 its own name, and its tasks would solve in parallel like any batch.
 

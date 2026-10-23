@@ -1,8 +1,7 @@
 """Command line. Choose the environment file explicitly:
 
 uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios A1 A2
-uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios @portfolios.txt --holdings sod --run-id 4711
-uv run --env-file .env optim hypothetical --strategy strategies/core.json --portfolios prospect.json
+uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios @portfolios.txt --holdings sod
 uv run --env-file .env optim warm
 uv run --env-file .env optim warm --datasets benchmarks
 uv run --env-file .env optim clear --datasets securities universe
@@ -22,22 +21,18 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from pydantic import TypeAdapter
-
 from optim import logs
 from optim.context import open_cache, open_context
 from optim.datasets import all_datasets
 from optim.jobs import Job
-from optim.jobs.hypothetical import HypotheticalPortfolio, HypotheticalRequest
 from optim.jobs.optimize import OptimizeRequest
-from optim.jobs.run import RUN_ID, ReplayRequest, Run, replay, run
+from optim.jobs.run import ReplayRequest, Run, replay, run
 from optim.optimizer.results import result_frames
 from optim.settings import Settings
 from optim.strategy import Strategy
 
 log = logging.getLogger(__name__)
 MARKET_TIME = ZoneInfo("America/New_York")
-HYPOTHETICAL: TypeAdapter[list[HypotheticalPortfolio]] = TypeAdapter(list[HypotheticalPortfolio])
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -82,13 +77,11 @@ def _run(args: argparse.Namespace) -> int:
     match args.command:
         case "optimize":
             job = OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of_date=as_of_date, holdings=args.holdings)
-        case "hypothetical":
-            job = HypotheticalRequest(strategy=strategy, portfolios=HYPOTHETICAL.validate_json(args.portfolios.read_bytes()), as_of_date=as_of_date)
         case _:
             msg = f"no job for the {args.command!r} command: add a case for it here"
             raise ValueError(msg)
     with open_context(settings, cache=not args.no_cache) as ctx:
-        return _report(run(ctx, job, labels=dict(args.labels), run_id=args.run_id))
+        return _report(run(ctx, job, labels=dict(args.labels)))
 
 
 def _report(run: Run) -> int:
@@ -145,13 +138,10 @@ def _parser() -> argparse.ArgumentParser:
     run = argparse.ArgumentParser(add_help=False, parents=[dated, labelled])
     run.add_argument("--strategy", type=Path, required=True, help="strategy JSON file")
     run.add_argument("--no-cache", action="store_true", help="read every dataset live")
-    run.add_argument("--run-id", type=RUN_ID.validate_python, help="the run's id, as issued outside, such as a scheduler's numeric one (default: the runs table issues one)")
 
     optimize_command = commands.add_parser("optimize", parents=[run], help="rebalance portfolios")
     optimize_command.add_argument("--portfolios", nargs="+", required=True, help="portfolio ids, or @file with one per line")
     optimize_command.add_argument("--holdings", choices=["working", "sod"], default="working", help="start from working holdings, or the start of day's (default: working)")
-    hypothetical_command = commands.add_parser("hypothetical", parents=[run], help="solve portfolios given whole in a file, such as a prospect's")
-    hypothetical_command.add_argument("--portfolios", type=Path, required=True, help="JSON file: a list of portfolios, each its details, sleeves, holdings, controls and cash flows")
 
     replay_command = commands.add_parser("replay", parents=[labelled], help="run a saved job again, with today's code and any strategy; reads only the snapshot")
     replay_command.add_argument("snapshot", type=Path, help="the run's snapshot directory")

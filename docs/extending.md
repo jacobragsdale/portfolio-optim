@@ -243,10 +243,8 @@ If the source is another JSON API, it needs only steps 2 to 4: reuse `ApiSetting
    - `portfolio_ids`, a property: the portfolios to load, or none.
    - `holdings`: which holdings they start from, `working` or `sod`, a field or a property.
    - `tasks(self, frames: Frames) -> list[SolveTask]`: the solves it makes from the loaded datasets. Build its
-     portfolios with `build_portfolios(frames, ids)`, as `optimize.py` does. A job whose portfolios are not in the
-     books, such as a prospect's or a model portfolio built from cash, loads none, adds their rows to the per-portfolio
-     frames, and builds them the same way, as `hypothetical.py` does.
-2. Add the class to the `Job` union in `src/optim/jobs/__init__.py`. `run` in `jobs/run.py` then loads, prepares,
+     portfolios with `build_portfolios(frames, ids)`, as `optimize.py` does.
+2. Make `Job` in `src/optim/jobs/__init__.py` a union of the request classes, discriminated on `job`. `run` in `jobs/run.py` then loads, prepares,
    solves, reviews and saves it, and `optim replay` replays its snapshots, with nothing else to write.
 3. Add a subcommand to `_parser()` in `src/optim/cli.py`, and a `case` in `_run` that builds the request.
 

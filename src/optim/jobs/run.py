@@ -9,7 +9,7 @@ from datetime import date, datetime
 from pathlib import Path
 from types import MappingProxyType
 
-from pydantic import AwareDatetime, Field, TypeAdapter
+from pydantic import AwareDatetime, Field
 
 from optim import logs
 from optim.context import Context
@@ -24,7 +24,6 @@ from optim.prep.market import build_market
 from optim.schema import Model, RunId
 from optim.strategy import Strategy
 
-RUN_ID: TypeAdapter[str] = TypeAdapter(RunId)
 NO_LABELS: Mapping[str, str] = MappingProxyType({})
 
 
@@ -72,14 +71,11 @@ class RunInfo(Model):
     """A replay only: the run it replayed, and the portfolios it solved."""
 
 
-def run(ctx: Context, job: Job, *, labels: Mapping[str, str] = NO_LABELS, run_id: RunId | None = None) -> Run:
-    """Load what the job reads, then prepare, solve and save it, with `labels` in its `run.json`. `run_id` is an id issued
-    outside, such as a scheduler's numeric one; without it, the runs table issues one."""
-    run_id = RUN_ID.validate_python(run_id or ctx.new_run_id())  # it names a directory: no `/` or `..`
+def run(ctx: Context, job: Job, *, labels: Mapping[str, str] = NO_LABELS) -> Run:
+    """Load what the job reads, then prepare, solve and save it, with `labels` in its `run.json`. The run's id is a new
+    UUIDv7, so ids sort by when their runs started."""
+    run_id = str(uuid.uuid7())
     logs.bind(run_id=run_id)
-    if (ctx.snapshot_dir / run_id).exists():  # before loading, so a reused id costs nothing
-        msg = f"run {run_id} already has a snapshot at {ctx.snapshot_dir / run_id}: a run id names one run"
-        raise FileExistsError(msg)
     started_at = ctx.clock()
     frames, reads = load_frames(ctx.loader, job.portfolio_ids, job.as_of_date, job.holdings)
     # TODO(port): the old system's outputs, such as reports or rows written to a database, are modules in outputs/,
@@ -99,7 +95,7 @@ class ReplayRequest(Model):
 def replay(request: ReplayRequest, *, workers: int, labels: Mapping[str, str] = NO_LABELS, clock: Callable[[], datetime] = logs.utc_now) -> Run:
     """Run a saved job again on the datasets its snapshot holds, with the code you have now and, if given, another
     strategy. Saved as a new run of the same job, beside the run it replays, so a replay can be replayed too."""
-    run_id = str(uuid.uuid7())  # replays touch no shared system, so they are not registered in the runs table
+    run_id = str(uuid.uuid7())
     logs.bind(run_id=run_id)
     started_at = clock()
     loaded, frames = load_run(request.snapshot)

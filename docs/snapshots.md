@@ -22,8 +22,8 @@ hold. `RunInfo` in `src/optim/jobs/run.py` is its model.
 
 | Key | Value |
 |---|---|
-| `run_id` | The run's id, which names the directory: letters, digits, `.`, `_` and `-`, such as a scheduler's numeric id passed with `--run-id`, or a UUIDv7. |
-| `job` | The request's job, such as `optimize` or `hypothetical`. A replay keeps the job of the run it replays. |
+| `run_id` | The run's id, a UUIDv7, which names the directory. |
+| `job` | The request's job, such as `optimize`. A replay keeps the job of the run it replays. |
 | `as_of_date` | The business date, `YYYY-MM-DD`. |
 | `started_at` | When the run started, before it loaded anything. Times are UTC, ISO 8601. |
 | `loaded_at` | When every dataset had loaded; for a replay, when its snapshot had been read and its portfolios prepared. |
@@ -32,7 +32,7 @@ hold. `RunInfo` in `src/optim/jobs/run.py` is its model.
 | `labels` | `key=value` pairs the run was started with (`--label`), such as `purpose=production` or Airflow's DAG run. |
 | `workers` | Solver processes. A solve that stops at its time limit depends on how many solves shared the machine. |
 | `datasets` | Per dataset loaded: `read`, which is `live` (not cached), `hit`, `miss` (read live, then cached) or `refresh` (by `optim warm`); and `fetched_at`, when its source was read: for a hit, when the cache entry was filled; for a dataset loaded in batches, the oldest batch's. Null for a replay. |
-| `request` | The job's request as JSON: `job`, `strategy`, `as_of_date`, and the job's own fields: for `optimize`, `portfolios` and `holdings` (`working` or `sod`); for `hypothetical`, `portfolios`, each with its details, sleeves, holdings, controls and cash flows as rows. |
+| `request` | The job's request as JSON: `job`, `strategy`, `as_of_date`, and the job's own fields: for `optimize`, `portfolios` and `holdings` (`working` or `sod`). |
 | `replay` | A replay only: `of`, the run it replayed, and `portfolios`, the subset it solved, or null for all of them. |
 
 Replay reads `run_id`, `request` and `replay`. A run that fails before it saves has no snapshot: its logs, filtered on
@@ -44,7 +44,7 @@ One Parquet file per dataset, named after its `Dataset` (`securities.parquet` fo
 fields of its row model, in its order and dtypes, as loaded. `Decimal` fields, such as prices, quantities and cash
 flows, are Parquet decimals, exactly as the source returned them. The row models are in `src/optim/datasets/`: the
 market's `securities`, `universe`, `signals` and `benchmarks`, and the portfolios' `portfolios`, `sleeves`, `holdings`,
-`controls` and `cash_flows`. A `hypothetical` run loads no portfolio, so its portfolio files have no rows. Replay
+`controls` and `cash_flows`. Replay
 validates each file as a load validates the dataset: fields, values, key and cross-row check. A file that fails names
 the column and the row; a file named after no dataset fails too.
 

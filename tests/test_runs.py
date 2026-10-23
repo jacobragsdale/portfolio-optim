@@ -1,5 +1,4 @@
-"""What a run records about itself in `run.json`, how it is named, the jobs that reach the engine, and how its results
-reconcile."""
+"""What a run records about itself in `run.json`, and how its results reconcile."""
 
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -7,14 +6,10 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from builders import ALL_DATASETS, AS_OF, OPTIMIZE, STRATEGY, USD, A, context, sources
-from pydantic import ValidationError
+from builders import ALL_DATASETS, OPTIMIZE, context, sources
 
 from optim.cli import main
 from optim.data.loader import DatasetRead, Reads
-from optim.datasets.controls import Control
-from optim.datasets.portfolios import Holding, PortfolioDetails, Sleeve
-from optim.jobs.hypothetical import HypotheticalPortfolio, HypotheticalRequest
 from optim.jobs.run import Replayed, ReplayRequest, RunInfo, replay, run
 from optim.outputs.snapshots import Code
 
@@ -61,48 +56,6 @@ def test_an_images_commit_is_recorded_rather_than_the_checkouts(monkeypatch: pyt
     monkeypatch.setenv("OPTIM_IMAGE", "registry/portfolio-optim:abc123")
 
     assert Code.current() == Code(git_sha="abc123", image="registry/portfolio-optim:abc123", dirty=None)
-
-
-def test_an_id_issued_outside_names_the_run_once(tmp_path: Path) -> None:
-    source = sources()
-    ran = run(context(tmp_path, source), OPTIMIZE, run_id="4711")
-    fetched = len(source.fetches)
-
-    with pytest.raises(FileExistsError, match="run 4711 already has a snapshot"):
-        run(context(tmp_path, source), OPTIMIZE, run_id="4711")
-    with pytest.raises(ValidationError):
-        run(context(tmp_path, source), OPTIMIZE, run_id="../4712")
-
-    assert ran.run_id == saved(tmp_path / "4711").run_id == "4711"
-    assert len(source.fetches) == fetched  # refused before loading anything
-
-
-def test_a_hypothetical_portfolio_solves_from_the_request_alone_and_replays(tmp_path: Path) -> None:
-    prospect = HypotheticalPortfolio(
-        details=PortfolioDetails(portfolio_id="H1", currency="USD", target_value=None),
-        sleeves=[Sleeve(portfolio_id="H1", sleeve_id="core", universe_id="U1", benchmark_id="B1", target_weight=1.0)],
-        holdings=[Holding(portfolio_id="H1", sleeve_id="core", security_id=USD, quantity=Decimal(500_000))],
-        controls=[Control(portfolio_id="H1", control_id="R1", security_id=A, action="no_buy", reason="wash_sale")],
-    )
-    source = sources()
-
-    ran = run(context(tmp_path, source), HypotheticalRequest(strategy=STRATEGY, portfolios=[prospect], as_of_date=AS_OF))
-    replayed = replay(ReplayRequest(snapshot=tmp_path / ran.run_id), workers=1)
-
-    assert ran.ok
-    assert replayed.ok
-    trades = pd.read_parquet(tmp_path / ran.run_id / "trades.parquet")
-    assert set(trades["portfolio_id"]) == {"H1"}
-    assert A not in trades["security_id"].tolist()  # its wash-sale control held
-    assert source.transactions == 0  # no portfolio was read
-
-
-def test_a_portfolio_with_rows_of_another_is_refused() -> None:
-    with pytest.raises(ValidationError, match="has rows of other portfolios"):
-        HypotheticalPortfolio(
-            details=PortfolioDetails(portfolio_id="H1", currency="USD", target_value=None),
-            sleeves=[Sleeve(portfolio_id="H2", sleeve_id="core", universe_id="U1", benchmark_id="B1", target_weight=1.0)],
-        )
 
 
 def test_cash_after_trading_reconciles_with_the_trades(tmp_path: Path) -> None:

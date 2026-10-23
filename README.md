@@ -35,8 +35,8 @@ uv run --env-file .env optim optimize --strategy strategies/core.json --portfoli
 `PORTFOLIO_ID` is an `account_id` in the SQL Server `accounts` table that `src/optim/datasets/sql/portfolios.sql`
 queries; until the port, those queries name made-up tables. The run prints one summary row per portfolio, whose
 `status` is `accepted` when its trades may trade, and writes a snapshot under `OPTIM_SNAPSHOT_DIR`. `--holdings sod`
-starts from the start of the day's holdings rather than working ones, and `--run-id` names the run with an id issued
-elsewhere. `uv run optim --help` lists the other commands: `hypothetical`, `replay`, `warm`, `clear` and `schema`.
+starts from the start of the day's holdings rather than working ones. `uv run optim --help` lists the other commands:
+`replay`, `warm`, `clear` and `schema`.
 
 To try a strategy without access to those systems, replay a saved run with it. Replay reads only the run's snapshot,
 and without `--strategy` re-runs the run as it was, with the code you have now:

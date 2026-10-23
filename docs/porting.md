@@ -135,7 +135,7 @@ Paths are under `src/optim/` unless they start with `strategies/` or `deploy/`.
 | Sets solver options, or uses a licensed solver | The strategy's `solve` block: `solver`, `time_limit_s`, `max_gap`, `options` | `strategies/` |
 | Sets values shared by a group of portfolios, such as a product's | Fields in one strategy file per group | `strategies/` |
 | Sets values that differ for every portfolio | A column on `PortfolioDetails` or `Sleeve`, read as `inputs.portfolio.details.<column>` or from `inputs.portfolio.sleeves` | `datasets/portfolios.py` |
-| Is another entry point, such as start-of-day runs, hypothetical portfolios or transition analysis | A job ([how to add a job](extending.md#how-to-add-a-job)); start of day is `optimize --holdings sod` | `jobs/` |
+| Is another entry point, such as start-of-day runs or transition analysis | A job ([how to add a job](extending.md#how-to-add-a-job)); start of day is `optimize --holdings sod` | `jobs/` |
 | Writes reports or database rows | An output, called in `run` in `jobs/run.py` once the snapshot is saved | `outputs/` |
 | Sends orders | Nothing: the engine never sends orders | |
 | Runs on a schedule | An AKS Job that Airflow starts, from the Job spec | `deploy/job.yaml` |
@@ -218,7 +218,7 @@ To sanity-check the port:
 
    def main() -> None:
        loader = Loader({dataset.source: Old() for dataset in all_datasets()})
-       context = Context(loader, Path("snapshots"), workers=4, new_run_id=lambda: RUN_ID)
+       context = Context(loader, Path("snapshots"), workers=4)
        strategy = Strategy.model_validate_json(Path("strategies/legacy.json").read_bytes())
        portfolio_ids = pd.read_parquet("old/portfolios.parquet")["portfolio_id"].tolist()
        ran = run(context, OptimizeRequest(strategy=strategy, portfolios=portfolio_ids, as_of_date=AS_OF_DATE), labels={"purpose": "porting"})

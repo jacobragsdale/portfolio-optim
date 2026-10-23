@@ -145,9 +145,9 @@ def sources() -> Rows:
 
 
 def context(snapshot_dir: Path, source: Rows) -> Context:
-    """Runs on `source`, each saved as `run-1`, with a clock the run and its loads share."""
+    """Runs on `source`, with a clock the run and its loads share."""
     clock = Clock()
-    return Context(Loader({"oracle": source, "mssql": source, "signals": source}, clock=clock), snapshot_dir, workers=1, new_run_id=lambda: "run-1", clock=clock)
+    return Context(Loader({"oracle": source, "mssql": source, "signals": source}, clock=clock), snapshot_dir, workers=1, clock=clock)
 
 
 OPTIMIZE = OptimizeRequest(strategy=STRATEGY, portfolios=["P1", "P2"], as_of_date=AS_OF)

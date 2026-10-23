@@ -23,7 +23,6 @@ class Context:
     loader: Loader
     snapshot_dir: Path
     workers: int  # solver processes per run; 1 solves in this process
-    new_run_id: Callable[[], str]  # registers a run in the MSSQL runs table and returns its id
     clock: Callable[[], datetime] = utc_now  # stamps the run's start, load and finish
 
 
@@ -39,7 +38,7 @@ def open_context(settings: Settings, *, cache: bool = True) -> Generator[Context
         }
         limits: dict[SourceName, threading.Semaphore] = {name: threading.Semaphore(getattr(settings, name).max_concurrent) for name in sources}
         redis_cache = stack.enter_context(open_cache(settings.redis_url)) if cache and settings.redis_url else None
-        yield Context(Loader(sources, redis_cache, limits), settings.snapshot_dir, settings.workers, mssql.new_run_id)
+        yield Context(Loader(sources, redis_cache, limits), settings.snapshot_dir, settings.workers)
 
 
 @contextmanager

@@ -18,7 +18,7 @@ A run flows top to bottom through this table. Every module opens with a docstrin
 |---|---|
 | `cli.py` | Arguments to a request; exit code 0 only when every portfolio's result was accepted. |
 | `context.py`, `settings.py` | The only place connections open; `OPTIM_*` environment variables. |
-| `jobs/` | A request class per job, such as `optimize` and `hypothetical`, and the solves it makes, collected in `Job`; `run.py`: `run` and `replay` run any job, and `RunInfo` is the snapshot's `run.json`. |
+| `jobs/` | A request class per job, such as `optimize`, and the solves it makes, collected in `Job`; `run.py`: `run` and `replay` run any job, and `RunInfo` is the snapshot's `run.json`. |
 | `datasets/`, `datasets/sql/` | Every dataset: row schema, source, query, key, cache policy. Booked values are exact `Decimal`s. |
 | `sources/` | Oracle (thin or thick), SQL Server and REST: bounded fetches, read-only transactions. |
 | `data/` | `dataset.py` declares a dataset and `frames.py` validates rows, with no I/O; `loader.py` and `cache.py` fetch, scope reads in read-only transactions, and cache in Redis. |
