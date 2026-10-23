@@ -1,11 +1,12 @@
-"""`Dataset`: one table's row schema, source, query, key and cache policy, declared in `optim.datasets` beside its row
-model. A declaration only: importing one opens nothing, so prep and the optimizer can import the row models beside it.
-The `Loader` fetches them."""
+"""`Dataset`: one table's row schema, source, query, key and cache policy, declared once beside its row model. A
+declaration only: importing one opens nothing, so model code can import the row models beside it. The `Loader` fetches
+them. On a model's `Data` class, a dataset is a descriptor: the class attribute is the `Dataset`, and the instance
+attribute its frame."""
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, Self, overload
 
 import pandas as pd
 
@@ -34,6 +35,11 @@ class CachePolicy:
             raise ValueError(msg)
 
 
+class _Frames(Protocol):
+    @property
+    def frames(self) -> Mapping[str, pd.DataFrame]: ...
+
+
 @dataclass(frozen=True)
 class Dataset:
     """One table: its row schema, where it comes from, its key, and how it is cached."""
@@ -45,6 +51,18 @@ class Dataset:
     key: tuple[str, ...]  # columns that must be unique
     cache: CachePolicy | None = None  # None: always read live
     check: Callable[[pd.DataFrame], None] | None = None  # cross-row rules; raise ValueError
+
+    @overload
+    def __get__(self, instance: None, owner: type) -> Self: ...
+    @overload
+    def __get__(self, instance: _Frames, owner: type) -> pd.DataFrame: ...
+    def __get__(self, instance: _Frames | None, owner: type) -> Self | pd.DataFrame:
+        return self if instance is None else instance.frames[self.name]
+
+    @property
+    def per_portfolio(self) -> bool:
+        """Read a batch of portfolios at a time, and sliced to each portfolio: its rows have a `portfolio_id`."""
+        return "portfolio_id" in self.row.model_fields
 
     def to_frame(self, columns: Columns) -> pd.DataFrame:
         """Raw columns to this dataset's validated, typed frame, with its key and cross-row rules checked."""
