@@ -1,28 +1,65 @@
-"""Every dataset the optimizer loads, one module per subject. Each declares its row schemas and `Dataset`s; the SQL they
-run is in `sql/`. `MARKET` and `PER_PORTFOLIO` list what a run reads, `load` loads them, and `optim.prep` combines them
-into what a solve sees.
+"""Datasets that two or more models read, reviewed by the package's owner: one module-level declaration each, with
+its row model and SQL. Every model reads `HOLDINGS`, which acceptance checks sales against, and `SECURITIES`, which
+holds prices and trading increments, so `optim.Datasets` declares both. A dataset one model reads lives in that model's
+repo, declared the same way, and moves here when a second model needs it. A model that needs another column of one of
+these declares its own dataset with the same key and joins it in `prepare`."""
 
-TODO(port): these datasets are placeholders, with made-up tables and columns. Replace them with the old system's
-queries, keeping one `Dataset` per query, and delete what the port does not use."""
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Annotated, Literal
 
-import importlib
-import pkgutil
+import pandas as pd
+from pydantic import Field
 
 from optim.data.dataset import Dataset
-from optim.datasets.benchmarks import BENCHMARKS
-from optim.datasets.controls import CONTROLS
-from optim.datasets.portfolios import CASH_FLOWS, HOLDINGS, SLEEVES
-from optim.datasets.securities import SECURITIES, UNIVERSE
-from optim.datasets.signals import SIGNALS
+from optim.schema import Currency, Cusip, Id, Isin, Price, Rating, Row
 
-# TODO(port): the old system's per-security datasets join this tuple, and are merged in `optim.prep.market`.
-MARKET = (SECURITIES, UNIVERSE, SIGNALS, BENCHMARKS)  # loaded once a run, for its business date
-# TODO(port): the old system's per-portfolio datasets join this tuple, are loaded in `load._load_batch`, and are fields
-# of `Portfolio`, named as the dataset is.
-PER_PORTFOLIO = (SLEEVES, HOLDINGS, CONTROLS, CASH_FLOWS)  # each portfolio's rows, beside its `PORTFOLIOS` row
+SQL = Path(__file__).parent / "sql"
 
 
-def all_datasets() -> list[Dataset]:
-    """Every `Dataset` declared in this package, so `optim warm` finds a new one without a list to keep in step."""
-    modules = [importlib.import_module(f"{__name__}.{info.name}") for info in pkgutil.iter_modules(__path__)]
-    return list(dict.fromkeys(value for module in modules for value in vars(module).values() if isinstance(value, Dataset)))
+class Holding(Row):
+    """What a portfolio holds of one security, cash included, as of now: the start of the day plus what has traded."""
+
+    portfolio_id: Id
+    security_id: Id
+    quantity: float
+    """Face amount for a bond, currency units for cash. Cash may be negative, as when a purchase settles before the sale
+    that funds it."""
+
+
+class Security(Row):
+    """Reference data and a price for everything a portfolio can hold or buy, cash included."""
+
+    security_id: Id
+    """The canonical id every dataset joins on. A CUSIP or ISIN is an identifier the security may also have."""
+    cusip: Cusip | None
+    isin: Isin | None
+    asset_class: Literal["bond", "cash", "other"]
+    """`cash`: a holding of it is the portfolio's cash. `other` covers what is neither, such as a corporate-action
+    position."""
+    currency: Currency
+    issuer: str | None
+    sector: str | None
+    rating: Rating | None
+    maturity: date | None
+    price: Price
+    """Clean price per `price_per` of quantity."""
+    accrued: float
+    """Accrued interest per `price_per` of quantity; 0 when `price` already includes it."""
+    price_per: Annotated[int, Field(gt=0)]
+    """The quantity a price is quoted for: 100 for a bond quoted in percent of par, 1 for cash."""
+    increment: Annotated[float, Field(gt=0)]
+    """The trading increment: every trade is a whole number of them. 0.01 for cash in cents."""
+    min_piece: Annotated[float, Field(gt=0)] | None
+    """The smallest trade, where the market sets one."""
+    min_remaining: Annotated[float, Field(ge=0)] | None
+    """The smallest holding a partial sale may leave, where the market sets one."""
+
+
+HOLDINGS = Dataset("holdings", Holding, source="mssql", query=SQL / "holdings.sql", key=("portfolio_id", "security_id"))
+SECURITIES = Dataset("securities", Security, source="oracle", query=SQL / "securities.sql", key=("security_id",), cache=timedelta(minutes=15))
+
+
+def unit_value(securities: pd.DataFrame) -> pd.Series:
+    """What one unit of each security's quantity is worth, in its currency: `(price + accrued) / price_per`."""
+    return (securities["price"] + securities["accrued"]) / securities["price_per"]

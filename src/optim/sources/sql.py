@@ -1,4 +1,4 @@
-"""Any DB-API driver as a `Source`. Queries are SQL files, named by their path inside the `optim` package.
+"""Any DB-API driver as a `Source`. Queries are SQL files, by path.
 
 A tuple param binds as one JSON array string, which the SQL unpacks with JSON_TABLE (Oracle) or OPENJSON (SQL Server):
 one bind per batch, no IN-list limits, and no SQL built from strings.
@@ -17,7 +17,7 @@ from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from contextlib import closing, contextmanager, nullcontext
 from dataclasses import dataclass, field
 from functools import cache
-from importlib import resources
+from pathlib import Path
 from typing import Protocol
 
 from optim.logs import ms_since
@@ -103,7 +103,7 @@ def _query(connection: Connection, query: str, params: Mapping[str, Param], *, m
     start = time.perf_counter()
     with closing(connection.cursor()) as cursor:
         cursor.arraysize = _FETCH_ROWS
-        cursor.execute(read_sql(query), binds)
+        cursor.execute(read_sql(str(query)), binds)
         executed = ms_since(start)
         names = [str(column[0]).lower() for column in cursor.description or ()]
         rows: list[Iterable[object]] = []
@@ -118,8 +118,8 @@ def _query(connection: Connection, query: str, params: Mapping[str, Param], *, m
 
 @cache
 def read_sql(path: str) -> str:
-    """A SQL file's text, by its path inside the `optim` package."""
-    return resources.files("optim").joinpath(path).read_text()
+    """A SQL file's text."""
+    return Path(path).read_text(encoding="utf-8")
 
 
 def _columns(names: Sequence[str], rows: Sequence[Iterable[object]]) -> Columns:

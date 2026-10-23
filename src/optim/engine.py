@@ -1,27 +1,20 @@
-"""Solving tasks, in this process or a process pool.
+"""Running one piece of work per portfolio, in this process or a process pool.
 
-Workers only compute. The parent loads the data, ships the `Market` once to each worker process, sends small tasks (one
-portfolio and a strategy), and writes the outputs. Workers hold no connections, and moving from one machine to a
-cluster (Ray, Dask) changes only `solve_all`.
+Workers only compute. The parent loads the data, ships the run's state once to each worker process through the pool
+initializer, sends each a portfolio id, and writes the outputs. Workers hold no connections, and moving from one
+machine to a cluster (Ray, Dask) changes only this module.
 """
 
 import logging
 import multiprocessing
 import os
 from collections.abc import Callable, Sequence
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
-from dataclasses import dataclass
 from functools import partial
+from typing import cast
 
 from optim import logs
-from optim.optimizer.results import Result, Solved, Unsolved
-from optim.optimizer.solve import solve
-from optim.prep import Portfolio
-from optim.prep.market import Market
-from optim.prep.portfolios import inputs_for
-from optim.rules import apply_rules
-from optim.strategy import Strategy
 
 log = logging.getLogger(__name__)
 
@@ -33,95 +26,57 @@ _PROCESSES = multiprocessing.get_context("spawn")
 os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 
-@dataclass(frozen=True)
-class SolveTask:
-    portfolio: Portfolio
-    strategy: Strategy
-
-
-def solve_task(market: Market, task: SolveTask) -> Result:
-    """One portfolio, logged in whichever process solves it. A failure is logged here, where its traceback is whole."""
-    portfolio_id, strategy = task.portfolio.details.portfolio_id, task.strategy.name
-    try:
-        result = solve(apply_rules(task.strategy.rules, inputs_for(market, task.portfolio)), task.strategy)
-    except Exception as error:
-        log.exception("solve failed", extra={"portfolio_id": portfolio_id, "strategy": strategy})
-        return Unsolved(portfolio_id, strategy, f"error: {error!r}")
-    match result:
-        case Solved():
-            log.info(
-                "solved %s",
-                portfolio_id,
-                extra={"portfolio_id": portfolio_id, "strategy": strategy, "status": result.status, "seconds": result.seconds, "violations": result.violations}
-                | result.summary
-                | {"trades": result.trades.drop(columns="portfolio_id")},
-            )
-        case Unsolved():
-            log.warning("could not solve %s: %s", portfolio_id, result.status, extra={"portfolio_id": portfolio_id, "strategy": strategy})
-    return result
-
-
-def solve_all(market: Market, tasks: Sequence[SolveTask], *, workers: int) -> list[Result]:
-    """Solve every task in a pool of up to `workers` processes; results come back in task order."""
-    workers = min(workers, len(tasks))
-    with logs.timed(log, "solved portfolios", portfolios=len(tasks), workers=workers) as fields:
-        # one worker, the common intraday case, solves in this process: no pool start-up cost
-        results = _in_pools(market, tasks, workers) if workers > 1 else [_settle(task, partial(solve_task, market, task)) for task in tasks]
-        not_accepted = [r.portfolio_id for r in results if not (isinstance(r, Solved) and r.accepted)]
-        fields.update(not_accepted=len(not_accepted), not_accepted_examples=not_accepted[:20])
-    return results
-
-
-def _in_pools(market: Market, tasks: Sequence[SolveTask], workers: int) -> list[Result]:
-    """A worker that dies, as when the kernel kills one that ran out of memory, breaks its pool and loses every portfolio
-    not yet solved. Those get one new pool, which covers a one-off kill; if that breaks too, they stay unsolved."""
-    results = _in_pool(market, tasks, workers)
+def each_portfolio[S, R](work: Callable[[S, str], R], state: S, portfolio_ids: Sequence[str], *, workers: int, failed: Callable[[str, str], R]) -> list[R]:
+    """`work(state, portfolio_id)` for each portfolio, in a pool of up to `workers` processes; results in the order
+    given. `work` is a module-level function, which catches and logs its own errors; `failed` makes the result of a
+    portfolio whose work never returned, as when its process died."""
+    workers = min(workers, len(portfolio_ids))
+    # one worker, the common intraday case, works in this process: no pool start-up cost
+    if workers <= 1:
+        return [_settle(portfolio_id, partial(work, state, portfolio_id), failed) for portfolio_id in portfolio_ids]
+    results = _in_pool(work, state, portfolio_ids, workers, failed)
     if lost := [i for i, result in enumerate(results) if result is None]:
-        log.warning("a solver process died, as when the kernel kills one that runs out of memory; solving its %d unfinished portfolios in a new pool", len(lost))
-        for i, result in zip(lost, _in_pool(market, [tasks[i] for i in lost], workers), strict=True):
+        log.warning("a worker process died, as when the kernel kills one that runs out of memory; working on its %d unfinished portfolios in a new pool", len(lost))
+        for i, result in zip(lost, _in_pool(work, state, [portfolio_ids[i] for i in lost], workers, failed), strict=True):
             results[i] = result
-    if lost := [tasks[i] for i, result in enumerate(results) if result is None]:
-        log.error(
-            "a solver process died again, so %d portfolios stay unsolved; give the Job more memory or fewer OPTIM_WORKERS",
-            len(lost),
-            extra={"examples": [t.portfolio.details.portfolio_id for t in lost[:20]]},
-        )
-    return [result or Unsolved(task.portfolio.details.portfolio_id, task.strategy.name, "error: its solver process died") for task, result in zip(tasks, results, strict=True)]
+    if lost := [portfolio_ids[i] for i, result in enumerate(results) if result is None]:
+        log.error("a worker process died again, so %d portfolios have no result; give the run more memory or fewer OPTIM_WORKERS", len(lost), extra={"examples": lost[:20]})
+    return [failed(portfolio_id, "error: its worker process died") if result is None else result for portfolio_id, result in zip(portfolio_ids, results, strict=True)]
 
 
-def _in_pool(market: Market, tasks: Sequence[SolveTask], workers: int) -> list[Result | None]:
-    """Solve in a new pool; None for a portfolio lost when the pool broke."""
-    # one machine; for a cluster, ship `market` once (ray.put / client.scatter) and submit the same tasks,
-    # each carrying `logs.bound()`, since a cluster's workers outlive a run
-    with ProcessPoolExecutor(workers, mp_context=_PROCESSES, initializer=_start_worker, initargs=(market, logs.bound())) as pool:
-        futures = [pool.submit(_solve_in_worker, task) for task in tasks]
-        return [None if isinstance(future.exception(), BrokenProcessPool) else _settle(task, future.result) for task, future in zip(tasks, futures, strict=True)]
+def _in_pool[S, R](work: Callable[[S, str], R], state: S, portfolio_ids: Sequence[str], workers: int, failed: Callable[[str, str], R]) -> list[R | None]:
+    """Work in a new pool; None for a portfolio lost when the pool broke."""
+    # one machine; for a cluster, ship `state` once (ray.put / client.scatter) and submit the same ids, each carrying
+    # `logs.bound()`, since a cluster's workers outlive a run
+    with ProcessPoolExecutor(workers, mp_context=_PROCESSES, initializer=_start_worker, initargs=(partial(work, state), logs.bound(), logs.included())) as pool:
+        futures = [cast("Future[R]", pool.submit(_in_worker, portfolio_id)) for portfolio_id in portfolio_ids]  # what `work` returns
+        return [None if isinstance(future.exception(), BrokenProcessPool) else _settle(i, future.result, failed) for i, future in zip(portfolio_ids, futures, strict=True)]
 
 
-def _settle(task: SolveTask, outcome: Callable[[], Result]) -> Result:
-    """One portfolio's failure must not block the rest of the batch: it becomes an `Unsolved`, which makes the run exit
-    nonzero. `solve_task` catches its own errors; what reaches here failed between processes, as
-    when a task cannot be pickled."""
-    portfolio_id = task.portfolio.details.portfolio_id
+def _settle[R](portfolio_id: str, outcome: Callable[[], R], failed: Callable[[str, str], R]) -> R:
+    """One portfolio's failure must not block the rest: what reaches here failed between processes, as when a result
+    cannot be pickled, since `work` catches its own errors."""
     try:
         return outcome()
     except Exception as error:
-        log.exception("solve failed", extra={"portfolio_id": portfolio_id, "strategy": task.strategy.name})
-        return Unsolved(portfolio_id, task.strategy.name, f"error: {error!r}")
+        log.exception("could not decide %s", portfolio_id, extra={"portfolio_id": portfolio_id})
+        return failed(portfolio_id, f"error: {error!r}")
 
 
-_market: Market | None = None  # this worker process's copy, set once by the pool initializer
+_work: Callable[[str], object] | None = None  # this worker process's work, with the run's state, set once by the initializer
 
 
-def _start_worker(market: Market, fields: dict[str, object]) -> None:
-    global _market  # noqa: PLW0603 -- the ProcessPoolExecutor initializer pattern: one copy per worker, not per task
-    _market = market
+def _start_worker(work: Callable[[str], object], fields: dict[str, object], packages: list[str]) -> None:
+    global _work  # noqa: PLW0603 -- the ProcessPoolExecutor initializer pattern: one copy per worker, not per task
+    _work = work
     logs.setup()  # a spawned worker starts without the parent's logging; it reads the same OPTIM_LOG_* variables
     logs.bind(**fields)  # nor its bound fields, such as the run's id
+    for package in packages:
+        logs.include(package)
 
 
-def _solve_in_worker(task: SolveTask) -> Result:
-    if _market is None:
-        msg = "worker started without a market"
+def _in_worker(portfolio_id: str) -> object:
+    if _work is None:
+        msg = "worker started without its work"
         raise RuntimeError(msg)
-    return solve_task(_market, task)
+    return _work(portfolio_id)

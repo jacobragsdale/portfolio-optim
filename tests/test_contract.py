@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, ValidationError
 import optim
 from optim.contract import declared
 from optim.data.dataset import Dataset
+from optim.datasets import HOLDINGS, SECURITIES
 from optim.models import load, read
 from optim.schema import Id, Row
 
@@ -74,7 +75,7 @@ def test_a_dataset_is_its_frame_on_an_instance_and_itself_on_the_class() -> None
 
     assert data.signals is signals
     assert More.signals is SIGNALS
-    assert declared(More) == {"signals": SIGNALS, "positions": POSITIONS}  # base classes' datasets included
+    assert declared(More) == {"holdings": HOLDINGS, "securities": SECURITIES, "signals": SIGNALS, "positions": POSITIONS}  # every model reads the shared two
     assert (SIGNALS.per_portfolio, POSITIONS.per_portfolio) == (False, True)
 
 

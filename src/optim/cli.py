@@ -1,17 +1,13 @@
-"""Command line. Choose the environment file explicitly:
+"""The command line. Settings come from `OPTIM_*` environment variables; choose the environment file explicitly:
 
-uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios A1 A2
-uv run --env-file .env optim optimize --strategy strategies/core.json --portfolios @portfolios.txt --holdings sod
-uv run --env-file .env optim warm
-uv run --env-file .env optim warm --datasets benchmarks
-uv run --env-file .env optim clear --datasets securities universe
-uv run optim replay snapshots/RUN_ID --workers 4
-uv run optim replay snapshots/RUN_ID --strategy strategies/track-benchmark.json --label purpose=research
-uv run optim schema > strategy.schema.json
+uv run --env-file .env optim run ladder --params params/ladder/default.json --portfolios P1 P2
+uv run --env-file .env optim run ladder --params params/ladder/default.json --portfolios @portfolios.txt --as-of 2026-10-16
+uv run --env-file .env optim run ladder --params params/ladder/default.json --data tests/ladder/fixture --as-of 2026-10-16
+uv run --env-file .env optim replay RUN_ID --params params/ladder/wider.json
+uv run --env-file .env optim warm ladder
 """
 
 import argparse
-import json
 import logging
 import os
 import signal
@@ -21,27 +17,21 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from optim import logs
-from optim.context import open_cache, open_context
-from optim.datasets import all_datasets
-from optim.jobs import Job
-from optim.jobs.optimize import OptimizeRequest
-from optim.jobs.run import ReplayRequest, Run, replay, run
-from optim.optimizer.results import result_frames
+from optim import logs, models
+from optim.context import open_context
+from optim.contract import declared
+from optim.run import Run, replay, run
 from optim.settings import Settings
-from optim.strategy import Strategy
+from optim.snapshots import result_frames
+from optim.storage import Root
 
 log = logging.getLogger(__name__)
 MARKET_TIME = ZoneInfo("America/New_York")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Exit 0 only when every portfolio solved cleanly. `OPTIM_WORKERS` sets how many solver processes a run uses. An
-    error is logged once, with its root cause, and exits 1."""
+    """Exit 0 only when every portfolio was accepted. An error is logged once, with its root cause, and exits 1."""
     args = _parser().parse_args(argv)
-    if args.command == "schema":
-        sys.stdout.write(json.dumps(Strategy.model_json_schema(), indent=2) + "\n")
-        return 0
     signal.signal(signal.SIGTERM, _stopped)
     try:
         logs.setup()
@@ -54,39 +44,54 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _stopped(signum: int, _frame: object) -> None:
-    """Kubernetes stops a Job with SIGTERM, on a deadline, eviction or deletion: log it, then die by it as usual."""
+    """A scheduler stops a run with SIGTERM, on a deadline or a cancellation: log it, then die by it as usual."""
     log.error("stopped by %s before finishing", signal.Signals(signum).name)
     signal.signal(signum, signal.SIG_DFL)
     os.kill(os.getpid(), signum)
 
 
 def _run(args: argparse.Namespace) -> int:
-    if args.command == "replay":  # reads a snapshot only: no settings, connections or cache
-        log.info("starting replay", extra={"cli": logs.brief(vars(args))})
-        strategy = Strategy.model_validate_json(args.strategy.read_bytes()) if args.strategy else None
-        return _report(replay(ReplayRequest(snapshot=args.snapshot, strategy=strategy, portfolios=args.portfolios), workers=args.workers, labels=dict(args.labels)))
     settings = Settings()
-    log.info("starting %s", args.command, extra={"cli": logs.brief(vars(args)), "settings": settings.model_dump(mode="json")})
-    if args.command == "clear":
-        return _clear(settings, args.datasets)
-    as_of_date: date = args.as_of_date or datetime.now(MARKET_TIME).date()
-    if args.command == "warm":
-        return _warm(settings, as_of_date, args.datasets)
-    strategy = Strategy.model_validate_json(args.strategy.read_bytes())
-    job: Job
+    workers = getattr(args, "workers", None) or settings.workers
     match args.command:
-        case "optimize":
-            job = OptimizeRequest(strategy=strategy, portfolios=args.portfolios, as_of_date=as_of_date, holdings=args.holdings)
+        case "run":
+            model = models.load(args.model)
+            with open_context(settings, cache=not args.no_cache) as ctx:
+                ran = run(
+                    ctx.loader, ctx.snapshot_root, model, args.params, as_of_date=args.as_of or _today(), portfolio_ids=args.portfolios, data_dir=args.data, workers=workers, labels=dict(args.labels)
+                )
+            return _report(ran)
+        case "replay":  # reads a snapshot and writes one: no sources or cache
+            root = Root.at(settings.snapshot_root)
+            return _report(replay(_snapshot(args.run, root), root, params_file=args.params, portfolio_ids=args.portfolios, workers=workers, labels=dict(args.labels)))
+        case "warm":
+            if settings.cache_root is None:
+                msg = "warm needs OPTIM_CACHE_ROOT: without it there is no cache to fill"
+                raise ValueError(msg)
+            datasets = {dataset.name: dataset for name in args.models for dataset in declared(models.load(name).data).values()}
+            with open_context(settings) as ctx:
+                return 0 if ctx.loader.warm(datasets.values(), args.as_of or _today()) else 1
         case _:
-            msg = f"no job for the {args.command!r} command: add a case for it here"
+            msg = f"no command {args.command!r}: add a case for it here"
             raise ValueError(msg)
-    with open_context(settings, cache=not args.no_cache) as ctx:
-        return _report(run(ctx, job, labels=dict(args.labels)))
 
 
-def _report(run: Run) -> int:
-    sys.stdout.write(f"run {run.run_id}\n{result_frames(run.results)['summary'].to_string(index=False)}\n")
-    return 0 if run.ok else 1
+def _report(ran: Run) -> int:
+    decisions = result_frames(ran.outcomes)["decisions"][["portfolio_id", "status", "trades", "solved", "objective", "stop", "seconds"]]
+    sys.stdout.write(f"run {ran.run_id}\n{decisions.to_string(index=False)}\n")
+    for outcome in ran.outcomes:
+        for reason in outcome.reasons:
+            sys.stdout.write(f"{outcome.portfolio_id}: {reason}\n")
+    return 0 if ran.ok else 1
+
+
+def _snapshot(run: str, root: Root) -> Root:
+    """A run by its id, under the snapshot root, or by the path or URL of its snapshot."""
+    return Root.at(run) if "/" in run or "\\" in run else root / run
+
+
+def _today() -> date:
+    return datetime.now(MARKET_TIME).date()
 
 
 def _label(text: str) -> tuple[str, str]:
@@ -97,55 +102,28 @@ def _label(text: str) -> tuple[str, str]:
     return key, value
 
 
-def _warm(settings: Settings, as_of_date: date, names: Sequence[str] | None) -> int:
-    """Fill the cache for the business date: every dataset with a warm hook, or only the named ones, say after a data
-    correction. Exit 1 if any load failed."""
-    if settings.cache_root is None:
-        msg = "warm needs OPTIM_CACHE_ROOT: without it there is no cache to fill"
-        raise ValueError(msg)
-    with open_context(settings) as ctx:
-        return 0 if ctx.loader.warm([d for d in all_datasets() if not names or d.name in names], as_of_date) else 1
-
-
-def _clear(settings: Settings, names: Sequence[str]) -> int:
-    """Delete every cached entry of the named datasets, whatever their params, say after a data correction. Until they
-    are filled again, runs read them live, or fail where the policy forbids that."""
-    if (cache := open_cache(settings)) is None:
-        msg = "clear needs OPTIM_CACHE_ROOT: without it there is no cache to clear"
-        raise ValueError(msg)
-    for name in names:
-        cache.clear(name)
-        log.info("cleared the cache entries of %s", name)
-    return 0
-
-
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="optim", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter, fromfile_prefix_chars="@")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("schema", help="print the strategy JSON schema")
 
+    deciding = argparse.ArgumentParser(add_help=False)
+    deciding.add_argument("--label", type=_label, action="append", default=[], dest="labels", metavar="KEY=VALUE", help="recorded in the run's run.json, e.g. purpose=production; repeat for more")
+    deciding.add_argument("--workers", type=int, help="worker processes (default: OPTIM_WORKERS, or 1)")
     dated = argparse.ArgumentParser(add_help=False)
-    dated.add_argument("--as-of-date", type=date.fromisoformat, help="business date (default: today in New York)")
-    warm_command = commands.add_parser("warm", parents=[dated], help="refresh cached datasets for the business date, before the day's first run")
-    warmable = sorted(d.name for d in all_datasets() if d.cache and d.cache.warm)
-    warm_command.add_argument("--datasets", nargs="+", choices=warmable, help="warm only these (default: every dataset with a warm hook)")
-    clear_command = commands.add_parser("clear", help="delete every cached entry of some datasets")
-    cached = sorted(d.name for d in all_datasets() if d.cache)
-    clear_command.add_argument("--datasets", nargs="+", choices=cached, required=True)
+    dated.add_argument("--as-of", type=date.fromisoformat, help="the business date (default: today in New York)")
 
-    labelled = argparse.ArgumentParser(add_help=False)
-    labelled.add_argument("--label", type=_label, action="append", default=[], dest="labels", metavar="KEY=VALUE", help="recorded in the run's run.json, e.g. purpose=production; repeat for more")
-    run = argparse.ArgumentParser(add_help=False, parents=[dated, labelled])
-    run.add_argument("--strategy", type=Path, required=True, help="strategy JSON file")
-    run.add_argument("--no-cache", action="store_true", help="read every dataset live")
+    run_command = commands.add_parser("run", parents=[deciding, dated], help="decide portfolios with a model, and save the run's snapshot")
+    run_command.add_argument("model", help="a model's name in the optim.models entry points, or its module path")
+    run_command.add_argument("--params", type=Path, required=True, help="the params JSON file")
+    run_command.add_argument("--portfolios", nargs="+", help="portfolio ids, or @file with one per line (default, with --data: every portfolio in its holdings)")
+    run_command.add_argument("--data", type=Path, help="read each dataset that has a file here, NAME.parquet or NAME.csv, instead of its source")
+    run_command.add_argument("--no-cache", action="store_true", help="read every dataset live")
 
-    optimize_command = commands.add_parser("optimize", parents=[run], help="rebalance portfolios")
-    optimize_command.add_argument("--portfolios", nargs="+", required=True, help="portfolio ids, or @file with one per line")
-    optimize_command.add_argument("--holdings", choices=["working", "sod"], default="working", help="start from working holdings, or the start of day's (default: working)")
-
-    replay_command = commands.add_parser("replay", parents=[labelled], help="run a saved job again, with today's code and any strategy; reads only the snapshot")
-    replay_command.add_argument("snapshot", help="the run's snapshot directory, a path or URL")
-    replay_command.add_argument("--strategy", type=Path, help="strategy JSON file (default: the strategy the run used)")
+    replay_command = commands.add_parser("replay", parents=[deciding], help="decide a saved run again with today's code, and other params if given; reads only the snapshot")
+    replay_command.add_argument("run", help="a run id under OPTIM_SNAPSHOT_ROOT, or a snapshot's path or URL")
+    replay_command.add_argument("--params", type=Path, help="a params JSON file (default: the params the run used)")
     replay_command.add_argument("--portfolios", nargs="+", help="only these portfolios (default: every portfolio in the run)")
-    replay_command.add_argument("--workers", type=int, default=1, help="solver processes (default: 1)")
+
+    warm_command = commands.add_parser("warm", parents=[dated], help="fill the cache with every cached dataset the models read, before the day's first run")
+    warm_command.add_argument("models", nargs="+", help="model names or module paths")
     return parser

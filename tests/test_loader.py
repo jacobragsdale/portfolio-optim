@@ -6,30 +6,28 @@ import threading
 import time
 from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
-from dataclasses import replace
 from datetime import date
 from decimal import Decimal  # what a driver returns for a DECIMAL column
 from pathlib import Path
 
 import oracledb
 import pytest
-from builders import CASH, frame
 
 from optim.data.dataset import Dataset
 from optim.data.loader import Loader, TaskGroup
-from optim.datasets.portfolios import HOLDINGS
-from optim.datasets.securities import SECURITIES
+from optim.datasets import HOLDINGS, SECURITIES, SQL
 from optim.schema import Row
 from optim.sources import Columns, Param, TooManyRowsError, oracle
 from optim.sources.file import FileSource
 from optim.sources.sql import SqlSource
+from optim.testing import frame
 
 
 class Item(Row):
     item_id: str
 
 
-ITEMS = Dataset("items", Item, source="mssql", query="datasets/sql/portfolios.sql", key=("item_id",))  # a real file: SqlSource reads it
+ITEMS = Dataset("items", Item, source="mssql", query=SQL / "holdings.sql", key=("item_id",))  # a real file: SqlSource reads it
 
 
 class Database:
@@ -172,16 +170,13 @@ def test_a_query_that_returns_more_than_max_rows_fails() -> None:
         loader.load(ITEMS)
 
 
-def test_a_drivers_decimal_is_a_float_and_a_denomination_that_is_not_whole_fails() -> None:
+def test_a_drivers_decimal_is_a_float_and_a_value_out_of_its_fields_bounds_fails_naming_its_row() -> None:
     holdings = frame(HOLDINGS, {"quantity": Decimal("1234567.891")})  # SQL Server's driver returns DECIMAL columns so
 
     assert holdings["quantity"].tolist() == [1234567.891]
     assert holdings["quantity"].dtype == "float64"
-    assert frame(SECURITIES, {"min_piece": 1000.0})["min_piece"].tolist() == [1000]
-    with pytest.raises(ValueError, match=r"securities.min_piece at security_id 'AAAAAAAA1'"):
-        frame(SECURITIES, {"min_piece": 1000.5})
-    with pytest.raises(ValueError, match="all set or all null"):
-        frame(SECURITIES, CASH | {"increment": 1000})
+    with pytest.raises(ValueError, match=r"securities.increment at security_id 'A': Input should be greater than 0"):
+        frame(SECURITIES, {"increment": 0.0})
 
 
 def oracle_settings(mode: str, client_lib_dir: Path) -> oracle.OracleSettings:
@@ -201,12 +196,12 @@ def test_a_file_dataset_reads_parquet_or_csv_for_the_run_date_and_a_batch_reads_
     """A CSV's values are text until validation types them, so an id of digits stays a string."""
     day = tmp_path / "2026-10-16"
     day.mkdir()
-    (day / "holdings.csv").write_text("portfolio_id,sleeve_id,security_id,quantity\n001,core,USD,1000000\n002,core,USD,5.5\n")
+    (day / "holdings.csv").write_text("portfolio_id,security_id,quantity\n001,USD,1000000\n002,USD,5.5\n")
     frame(HOLDINGS, {"portfolio_id": "001"}, {"portfolio_id": "002"}).to_parquet(day / "holdings.parquet", index=False)
     loader = Loader({"file": FileSource()})
 
     for suffix in ("csv", "parquet"):
-        dataset = replace(HOLDINGS, source="file", query=f"{tmp_path}/{{as_of_date}}/holdings.{suffix}")
+        dataset = HOLDINGS.file(f"{tmp_path}/{{as_of_date}}/holdings.{suffix}")
         holdings = loader.load(dataset, as_of_date=date(2026, 10, 16), portfolios=("002",))
         assert holdings["portfolio_id"].tolist() == ["002"]
         assert holdings["quantity"].dtype == "float64"

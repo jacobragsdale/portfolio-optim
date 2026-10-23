@@ -1,125 +1,37 @@
-"""Test data: one valid row per dataset, frames built from partial rows, and a source serving them, so a test can run
-any job end to end, snapshot included, with no database."""
+"""Helpers for the core's tests: a source serving rows from memory, which records what it was asked, and a clock that
+moves a second at each reading, so a test can run a model end to end, snapshot included, with no database."""
 
-from collections.abc import Generator, Iterable, Iterator, Mapping
+from collections.abc import Generator, Iterator, Mapping
 from contextlib import contextmanager
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 
-from optim.context import Context
 from optim.data.dataset import Dataset
+from optim.data.frames import to_columns
 from optim.data.loader import Loader
-from optim.datasets import MARKET, PER_PORTFOLIO
-from optim.datasets.benchmarks import BENCHMARKS
-from optim.datasets.controls import CONTROLS
-from optim.datasets.portfolios import CASH_FLOWS, HOLDINGS, PORTFOLIOS, SLEEVES
-from optim.datasets.securities import SECURITIES, UNIVERSE
-from optim.datasets.signals import SIGNALS
-from optim.jobs.optimize import OptimizeRequest
-from optim.prep import SolverInputs
-from optim.prep.market import build_market
-from optim.prep.portfolios import build_portfolios, inputs_for
 from optim.sources import Columns, Param
-from optim.storage import Root
-from optim.strategy import Strategy
+from optim.sources.file import FileSource
 
-AS_OF = date(2026, 10, 16)
-A, B, C = "AAAAAAAA1", "BBBBBBBB2", "CCCCCCCC3"
-USD = "USD"  # the cash security
-STRATEGY = Strategy(name="s")
-
-# TODO(port): one valid row for each dataset the port declares; tests build every frame from these.
-DEFAULTS: dict[str, dict[str, object]] = {  # one valid row per dataset
-    "securities": {
-        "security_id": A,
-        "cusip": A,
-        "isin": None,
-        "asset_class": "bond",
-        "currency": "USD",
-        "issuer": "Issuer A",
-        "sector": "Corporate",
-        "rating": "AA",
-        "maturity": date(2030, 10, 15),
-        "duration": 4.0,
-        "price": 100.0,
-        "accrued": 0.0,
-        "price_per": 100,
-        "cost_bps": 5.0,
-        "min_piece": 1000,
-        "increment": 1000,
-        "min_remaining": 1000,
-    },
-    "universe": {"universe_id": "U1", "security_id": A, "available": None},
-    "signals": {"security_id": A, "expected_return": 0.05},
-    "benchmarks": {"benchmark_id": "B1", "security_id": A, "weight": 1.0},
-    "portfolios": {"portfolio_id": "P1", "currency": "USD", "target_value": None},
-    "sleeves": {"portfolio_id": "P1", "sleeve_id": "core", "universe_id": "U1", "benchmark_id": "B1", "target_weight": 1.0},
-    "holdings": {"portfolio_id": "P1", "sleeve_id": "core", "security_id": USD, "quantity": 1_000_000.0},
-    "controls": {"portfolio_id": "P1", "control_id": "R1", "security_id": A, "action": "no_buy", "reason": "wash_sale"},
-    "cash_flows": {"portfolio_id": "P1", "flow_id": "F1", "amount": 0.0},
-}
-# the cash security: priced at 1 per unit, with no denominations or analytics
-CASH: dict[str, object] = {
-    "security_id": USD,
-    "cusip": None,
-    "asset_class": "cash",
-    "issuer": None,
-    "sector": None,
-    "rating": None,
-    "maturity": None,
-    "duration": None,
-    "price": 1.0,
-    "price_per": 1,
-    "cost_bps": 0.0,
-    "min_piece": None,
-    "increment": None,
-    "min_remaining": None,
-}
-
-
-def columns(dataset: Dataset, rows: Iterable[Mapping[str, object]]) -> Columns:
-    """`rows` as a source returns them; fields a row leaves out take the dataset's default."""
-    full = [DEFAULTS[dataset.name] | dict(row) for row in rows]
-    return {name: [row[name] for row in full] for name in dataset.row.model_fields}
-
-
-def frame(dataset: Dataset, *rows: Mapping[str, object]) -> pd.DataFrame:
-    return dataset.to_frame(columns(dataset, rows))
-
-
-def market(**frames: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """Bond A, on list U1 with a signal and the whole of benchmark B1, and cash; `frames` replace datasets by name."""
-    return {dataset.name: frame(dataset, {}) for dataset in MARKET} | {"securities": frame(SECURITIES, {}, CASH)} | frames
-
-
-def portfolio(**frames: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    """P1: one sleeve, `core`, buying from U1 against B1, holding $1mm cash, with no controls or cash flows; `frames`
-    replace datasets by name."""
-    return {"portfolios": frame(PORTFOLIOS, {}), "sleeves": frame(SLEEVES, {}), "holdings": frame(HOLDINGS, {}), "controls": frame(CONTROLS), "cash_flows": frame(CASH_FLOWS)} | frames
-
-
-def prepare(frames: Mapping[str, pd.DataFrame], portfolio_id: str = "P1") -> SolverInputs:
-    """What P1's solve sees, before any rule, from a run's frames."""
-    [one] = build_portfolios(frames, [portfolio_id])
-    return inputs_for(build_market(frames, AS_OF), one)
+EXAMPLES = Path(__file__).parent.parent / "src" / "optim" / "examples"
 
 
 class Rows:
-    """A source that answers each dataset's query with its rows, and a batch of portfolios with theirs alone. It records
-    each fetch's params, and how many read-only transactions were opened."""
+    """A source that answers each dataset's query with its frame, and a batch of portfolios with their rows alone. It
+    records each fetch's params, and how many read-only transactions were opened."""
 
-    def __init__(self, rows: Mapping[Dataset, Iterable[Mapping[str, object]]]) -> None:
-        self.rows = {dataset.query: (dataset, [DEFAULTS[dataset.name] | dict(row) for row in dataset_rows]) for dataset, dataset_rows in rows.items()}
+    def __init__(self, frames: Mapping[Dataset, pd.DataFrame]) -> None:
+        self.frames = {str(dataset.query): frame for dataset, frame in frames.items()}
         self.fetches: list[tuple[str, Mapping[str, Param]]] = []
         self.transactions = 0
 
     def fetch(self, query: str, params: Mapping[str, Param]) -> Columns:
         self.fetches.append((query, params))
-        dataset, rows = self.rows[query]
+        frame = self.frames[query]
         if isinstance(ids := params.get("portfolios"), tuple):
-            rows = [row for row in rows if row["portfolio_id"] in ids]
-        return columns(dataset, rows)
+            frame = frame[frame["portfolio_id"].isin(ids)]
+        return to_columns(frame)
 
     @contextmanager
     def read_only(self) -> Generator[Rows]:
@@ -127,30 +39,9 @@ class Rows:
         yield self
 
 
-def sources() -> Rows:
-    """Two bonds in benchmark B1 and a third on list U1 without a signal, and cash. P1 holds bond B and cash, P2 only cash."""
-    rows = {
-        SECURITIES: [{"security_id": A}, {"security_id": B, "cusip": B, "issuer": "Issuer B"}, {"security_id": C, "cusip": C, "issuer": "Issuer C"}, CASH],
-        UNIVERSE: [{"security_id": A}, {"security_id": B}, {"security_id": C}],
-        SIGNALS: [{"security_id": A, "expected_return": 0.05}, {"security_id": B, "expected_return": 0.03}],
-        BENCHMARKS: [{"security_id": A, "weight": 0.5}, {"security_id": B, "weight": 0.5}],
-        PORTFOLIOS: [{"portfolio_id": "P1"}, {"portfolio_id": "P2"}],
-        SLEEVES: [{"portfolio_id": "P1"}, {"portfolio_id": "P2"}],
-        HOLDINGS: [{"portfolio_id": "P1", "security_id": B, "quantity": 100_000.0}, {"portfolio_id": "P1"}, {"portfolio_id": "P2"}],
-        CONTROLS: [],
-        CASH_FLOWS: [],
-    }
-    return Rows(rows)
-
-
-def context(snapshot_root: object, source: Rows) -> Context:
-    """Runs on `source`, saved under `snapshot_root`, a path, with a clock the run and its loads share."""
-    clock = Clock()
-    return Context(Loader({"oracle": source, "mssql": source, "signals": source}, clock=clock), Root.at(str(snapshot_root)), workers=1, clock=clock)
-
-
-OPTIMIZE = OptimizeRequest(strategy=STRATEGY, portfolios=["P1", "P2"], as_of_date=AS_OF)
-ALL_DATASETS = (*MARKET, PORTFOLIOS, *PER_PORTFOLIO)
+def loader(source: Rows, *, clock: Clock | None = None) -> Loader:
+    """A loader whose databases and API are `source`, and which reads files as a run does."""
+    return Loader({"oracle": source, "mssql": source, "rest": source, "file": FileSource()}, clock=clock or Clock())
 
 
 class Clock:

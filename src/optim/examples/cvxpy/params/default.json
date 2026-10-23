@@ -1,0 +1,9 @@
+{
+  "max_weight": 0.05,
+  "max_issuer_weight": 0.1,
+  "max_turnover": 0.25,
+  "min_rating": "A-",
+  "exclude_issuers": [],
+  "cost_bps": 5.0,
+  "solve": {"solver": "HIGHS", "time_limit_s": 30.0, "mip_gap": 0.001}
+}

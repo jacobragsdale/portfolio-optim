@@ -12,7 +12,7 @@ from pydantic import ConfigDict, Field
 
 from optim.schema import Model
 
-type SourceName = Literal["oracle", "mssql", "signals", "file"]
+type SourceName = Literal["oracle", "mssql", "rest", "file"]
 type Param = str | int | float | date | tuple[str, ...]
 type Columns = dict[str, list[object]]
 

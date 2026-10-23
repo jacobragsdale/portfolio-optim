@@ -1,31 +1,29 @@
-"""A run's id is on every record the run logs, solver workers' records included."""
+"""A run's id and model are on every record the run logs, and a portfolio's id on every record logged while it is
+decided, worker processes' records included."""
 
 import json
-from datetime import date
+from pathlib import Path
 
-import pandas as pd
 import pytest
+from builders import Rows, loader
 
-from optim import logs
-from optim.data.frames import empty_frame
-from optim.datasets import PER_PORTFOLIO
-from optim.datasets.portfolios import PortfolioDetails
-from optim.engine import SolveTask, solve_all
-from optim.prep import Portfolio
-from optim.prep.market import Market
-from optim.strategy import Strategy
+from optim import logs, models
+from optim.datasets import HOLDINGS, SECURITIES
+from optim.run import run
+from optim.storage import Root
+from optim.testing import AS_OF, CASH, frame
 
 
-def test_workers_log_the_bound_run_id(capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_workers_log_the_run_the_model_and_the_portfolio(capfd: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.setenv("OPTIM_LOG_FORMAT", "json")
     monkeypatch.setattr(logs, "_bound", {})
     logs.setup()
-    logs.bind(run_id="run-1")
-    details = [PortfolioDetails(portfolio_id=f"A{i}", currency="USD", target_value=None) for i in (1, 2)]
-    tasks = [SolveTask(Portfolio(d, *(empty_frame(dataset.row) for dataset in PER_PORTFOLIO)), Strategy(name="s")) for d in details]
+    (tmp_path / "params.json").write_text('{"fail": ["P1", "P2"]}')
+    source = Rows({HOLDINGS: frame(HOLDINGS, {"portfolio_id": "P1"}, {"portfolio_id": "P2"}), SECURITIES: frame(SECURITIES, CASH)})
 
-    solve_all(Market(date(2026, 10, 16), pd.DataFrame(), pd.Index([]), {}, {}), tasks, workers=2)  # each solve fails, and logs it, in a worker
+    ran = run(loader(source), Root.at(tmp_path), models.load("toys.basic"), tmp_path / "params.json", as_of_date=AS_OF, portfolio_ids=["P1", "P2"], workers=2)
 
     records = [json.loads(line) for line in capfd.readouterr().err.splitlines()]
-    assert {r["portfolio_id"] for r in records if r["message"] == "solve failed"} == {"A1", "A2"}
-    assert all(r["run_id"] == "run-1" for r in records)
+    failed = [r for r in records if r["message"].startswith("could not decide")]
+    assert {r["portfolio_id"] for r in failed} == {"P1", "P2"}  # each logged once, where its traceback is whole
+    assert all(r["run_id"] == ran.run_id and r["model"] == "toys.basic" for r in records)

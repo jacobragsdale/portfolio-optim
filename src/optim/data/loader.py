@@ -8,19 +8,21 @@ import logging
 import sys
 import threading
 import time
-from collections.abc import Callable, Generator, Iterable, Mapping
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from functools import partial
+from itertools import batched
 from typing import Literal, Self
 
 import pandas as pd
 
 from optim.data.cache import Cache
 from optim.data.dataset import Dataset
+from optim.data.frames import empty_frame
 from optim.logs import brief, ms_since, timed, to_json, utc_now
 from optim.schema import Model
 from optim.sources import Param, Source, SourceName
@@ -70,6 +72,8 @@ class TaskGroup:
 class DatasetRead(Model):
     """How a run got one dataset, as its snapshot's `run.json` records it."""
 
+    source: str
+    """Where it was read from: a source's name, or for a file, `file:` and its path."""
     read: Literal["live", "hit", "miss", "refresh"]
     """`live`: read from its source, as it is not cached; `hit`: from the cache; `miss`: read from its source, then
     cached; `refresh`: read from its source by `optim warm`."""
@@ -123,30 +127,26 @@ class Loader:
     def _read(self, dataset: Dataset, params: Mapping[str, Param], fields: dict[str, object]) -> tuple[pd.DataFrame, DatasetRead]:
         """The frame, and where it came from. A source read adds `wait_ms` to `fields`: the time spent waiting for a
         slot."""
-        policy, cache = dataset.cache, self.cache
-        if policy is None or cache is None:
+        ttl, cache = dataset.cache, self.cache
+        source = f"file:{dataset.query}" if dataset.source == "file" else dataset.source
+        if ttl is None or cache is None:
             frame, fetched_at = self._fetch(dataset, params, fields)
-            return frame, DatasetRead(read="live", fetched_at=fetched_at)
+            return frame, DatasetRead(source=source, read="live", fetched_at=fetched_at)
         key = _cache_key(dataset, params)
         if self.refresh:
             frame, fetched_at = self._fetch(dataset, params, fields)
             if frame.empty:
-                msg = f"{dataset.name} returned no rows; an empty entry would hide the data for {policy.ttl} once it lands"
+                msg = f"{dataset.name} returned no rows; an empty entry would hide the data for {ttl} once it lands"
                 raise ValueError(msg)
             cache.put(key, frame, fetched_at)
-            return frame, DatasetRead(read="refresh", fetched_at=fetched_at)
-        if (hit := self._cached(dataset, partial(cache.get, key))) is not None and self.clock() - hit[1] < policy.ttl:
+            return frame, DatasetRead(source=source, read="refresh", fetched_at=fetched_at)
+        if (hit := self._cached(dataset, partial(cache.get, key))) is not None and self.clock() - hit[1] < ttl:
             frame, fetched_at = hit
-            return frame, DatasetRead(read="hit", fetched_at=fetched_at)
-        if not policy.live_on_miss:  # a miss, or a stale entry, and the policy decides what happens next
-            msg = f"{dataset.name} has no fresh cache entry for {to_json(brief(params))}, and its policy forbids reading it live: check that `optim warm` ran"
-            raise LookupError(msg)
-        if policy.warm:  # warm should have filled it: the warm failed, or this load's params differ from the hook's
-            log.warning("%s is warmed but missed the cache; reading it live", dataset.name, extra={"params": brief(params)})
+            return frame, DatasetRead(source=source, read="hit", fetched_at=fetched_at)
         frame, fetched_at = self._fetch(dataset, params, fields)
         if not frame.empty:  # usually a feed that has not landed yet: cached, it would hide the data for a whole ttl
             self._cached(dataset, partial(cache.put, key, frame, fetched_at))
-        return frame, DatasetRead(read="miss", fetched_at=fetched_at)
+        return frame, DatasetRead(source=source, read="miss", fetched_at=fetched_at)
 
     def _cached[T](self, dataset: Dataset, call: Callable[[], T]) -> T | None:
         """A cache read or write that cannot fail the run, since the cache only saves time: an error, such as a corrupt
@@ -159,16 +159,15 @@ class Loader:
         return None
 
     def warm(self, datasets: Iterable[Dataset], as_of_date: date) -> bool:
-        """`optim warm`: read each dataset live with every params its warm hook returns, and overwrite those entries. A
-        failed load is logged and the rest still land; returns whether all of them did."""
+        """`optim warm`: read each cached dataset read whole live for `as_of_date`, and overwrite its entry, so the day's
+        runs read it from the cache. A failed load is logged and the rest still land; returns whether all of them did."""
         loader = replace(self, refresh=True)
-        loads = [(d, params) for d in datasets if d.cache and d.cache.warm for params in d.cache.warm(loader, as_of_date)]
         with ThreadPoolExecutor() as pool:
-            futures = {pool.submit(loader.load, d, **params): (d.name, params) for d, params in loads}
-        failed = [(name, params, error) for future, (name, params) in futures.items() if (error := future.exception())]
-        for name, params, error in failed:
-            log.error("could not warm %s", name, extra={"params": brief(params)}, exc_info=error)
-        log.info("warmed %d of %d entries", len(futures) - len(failed), len(futures))
+            futures = {pool.submit(loader.load, d, as_of_date=as_of_date): d.name for d in datasets if d.cache and not d.per_portfolio}
+        failed = [(name, error) for future, name in futures.items() if (error := future.exception())]
+        for name, error in failed:
+            log.error("could not warm %s", name, exc_info=error)
+        log.info("warmed %d of %d datasets", len(futures) - len(failed), len(futures))
         return not failed
 
     def load_all(self, *datasets: Dataset, **params: Param) -> dict[str, pd.DataFrame]:
@@ -197,7 +196,10 @@ class Loader:
             fields["wait_ms"] = ms_since(start)
             _skip_if_stopped()
             fetched_at = self.clock()
-            columns = self.sources[dataset.source].fetch(dataset.query, params)
+            if (source := self.sources.get(dataset.source)) is None:
+                msg = f"{dataset.name} reads from {dataset.source}, which is not configured: set OPTIM_{dataset.source.upper()}__* (see .env.example)"
+                raise LookupError(msg)
+            columns = source.fetch(str(dataset.query), params)
         with timed(log, "validated", dataset=dataset.name):
             return dataset.to_frame(columns), fetched_at
 
@@ -209,6 +211,39 @@ def _skip_if_stopped() -> None:
 
 def _cache_key(dataset: Dataset, params: Mapping[str, Param]) -> str:
     """Changes whenever the params, the SQL or the row schema change, so a deploy never reads what older code cached."""
-    query = read_sql(dataset.query) if dataset.query.endswith(".sql") else dataset.query  # a REST path is keyed as given
+    query = read_sql(str(dataset.query)) if dataset.source in ("oracle", "mssql") else str(dataset.query)  # a REST path is keyed as given
     payload = json.dumps([json.dumps(dataset.row.model_json_schema(), sort_keys=True), query, params], sort_keys=True, default=str)
     return f"{dataset.name}/{hashlib.sha256(payload.encode()).hexdigest()[:16]}"  # no `:`, which Windows refuses in a file name
+
+
+BATCH = 1000  # portfolios per query
+
+
+def load_data(loader: Loader, datasets: Mapping[str, Dataset], as_of_date: date, portfolio_ids: Sequence[str]) -> tuple[dict[str, pd.DataFrame], dict[str, DatasetRead]]:
+    """Every dataset a model reads, by name, all loading at once: those read whole for `as_of_date`, and those read per
+    portfolio in batches, each batch's datasets from one source in one read-only transaction, so a portfolio's holdings
+    and the rest of its rows are from one moment. Also returns where each dataset came from, for the run's snapshot."""
+    whole = [dataset for dataset in datasets.values() if not dataset.per_portfolio]
+    per_portfolio = [dataset for dataset in datasets.values() if dataset.per_portfolio]
+    reads = Reads()
+    loader = replace(loader, reads=reads)  # this run's loads alone
+    with timed(log, "loaded data", as_of_date=as_of_date, portfolios=len(portfolio_ids)), TaskGroup() as group:
+        market = group.submit(loader.load_all, *whole, as_of_date=as_of_date)
+        batches = [group.submit(_load_batch, loader, per_portfolio, batch, as_of_date) for batch in batched(portfolio_ids, BATCH, strict=False)]
+    frames = market.result() | {dataset.name: _concat(dataset, [batch.result()[dataset.name] for batch in batches]) for dataset in per_portfolio}
+    return frames, reads.by_dataset()
+
+
+def _load_batch(loader: Loader, datasets: Sequence[Dataset], portfolios: tuple[str, ...], as_of_date: date) -> dict[str, pd.DataFrame]:
+    frames: dict[str, pd.DataFrame] = {}
+    for source in dict.fromkeys(dataset.source for dataset in datasets):
+        with loader.read_only(source) as scoped:
+            frames |= {dataset.name: scoped.load(dataset, as_of_date=as_of_date, portfolios=portfolios) for dataset in datasets if dataset.source == source}
+    return frames
+
+
+def _concat(dataset: Dataset, frames: list[pd.DataFrame]) -> pd.DataFrame:
+    if not frames:
+        return empty_frame(dataset.row)
+    # each batch's key is checked as it loads; a query that ignores its batch's ids repeats rows across batches
+    return dataset.unique(pd.concat(frames, ignore_index=True), why=" across batches: does the query filter on its batch's ids?")

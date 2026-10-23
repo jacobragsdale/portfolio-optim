@@ -1,38 +1,23 @@
-"""`Dataset`: one table's row schema, source, query, key and cache policy, declared once beside its row model. A
-declaration only: importing one opens nothing, so model code can import the row models beside it. The `Loader` fetches
-them. On a model's `Data` class, a dataset is a descriptor: the class attribute is the `Dataset`, and the instance
-attribute its frame."""
+"""`Dataset`: one table's row schema, source, query, key and how long it may be cached, declared once beside its row
+model. A declaration only: importing one opens nothing, so model code can import the row models beside it. The
+`Loader` fetches them. On a model's `Data` class, a dataset is a descriptor: the class attribute is the `Dataset`, and
+the instance attribute its frame.
 
-from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
-from datetime import date, timedelta
-from typing import TYPE_CHECKING, Protocol, Self, overload
+Every query takes only the as-of date, as `as_of_date`, and a dataset read per portfolio also takes the batch's
+portfolio ids, as `portfolios`. Params never change what is loaded, so a sweep can run every variant from one
+snapshot."""
+
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, replace
+from datetime import timedelta
+from pathlib import Path
+from typing import Protocol, Self, overload
 
 import pandas as pd
 
 from optim.data.frames import validate_columns
 from optim.schema import Row
-from optim.sources import Columns, Param, SourceName
-
-if TYPE_CHECKING:  # a warm hook's argument: the loader itself is I/O, which a declaration must not import
-    from optim.data.loader import Loader
-
-
-@dataclass(frozen=True)
-class CachePolicy:
-    """How a dataset uses the cache. A dataset without one is read live on every load."""
-
-    ttl: timedelta  # how long an entry stays fresh; every query param is in the key, so a new business date is a new entry
-    warm: Callable[[Loader, date], Iterable[Mapping[str, Param]]] | None = None  # the params `optim warm` loads, one entry each
-    live_on_miss: bool = True  # on a miss, or a stale entry, read the source; False fails the run instead
-
-    def __post_init__(self) -> None:
-        if self.ttl <= timedelta(0):
-            msg = f"cache ttl must be positive, got {self.ttl}"
-            raise ValueError(msg)
-        if not (self.live_on_miss or self.warm):
-            msg = "live_on_miss=False needs a warm hook: nothing else would fill the cache"
-            raise ValueError(msg)
+from optim.sources import Columns, SourceName
 
 
 class _Frames(Protocol):
@@ -45,12 +30,17 @@ class Dataset:
     """One table: its row schema, where it comes from, its key, and how it is cached."""
 
     name: str
+    """Names its frame and its snapshot file: unique among a model's datasets."""
     row: type[Row]
     source: SourceName
-    query: str  # a SQL file's path inside the optim package, or a REST path
-    key: tuple[str, ...]  # columns that must be unique
-    cache: CachePolicy | None = None  # None: always read live
-    check: Callable[[pd.DataFrame], None] | None = None  # cross-row rules; raise ValueError
+    query: str | Path
+    """A SQL file for a database, a path for a REST API, or a file's path or URL for `file`."""
+    key: tuple[str, ...]
+    """Columns whose values no two rows share."""
+    cache: timedelta | None = None
+    """How long a cache entry stays fresh; None reads it live on every load. `optim warm` fills every cached dataset."""
+    check: Callable[[pd.DataFrame], None] | None = None
+    """Rules across rows, which raise `ValueError` on rows that disagree."""
 
     @overload
     def __get__(self, instance: None, owner: type) -> Self: ...
@@ -58,6 +48,10 @@ class Dataset:
     def __get__(self, instance: _Frames, owner: type) -> pd.DataFrame: ...
     def __get__(self, instance: _Frames | None, owner: type) -> Self | pd.DataFrame:
         return self if instance is None else instance.frames[self.name]
+
+    def file(self, path: str | Path) -> Dataset:
+        """The same dataset read from a Parquet or CSV file, for a what-if or a test: `holdings = HOLDINGS.file(...)`."""
+        return replace(self, source="file", query=path, cache=None)
 
     @property
     def per_portfolio(self) -> bool:

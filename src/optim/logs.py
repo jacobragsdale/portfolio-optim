@@ -12,8 +12,10 @@ dates and pydantic models serialize as they are:
 Keys that clash with `LogRecord` attributes (`name`, `module`, `filename`, ...) raise. Keep records small: AKS splits
 lines over 16KB, so bulk data belongs in the run's snapshot, which the logs point to. To time a block, use `timed`.
 
-A job binds its run's id first, with `bind(run_id=...)`. Every record after that carries it, solver workers' records
-included, so filtering on `run_id` finds a whole run.
+A run binds its id and its model first, with `bind(run_id=..., model=...)`, and each portfolio's id while it decides
+it, with `fields(portfolio_id=...)`. Every record carries them, worker processes' records included, so filtering on
+`run_id` finds a whole run. A model logs with `logging.getLogger(__name__)`; `include` gives its package's loggers the
+configured level, as `optim`'s have.
 
 Exceptions need nothing: the CLI and the engine log them once, with the notes added on the way up, the root cause, and
 the line in this package where it surfaced. Where a frame knows what the message does not, such as which dataset was
@@ -38,6 +40,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 _PACKAGE = Path(__file__).parent
 _STANDARD = {*vars(logging.makeLogRecord({})), "message", "asctime"}  # LogRecord's own attributes, not `extra` fields
 _bound: dict[str, object] = {}  # fields on every record this process logs; see `bind`
+_included: list[str] = []  # packages besides `optim` whose loggers log at the configured level; see `include`
 
 
 class LogSettings(BaseSettings):
@@ -66,7 +69,21 @@ def _configure(settings: LogSettings) -> None:
     handler.setFormatter(JsonFormatter() if settings.format == "json" else TextFormatter())
     logging.basicConfig(level=logging.WARNING, handlers=[handler], force=True)
     logging.captureWarnings(True)  # library warnings, such as cvxpy's, as JSON records rather than raw stderr lines
-    logging.getLogger("optim").setLevel(settings.level)
+    for package in ("optim", *_included):
+        logging.getLogger(package).setLevel(settings.level)
+
+
+def include(package: str) -> None:
+    """Log `package`'s records at the configured level, as `optim`'s are, rather than warnings only, as a library's
+    are: a model's package. The engine includes the same packages in each worker it starts."""
+    if package not in _included:
+        _included.append(package)
+    logging.getLogger(package).setLevel(logging.getLogger("optim").level)
+
+
+def included() -> list[str]:
+    """The packages `include` added, for a worker to include in its own process."""
+    return list(_included)
 
 
 def bind(**fields: object) -> None:
@@ -77,8 +94,20 @@ def bind(**fields: object) -> None:
 
 
 def bound() -> dict[str, object]:
-    """The fields `bind` added, for a solver worker to bind in its own process."""
+    """The fields `bind` added, for a worker to bind in its own process."""
     return dict(_bound)
+
+
+@contextmanager
+def fields(**added: object) -> Generator[None]:
+    """Add `added` to every record logged in the block, as while one portfolio is decided."""
+    before = dict(_bound)
+    _bound.update(added)
+    try:
+        yield
+    finally:
+        _bound.clear()
+        _bound.update(before)
 
 
 @contextmanager

@@ -66,6 +66,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "INP001"]  # pytest asserts; tests/ is not a package
+"src/optim/examples/*/tests/**" = ["S101", "INP001"]  # an example's tests, which a model repo's tests/ gets
 
 [tool.ruff.lint.isort]
 split-on-trailing-comma = false
@@ -98,7 +99,7 @@ error-on-warning = true
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config --import-mode=importlib -m 'not integration'"
-testpaths = ["tests"]
+testpaths = ["tests", "src/optim/examples"]
 pythonpath = ["tests"]  # test modules share `builders`
 xfail_strict = true  # An xfail that starts passing is a failure, not a silent pass.
 filterwarnings = [
@@ -130,11 +131,14 @@ include_external_packages = true  # so a contract can forbid a database driver o
 exclude_type_checking_imports = true  # a hook's type annotation imports nothing at runtime
 
 [[tool.importlinter.contracts]]
-name = "Prep, rules and the solve do no I/O: workers compute, the parent loads and saves"
+name = "Model code and what workers run do no I/O: the parent loads and saves"
 type = "forbidden"
-source_modules = ["optim.contract", "optim.cvxpy", "optim.models", "optim.prep", "optim.rules", "optim.optimizer", "optim.strategy", "optim.engine"]
+source_modules = [
+    "optim.contract", "optim.cvxpy", "optim.models", "optim.engine", "optim.datasets", "optim.testing", "optim.examples",
+    "optim.data.dataset", "optim.data.frames", "optim.schema",
+]
 forbidden_modules = [
-    "optim.data.loader", "optim.data.cache", "optim.datasets.load", "optim.sources.sql", "optim.sources.oracle",
-    "optim.sources.mssql", "optim.sources.rest", "optim.sources.file", "optim.storage", "optim.context", "optim.settings",
-    "optim.outputs", "optim.jobs", "httpx", "oracledb", "mssql_python",
+    "optim.data.loader", "optim.data.cache", "optim.sources.sql", "optim.sources.oracle", "optim.sources.mssql",
+    "optim.sources.rest", "optim.sources.file", "optim.storage", "optim.context", "optim.settings", "optim.snapshots",
+    "optim.run", "optim.cli", "httpx", "oracledb", "mssql_python",
 ]

@@ -1,89 +1,142 @@
-"""What a run records about itself in `run.json`, and how its results reconcile."""
+"""A run end to end: what it loads, how it decides each portfolio, what its snapshot holds, and how a replay decides
+it again from the snapshot alone."""
 
-from dataclasses import replace
-from datetime import UTC, datetime
+import json
 from pathlib import Path
 
 import pandas as pd
 import pytest
-from builders import ALL_DATASETS, OPTIMIZE, context, sources
+from builders import Clock, Rows, loader
 from pandas.testing import assert_frame_equal
 
+import optim
+from optim import models
 from optim.cli import main
-from optim.data.loader import DatasetRead, Reads
-from optim.jobs.run import Replayed, ReplayRequest, RunInfo, replay, run
-from optim.optimizer.results import Solved
-from optim.outputs.snapshots import Code
+from optim.datasets import HOLDINGS, SECURITIES
+from optim.run import replay, run
+from optim.snapshots import read_info, read_inputs, read_results
+from optim.storage import Root
+from optim.testing import AS_OF, CASH, frame
+
+TOY = models.load("toys.basic")
+HELD = frame(HOLDINGS, {"portfolio_id": "P1"}, {"portfolio_id": "P1", "security_id": "A", "quantity": 5000.0}, {"portfolio_id": "P2"})
+MARKET = frame(SECURITIES, CASH, {"security_id": "A"})
 
 
-def saved(path: Path) -> RunInfo:
-    return RunInfo.model_validate_json((path / "run.json").read_bytes())
+def params(tmp_path: Path, **values: object) -> Path:
+    path = tmp_path / "params.json"
+    path.write_text(json.dumps(values))
+    return path
 
 
-def test_a_run_records_when_it_ran_who_labelled_it_and_how_each_dataset_was_read(tmp_path: Path) -> None:
-    ran = run(context(tmp_path, sources()), OPTIMIZE, labels={"purpose": "test"})
+def toy_run(tmp_path: Path, source: Rows | None = None, **values: object) -> tuple[Root, str]:
+    root = Root.at(tmp_path / "snapshots")
+    ran = run(
+        loader(source or Rows({HOLDINGS: HELD, SECURITIES: MARKET})), root, TOY, params(tmp_path, **values), as_of_date=AS_OF, portfolio_ids=["P1", "P2"], labels={"purpose": "test"}, clock=Clock()
+    )
+    return root, ran.run_id
 
-    info = saved(tmp_path / ran.run_id)
 
+def test_a_run_records_what_it_was_asked_with_which_code_and_data_and_when(tmp_path: Path) -> None:
+    root, run_id = toy_run(tmp_path, buy="A")
+
+    info = read_info(root / run_id)
+
+    assert (info.run_id, info.optim_version, info.model.module) == (run_id, optim.__version__, "toys.basic")
+    assert (info.as_of_date, info.portfolios, info.labels) == (AS_OF, ["P1", "P2"], {"purpose": "test"})
+    assert info.params == {"buy": "A", "fail": [], "unsolved": []}  # defaults included
+    assert info.params_file.path.endswith("params.json")
     assert info.started_at < info.loaded_at < info.finished_at
-    assert (info.labels, info.workers) == ({"purpose": "test"}, 1)
     assert info.datasets is not None
-    assert list(info.datasets) == sorted(dataset.name for dataset in ALL_DATASETS)
-    assert all(read.read == "live" and info.started_at < read.fetched_at < info.loaded_at for read in info.datasets.values())
+    assert {name: (read.source, read.read) for name, read in info.datasets.items()} == {"holdings": ("mssql", "live"), "securities": ("oracle", "live")}
 
 
-def test_a_replay_records_the_run_it_replays_and_reads_no_dataset(tmp_path: Path) -> None:
-    ran = run(context(tmp_path, sources()), OPTIMIZE)
+def test_a_snapshot_holds_each_dataset_as_loaded_and_every_decision(tmp_path: Path) -> None:
+    root, run_id = toy_run(tmp_path)
 
-    replayed = replay(ReplayRequest(snapshot=str(tmp_path / ran.run_id)), workers=1, labels={"purpose": "research"})
-    info = saved(tmp_path / replayed.run_id)
+    inputs = read_inputs(root / run_id, {"holdings": HOLDINGS, "securities": SECURITIES})
+    results = read_results(root / run_id)
 
-    assert info.replay == Replayed(of=ran.run_id, portfolios=None)
-    assert info.datasets is None
-    assert info.labels == {"purpose": "research"}
-
-
-def test_a_dataset_loaded_in_batches_keeps_its_oldest_read() -> None:
-    reads, early, late = Reads(), datetime(2026, 10, 16, 13, tzinfo=UTC), datetime(2026, 10, 16, 14, tzinfo=UTC)
-
-    reads.add("holdings", DatasetRead(read="live", fetched_at=late))
-    reads.add("holdings", DatasetRead(read="hit", fetched_at=early))
-    reads.add("holdings", DatasetRead(read="live", fetched_at=late))
-
-    assert reads.by_dataset() == {"holdings": DatasetRead(read="hit", fetched_at=early)}
+    assert_frame_equal(inputs["holdings"], HELD)  # dtypes included: replay must decide on exactly what the run loaded
+    assert_frame_equal(inputs["securities"], MARKET)
+    assert results["decisions"][["portfolio_id", "status", "trades"]].to_dict("records") == [
+        {"portfolio_id": "P1", "status": "accepted", "trades": 1},
+        {"portfolio_id": "P2", "status": "accepted", "trades": 1},
+    ]
+    assert results["trades"][["portfolio_id", "security_id", "side", "quantity"]].to_dict("records") == [
+        {"portfolio_id": p, "security_id": "A", "side": "buy", "quantity": 1000.0} for p in ("P1", "P2")
+    ]
+    assert results["metrics"]["value"].tolist() == [2.0, 1.0]  # each portfolio saw its own holdings alone
 
 
-def test_an_images_commit_is_recorded_rather_than_the_checkouts(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPTIM_GIT_SHA", "abc123")
-    monkeypatch.setenv("OPTIM_IMAGE", "registry/portfolio-optim:abc123")
+def test_a_portfolio_that_fails_or_is_rejected_leaves_the_others_decided(tmp_path: Path) -> None:
+    root, run_id = toy_run(tmp_path, fail=["P1"], buy="BAD")
 
-    assert Code.current() == Code(git_sha="abc123", image="registry/portfolio-optim:abc123", dirty=None)
+    results = read_results(root / run_id)
 
-
-def test_cash_after_trading_reconciles_with_the_trades(tmp_path: Path) -> None:
-    ran = run(context(tmp_path, sources()), OPTIMIZE)
-
-    trades, summary = (pd.read_parquet(tmp_path / ran.run_id / f"{name}.parquet") for name in ("trades", "summary"))
-    signed = trades["value"].where(trades["side"] == "sell", -trades["value"]).groupby(trades["portfolio_id"]).sum()
-
-    for row in summary.to_dict("records"):
-        assert row["cash"] == pytest.approx(1_000_000 + row["cash_flow"] + signed[row["portfolio_id"]] - row["cost"], abs=1e-6)
+    assert results["decisions"].set_index("portfolio_id")["status"].to_dict() == {"P1": "rejected", "P2": "rejected"}
+    assert results["reasons"].set_index("portfolio_id")["reason"].to_dict() == {"P1": "error: ValueError('cannot decide P1')", "P2": "buys BAD"}
 
 
-@pytest.mark.parametrize(("strategy", "code"), [("track-benchmark", 0), ("two-sleeves", 1)])
-def test_a_replay_exits_zero_only_when_every_portfolio_is_accepted(tmp_path: Path, strategy: str, code: int) -> None:
-    """The placeholder portfolios have one sleeve, `core`; `two-sleeves` names others, so neither solves."""
-    ran = run(context(tmp_path, sources()), OPTIMIZE)
-    path = Path(__file__).parent.parent / "strategies" / f"{strategy}.json"
+def test_a_replay_decides_as_the_run_did_from_its_snapshot_alone(tmp_path: Path) -> None:
+    root, run_id = toy_run(tmp_path, unsolved=["P2"])
 
-    assert main(["replay", str(tmp_path / ran.run_id), "--strategy", str(path)]) == code
+    replayed = replay(root / run_id, root, workers=1)
+
+    assert [o.reasons for o in replayed.outcomes] == [[], ["not solved: the model says so"]]
+    info = read_info(root / replayed.run_id)
+    assert (info.replay and info.replay.of, info.datasets, info.params["unsolved"]) == (run_id, None, ["P2"])
 
 
-def test_spawned_workers_solve_as_this_process_does(tmp_path: Path) -> None:
-    in_process = run(context(tmp_path, sources()), OPTIMIZE)
-    pooled = run(replace(context(tmp_path, sources()), workers=2), OPTIMIZE)
+def test_a_replay_with_other_params_records_them_and_a_replay_of_a_subset_replays_that_subset(tmp_path: Path) -> None:
+    root, run_id = toy_run(tmp_path)
 
-    for one, other in zip(in_process.results, pooled.results, strict=True):
-        assert isinstance(one, Solved)
-        assert isinstance(other, Solved)
-        assert_frame_equal(one.trades, other.trades)
+    other = replay(root / run_id, root, params_file=params(tmp_path, buy="BAD"), portfolio_ids=["P2"])
+    again = replay(root / other.run_id, root)
+
+    assert [(o.portfolio_id, o.reasons) for o in other.outcomes] == [("P2", ["buys BAD"])]
+    assert [o.portfolio_id for o in again.outcomes] == ["P2"]
+    assert read_info(root / other.run_id).params["buy"] == "BAD"
+
+
+def test_spawned_workers_decide_as_this_process_does(tmp_path: Path) -> None:
+    root, run_id = toy_run(tmp_path)
+
+    pooled = replay(root / run_id, root, workers=2)
+
+    assert_frame_equal(read_results(root / pooled.run_id)["trades"], read_results(root / run_id)["trades"])
+
+
+def test_a_run_reads_a_batchs_per_portfolio_datasets_in_one_read_only_transaction(tmp_path: Path) -> None:
+    source = Rows({HOLDINGS: HELD, SECURITIES: MARKET})
+
+    toy_run(tmp_path, source)
+
+    assert source.transactions == 1  # two portfolios, one batch, one source
+    assert {params["portfolios"] for query, params in source.fetches if query == str(HOLDINGS.query)} == {("P1", "P2")}
+    assert [set(params) for query, params in source.fetches if query == str(SECURITIES.query)] == [{"as_of_date"}]
+
+
+@pytest.mark.parametrize("values", [{"buy": 1}, {"bye": "A"}], ids=["wrong-type", "misspelled"])
+def test_params_that_break_the_models_schema_fail_before_anything_loads(tmp_path: Path, values: dict[str, object]) -> None:
+    source = Rows({HOLDINGS: HELD, SECURITIES: MARKET})
+
+    with pytest.raises(ValueError, match="params"):
+        toy_run(tmp_path, source, **values)
+
+    assert source.fetches == []
+
+
+def test_the_command_exits_zero_only_when_every_portfolio_is_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    HELD.to_csv(data / "holdings.csv", index=False)
+    MARKET.to_parquet(data / "securities.parquet", index=False)
+    monkeypatch.setenv("OPTIM_SNAPSHOT_ROOT", str(tmp_path / "snapshots"))
+    command = ["run", "toys.basic", "--data", str(data), "--as-of", "2026-10-16", "--params"]
+
+    assert main([*command, str(params(tmp_path))]) == 0  # every portfolio in the holdings file
+    assert main([*command, str(params(tmp_path, unsolved=["P1"]))]) == 1
+    [first, _] = sorted(path.name for path in (tmp_path / "snapshots").iterdir())
+    assert main(["replay", first]) == 0
+    assert pd.read_parquet(tmp_path / "snapshots" / first / "decisions.parquet")["portfolio_id"].tolist() == ["P1", "P2"]

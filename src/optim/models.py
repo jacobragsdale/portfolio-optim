@@ -3,9 +3,10 @@ names one; a module path, such as `optim.examples.cvxpy`, names a model too. Wor
 module path."""
 
 import importlib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from importlib.metadata import entry_points
+from pathlib import Path
 from types import ModuleType
 
 from optim.contract import Datasets, Metrics, Params
@@ -20,6 +21,8 @@ class LoadedModel:
     name: str
     """As the run named it: an entry point's name, or the module path."""
     module: str
+    directory: Path
+    """Where the module's file is, which says which checkout's commit a run records."""
     params: type[Params]
     data: type[Datasets]
     decide: Callable[..., object]
@@ -27,7 +30,7 @@ class LoadedModel:
     prepare_portfolio: Callable[..., object] | None
     reserve: Callable[..., object] | None
     order: Callable[..., object] | None
-    check: Callable[..., object] | None
+    check: Callable[..., Iterable[str]] | None
     metrics: type[Metrics] | None
 
 
@@ -64,4 +67,6 @@ def read(name: str, module: ModuleType) -> LoadedModel:
         msg = f"model {name}: {module.__name__} has no decide(prepared, shared, params) function"
         raise TypeError(msg)
     hooks = {hook: getattr(module, hook, None) for hook in ("prepare", "prepare_portfolio", "reserve", "order", "check")}
-    return LoadedModel(name, module.__name__, params, data, decide, metrics=metrics if isinstance(metrics, type) and issubclass(metrics, Metrics) else None, **hooks)
+    file = getattr(module, "__file__", None)  # a namespace package, or a module built in memory, has none
+    directory = Path(file).parent if file else Path.cwd()
+    return LoadedModel(name, module.__name__, directory, params, data, decide, metrics=metrics if isinstance(metrics, type) and issubclass(metrics, Metrics) else None, **hooks)

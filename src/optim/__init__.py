@@ -5,8 +5,8 @@ decision, and saves every run as a snapshot that replays."""
 from importlib.metadata import version
 
 from optim.contract import Datasets, Decision, Metrics, Params, SolverStats
-from optim.data.dataset import CachePolicy, Dataset
+from optim.data.dataset import Dataset
 from optim.schema import Row
 
 __version__ = version("optim")
-__all__ = ["CachePolicy", "Dataset", "Datasets", "Decision", "Metrics", "Params", "Row", "SolverStats", "__version__"]
+__all__ = ["Dataset", "Datasets", "Decision", "Metrics", "Params", "Row", "SolverStats", "__version__"]

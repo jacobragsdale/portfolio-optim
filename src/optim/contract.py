@@ -12,6 +12,7 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from optim.data.dataset import Dataset
+from optim.datasets import HOLDINGS, SECURITIES
 from optim.schema import Model
 
 
@@ -27,7 +28,13 @@ class Datasets:
     """Base for a model's `Data`. Each class attribute that is a `Dataset` is one the model reads; on an instance, the
     same attribute is that dataset's frame, so `data.holdings` is a `DataFrame` that ty checks and editors complete. A
     dataset whose rows have a `portfolio_id` is read per portfolio: a portfolio's slice of the data holds its rows alone,
-    and every other dataset whole."""
+    and every other dataset whole.
+
+    Every model reads the shared holdings and securities, which acceptance needs, so they are declared here. A model
+    may swap either for a dataset with the same row model, such as `holdings = HOLDINGS.file("whatif.csv")`."""
+
+    holdings = HOLDINGS
+    securities = SECURITIES
 
     def __init__(self, frames: Mapping[str, pd.DataFrame], *, as_of_date: date, portfolio_id: str | None = None) -> None:
         self.frames = dict(frames)
