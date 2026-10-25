@@ -41,10 +41,10 @@ To port a model:
    silently. Give each dataset a CSV of a few made-up rows in `tests/fixture/`.
 5. Port each **port** and **change** row to its place in [where old code goes](#where-old-code-goes), and write its
    behaviour test as it lands. Put the test's name in the log.
-6. Write the old system's settings as the model's default params, `params/default.json`. Its limits become entries of
-   `constraints`, in the vocabulary `optimizer/problem.py`, or the firm's cvxpy wrapper, compiles; its preferences
-   become terms of `objective`. If the old system sets values per group of portfolios, such as per product, write one
-   params file per group beside `default.json`, and run each group's portfolios with its file.
+6. Write the old system's settings as the model's default params, `params/default.json`. Its limits become params that
+   the constraints in `optimizer/constraints.py` read, and its preferences become the objective's terms in
+   `optimizer/problem.py`, with their weights as params. If the old system sets values per group of portfolios, such as
+   per product, write one params file per group beside `default.json`, and run each group's portfolios with its file.
 7. [Sanity-check the port](#how-to-sanity-check-the-port) on the old system's data.
 
 The port is done when every row of the log has a decision and, unless dropped, a place and a test; every portfolio in
@@ -96,10 +96,9 @@ Paths are in the model's folder, `models/NAME/`.
 | Restricts trading whatever the params: a client's restrictions, wash-sale blocks, mandatory sales | A per-portfolio dataset, and a rule in `rules/` applied first in `prepare_portfolio` |
 | Excludes securities from buying, or stops them being sold, for some settings | A rule in `rules/`, driven by a param |
 | Adjusts returns or scores | A rule in `rules/`, or a step of `prep.py` |
-| Sets a hard limit for every portfolio | An entry of `constraints` in the params |
-| Sets a client's own limits | A per-portfolio dataset, and a rule that turns its rows into constraints, as the example's `rules/mandates.py` does |
-| Sets a limit the definitions cannot express | A constraint written in cvxpy in `optimizer/constraints.py` |
-| Applies a penalty or a preference | A term of `objective` in the params, compiled in `optimizer/problem.py` or by the wrapper |
+| Sets a hard limit for every portfolio | A param, which a constraint in `optimizer/constraints.py` reads |
+| Sets a client's own limits | A per-portfolio dataset, and a rule that sets them on the portfolio, as the example's `rules/mandates.py` sets its `sector_caps` |
+| Applies a penalty or a preference | A term of the objective, in `terms` in `optimizer/problem.py`, with its weight a param |
 | Rounds trades, or drops small ones, after the solve | Nothing for rounding: `optim` rounds to each increment. A minimum size is a constraint in `optimizer/constraints.py`, as the example's trade sizes are |
 | Retries a failed solve | Nothing: the portfolio is rejected, `not solved`. A limit that may bend is a penalty instead |
 | Checks a result before it is released | `check` in `model.py`, unless [optim already does it](#what-optim-already-does) |

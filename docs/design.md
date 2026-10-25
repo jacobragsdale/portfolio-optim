@@ -6,7 +6,7 @@ same way for every model: loading, parallelism, rounding, acceptance, snapshots,
 design was agreed on 2026-10-22 and implemented in `optim` 0.1.0, by the steps in
 [Getting there from this repository](#getting-there-from-this-repository). `optim` 0.2.0 reworked how a quant works in a
 model repo, as [The developer experience](developer-experience.md) specifies: one folder per model, a `main.py` to run,
-renamed hooks, and constraints as data. The taxable SMA optimizer this repository held was a mock that existed to test
+and renamed hooks. The taxable SMA optimizer this repository held was a mock that existed to test
 the engine; it is the package's example. The docs for quants are in `src/optim/docs/` and ship with the package; this
 page records the design and its reasons.
 
@@ -20,7 +20,7 @@ design's intent:
 | `Data` | `optim.Datasets` itself declares `holdings` and `securities`; a model's `Data` lists only its own datasets, and may replace either shared one with a dataset of the same row model. A dataset declared as `portfolios`, whose query takes only the as-of date, lists the portfolios the model manages: a run given none decides every one, each portfolio sees its own row, and one it does not list is rejected. | Every model must read both, so the core declaring them removes a touch point and a way to forget one. Most runs are live, and the model, not the scheduler, knows which portfolios it manages. |
 | Hooks | `prepare` is `prepare_market(data, params) -> market`, `prepare_portfolio(data, market, params) -> portfolio`, `decide(portfolio, market, params)` and `check(portfolio, decision)`; "shared" and "prepared" are gone. | Names an analyst reads as what they hold. |
 | `reserve`, `order` | `reserve(market, decision)` returns the market the next portfolio sees. `order(portfolios, market, params)` takes every prepared portfolio by id and returns the ids in order; one that drops a portfolio fails the run. | The page left `order`'s arguments open. Returning the state keeps `reserve` pure, and the prepared portfolios are what a fairness rule ranks. |
-| Rules and constraints | Every rule is `(portfolio, market, params) -> portfolio`, in the model's `rules/`, and may drop rows, add columns, and change constraints and the objective. Constraints and objective terms are dicts in the wrapper's vocabulary, from params (`Params.constraints`, `Params.objective`), datasets, rules and code; the example's `optimizer/problem.py` stands in for the wrapper, and `optimizer/constraints.py` holds the cvxpy the model writes itself, trade sizes among it. | Quants treat constraints as data, and the wrapper compiles them; `optim` owning a vocabulary would compete with it. Trade sizing stays visible in the model, for quants to change. |
+| Rules and constraints | Every rule is `(portfolio, market, params) -> portfolio`, in the model's `rules/`, and may drop rows, add columns, and change the limits the optimizer reads from the portfolio. Constraints and the objective are cvxpy, in the model's `optimizer/`: `constraints.py` holds each constraint, trade sizes among them, and `problem.py` builds the problem and its objective. Their limits come from params, datasets, rules and code. | A constraint in cvxpy needs no format of its own for `optim` to own. Trade sizing stays visible in the model, for quants to change. |
 | `Metrics` | A model may export `Metrics`, a model of float fields, so `optim describe` can print its metrics; a contract test fails when decisions report metrics it does not declare. | `describe` must print a model's metrics without running it. |
 | Repo layout | Each model is a folder, `models/MODEL/`, holding everything about it: `main.py`, `model.py`, `prep.py`, `datasets/`, `rules/`, `optimizer/`, `params/` and `tests/`, its fixture `tests/fixture/` with one file per dataset and `fixture.json`. Every repo's package is `models`; code two models share is in `models/shared/`, which `optim new model` adds with the second model. | One folder per model means one place for each change, and the `models` package imports the same way from any editor. |
 | `optim run --data DIR` | Reads each dataset that has a file in `DIR` instead of its source, as of the date in `DIR/fixture.json` unless `--as-of` says otherwise. Without `--portfolios`, a run decides every portfolio the model lists, or with `--data`, every portfolio in the holdings file. | It is how a laptop and the contract tests run on files without editing `Data`, and a fixture's rows are of its date. |
@@ -43,19 +43,17 @@ design's intent:
 | Agent files | `optim sync` writes `AGENTS.md`'s block and `.agents/skills/` alone. | The open conventions every agent reads, Copilot's included; no vendor's own files. |
 | Image | The generated `Dockerfile` runs `optim` under `tini`, the container's first process. | The first process ignores a signal's default action, so `optim` run as the first process would log the scheduler's SIGTERM and carry on, writing orders, until it was killed. |
 
-What is not done here, because it needs what this repository cannot reach: the wrapper example (the internal wrapper is
-proprietary, and `optim.cvxpy.read` covers the problem it hands back), a run of the tests on Windows, publishing by tag,
-and the real pipeline templates in the `azure-pipelines.yml` stub.
+What is not done here, because it needs what this repository cannot reach: a run of the tests on Windows, publishing by
+tag, and the real pipeline templates in the `azure-pipelines.yml` stub.
 
 ## The problem it solves
 
 Quants at a fixed income research firm write optimizers for SMA products (many small portfolios) and for institutional
 portfolios (fewer, larger, and with more constraints). There are hundreds of them, in many flavours. Most solve linear
-or mixed-integer programs through an internal wrapper around cvxpy, some use cvxpy directly, and a few decide in plain
-Python with no solver. They share one shape: load holdings and other data, apply each portfolio's constraints and
-rules, optimize an objective, and save the orders. Each repeats that shape in its own code, with I/O anywhere, no
-types, no replay and inconsistent logs, so they are hard to scale to many portfolios, to describe and to test. One
-engineer owns all of them in production.
+or mixed-integer programs in cvxpy, and a few decide in plain Python with no solver. They share one shape: load holdings
+and other data, apply each portfolio's constraints and rules, optimize an objective, and save the orders. Each repeats
+that shape in its own code, with I/O anywhere, no types, no replay and inconsistent logs, so they are hard to scale to
+many portfolios, to describe and to test. One engineer owns all of them in production.
 
 `optim` takes the shape out of each model and keeps it in one place, and a quant writes only what is particular to the
 model. The guarantees come from owning the run loop. Data loads only in the parent process, so model code does no I/O,
@@ -133,13 +131,13 @@ Each dataset in `Data` is a typed attribute, so `prepared.holdings` is a DataFra
 a string key would be a typo away from a `KeyError` in the morning run. Datasets read per portfolio are sliced to the
 portfolio before `prepare_portfolio`, and the others arrive whole.
 
-`decide` is one pure function for every kind of model. A cvxpy problem, whether written directly or built by the
-wrapper (which hands back its cvxpy problem), goes through the core's helper, `optim.cvxpy`. The helper solves with the
-solver, time limit and MIP gap from `Params`, passes `warm_start=False` (the default made HiGHS re-solves about six
-times slower), reads the solver's status, records its statistics, and returns a `Decision`. The framework does not call
-`solve()` itself because the wrapper runs its own solve. A model with no solver builds its `Decision` directly. A
-`Decision` holds the trades by security as float quantities, and a report: whether the problem solved, the objective
-value, solver statistics, and any metrics the model wants in sweeps.
+`decide` is one pure function for every kind of model. A cvxpy problem goes through the core's helper, `optim.cvxpy`.
+The helper solves with the solver, time limit and MIP gap from `Params`, passes `warm_start=False` (the default made
+HiGHS re-solves about six times slower), reads the solver's status, records its statistics, and returns a `Decision`.
+The framework does not call `solve()` itself, so `decide` stays one function whether a model solves one problem, several
+or none. A model with no solver builds its `Decision` directly. A `Decision` holds the trades by security as float
+quantities, and a report: whether the problem solved, the objective value, solver statistics, and any metrics the model
+wants in sweeps.
 
 The rules a model applies per portfolio are much of each model's particular logic: narrowing the buy universe, or
 adjusting constraints from current holdings. They are plain functions in the model's `rules.py`, tested without a
@@ -169,7 +167,7 @@ Every run, in Airflow or on a laptop, takes the same steps:
 
 Acceptance rejects a decision unless every trade is in a known security, every quantity is positive, no sale exceeds
 the holding, and cash after the trades is not negative. One tolerance applies, in weights of the portfolio's value. The
-model's `check` then adds its own reasons, because the core cannot see constraints built inside cvxpy or the wrapper. A
+model's `check` then adds its own reasons, because the core cannot see the constraints a model builds in cvxpy. A
 solver's status alone never makes a result acceptable. A rejected portfolio writes no orders, its decision and reasons
 stay in the snapshot, and the run exits non-zero; the exit code is 0 only when every portfolio was accepted.
 
@@ -301,8 +299,7 @@ is the internal PyPI server. A new repo gets:
 
 The generator runs `git init` and `uv sync`, and leaves the first commit to the quant. A new model gets its module,
 params, README and test, and its entry-point line. The templates are the installed package's examples, so a generated
-repo matches the `optim` version that made it. The package's owner adds an example built on the wrapper, which is
-internal.
+repo matches the `optim` version that made it.
 
 ## Docs for quants
 
@@ -318,7 +315,7 @@ point at these pages instead of repeating them, so agents and quants read the sa
 |---|---|
 | One monorepo for every model | Hundreds of models, and quants work independently. |
 | A template repo with the engine copied in | Hundreds of copies drift apart. |
-| The framework calling `solve()` | The wrapper runs its own solve; `optim.cvxpy` standardizes solving instead. |
+| The framework calling `solve()` | `decide` stays one function whether a model solves once, several times or not at all; `optim.cvxpy` standardizes solving instead. |
 | Joint solves across portfolios | One solve per portfolio; portfolios that compete decide in turn with `reserve`. |
 | Exact `Decimal` values | Arithmetic on them fails or is slow; rounding to increments makes trades exact. |
 | Redis as the cache | Infrastructure in every environment, and awkward on Windows laptops. |

@@ -88,7 +88,7 @@ def test_a_replay_finds_its_run_in_the_repos_snapshots_and_refuses_another_model
 def test_a_sweep_decides_a_saved_run_once_per_params_file_into_one_table(repo: Path) -> None:
     ran = optim.run(income(), data="tests/fixture")
     params = repo / "models" / "income" / "params"
-    (params / "tight.json").write_text((params / "default.json").read_text().replace('"max": 0.25', '"max": 0.01'))
+    (params / "tight.json").write_text((params / "default.json").read_text().replace('"max_turnover": 0.25', '"max_turnover": 0.01'))
 
     table = optim.sweep(income(), ran.run_id, params=["params/default.json", "params/tight.json"])
 

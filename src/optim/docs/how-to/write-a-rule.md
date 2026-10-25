@@ -41,9 +41,9 @@ To write a rule:
    - Drop rows of the universe, as `screens.exclude_sectors` drops the excluded bonds the portfolio does not hold. A
      held bond dropped from the universe stays held, and is not traded.
    - Add columns, which later rules and the optimizer read.
-   - Add, remove or change constraints and the objective, as `mandates.constraints` adds a cap for each of the
-     portfolio's mandates: `replace(portfolio, constraints=[*portfolio.constraints, *caps])`. See
-     [how to add a constraint](add-a-constraint.md).
+   - Change a limit the optimizer reads from the portfolio, as `mandates.sector_caps` tightens the portfolio's
+     `sector_caps` with its mandates: `replace(portfolio, sector_caps=caps)`. See
+     [how to add a constraint](add-a-constraint.md#take-a-limit-per-portfolio-from-a-dataset).
 
    The universe has a row per security the portfolio holds, cash aside, or may buy, with every column of the shared
    securities (`issuer`, `sector`, `rating`, `maturity` and the rest), `unit_value`, `expected_return`, `held` and the
@@ -65,7 +65,7 @@ To write a rule:
    def prepare_portfolio(data: Data, market: Market, params: Params) -> Portfolio:
        portfolio = prep.portfolio(data, market, params)
        portfolio = controls.apply(portfolio, market, params)
-       portfolio = mandates.constraints(portfolio, market, params)
+       portfolio = mandates.sector_caps(portfolio, market, params)
        portfolio = credit.min_rating(portfolio, market, params)
        portfolio = screens.exclude_sectors(portfolio, market, params)
        portfolio = maturity.min_years(portfolio, market, params)

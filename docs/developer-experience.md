@@ -20,7 +20,7 @@ and debug a model, and add a rule, a dataset or a constraint without reading `op
 - One obvious place for each kind of change. Folders are what grow by adding files; a single file becomes a folder of
   the same name when it outgrows one file.
 - `optim` owns as little vocabulary as it can. It defines the hooks, datasets and decisions, never the kinds of
-  constraint, which belong to the firm's cvxpy wrapper.
+  constraint, which a model writes in cvxpy.
 - Everything a run uses is written out where the analyst looks: `main.py` names its params, settings file and
   portfolios, and nothing is inferred from where a file sits.
 
@@ -56,7 +56,7 @@ models/income/
   README.md        what it does, in business terms: its objective, constraints, data and known limits
   main.py          press Run
   model.py         Params, Data, Metrics, Market, Portfolio, and the hooks
-  prep.py          builds the market, and each portfolio's starting universe, constraints and objective
+  prep.py          builds the market, and each portfolio's starting universe and limits
   datasets/        README.md; one module per dataset, its row model and Dataset; its SQL in datasets/sql/
   rules/           README.md; one module per group of rules
   optimizer/       README.md; solve.py, problem.py, constraints.py
@@ -82,54 +82,49 @@ change in it, and each folder that grows has a short README saying what goes the
 
 `Market` and `Portfolio` are the model's own frozen dataclasses, in `model.py`. The example's `Portfolio` holds its
 `data` (the portfolio's slice of the datasets), its `universe` (a row per security it may hold or trade, with
-`buyable`, `sellable` and `must_sell` flags), its `constraints` and `objective`, its `cash`, and its `value`, from its
-holdings, so a row a rule drops still counts.
+`buyable`, `sellable` and `must_sell` flags), its `sector_caps`, its `cash`, and its `value`, from its holdings, so a
+row a rule drops still counts.
 
 ## Rules
 
 Every rule has one signature, `(portfolio, market, params) -> portfolio`, and `prepare_portfolio` applies them in
 order, one per line. A rule does anything short of solving: it drops rows of the universe, adds columns, flips flags,
-and adds, removes or changes constraints or the objective. A held security dropped from the universe stays held, and
-is not traded. How constraints from different origins combine is the rules' logic; `optim` prescribes nothing.
+and changes the limits the optimizer reads from the portfolio. A held security dropped from the universe stays held,
+and is not traded. How limits from different origins combine is the rules' logic; `optim` prescribes nothing.
 
 Rules are tested with a few rows and no solver. Since rules share one signature, most leave an argument unused, and
 the generated `pyproject.toml` lets them (`ARG001` is off for `rules/` and `model.py`).
 
 ## Constraints and the objective
 
-A constraint is a dict in the vocabulary of the firm's cvxpy wrapper, which compiles it into cvxpy; `optim` defines no
-constraint format and no constraint dataset. Constraints come from four places, and all of them apply, so the tightest
-binds:
+A constraint is cvxpy: a function in the model's `optimizer/constraints.py` that takes the trades and returns cvxpy
+constraints. `optim` defines no constraint format and no constraint dataset. A constraint's limit comes from one of four
+places, and every constraint applies, so the tightest binds:
 
-- **Params**: `Params.constraints`, a list that defaults to empty, since some models load every constraint from a
-  dataset. Adding or removing one is a JSON edit, and a sweep varies it like any value.
-- **A dataset**: the model declares its own row model, such as a client's mandates, and one rule turns the portfolio's
-  rows into dicts.
-- **Code**: what the model writes in cvxpy itself, in `optimizer/constraints.py`: trade sizes, cash, and any kind the
-  wrapper cannot express.
+- **Params**: a field of `Params`, such as `max_issuer_weight` or `sector_caps`, with a docstring and a default.
+  Changing one is a JSON edit, and a sweep varies it like any value.
+- **A dataset**: the model declares its own row model, such as a client's mandates, and one rule sets the limit on the
+  portfolio from its rows, as the example's mandates tighten its `sector_caps`.
+- **Code**: what holds whatever the params say: trade sizes and cash.
 - **Prep or a rule**: computed from data each run, such as bounds around a benchmark's weights.
 
-Eligibility can be a flag a rule sets or a constraint; a rule may do either. The objective works the same way:
-`Params.objective` is a list of dicts in the wrapper's vocabulary, such as `[{"term": "income"}, {"term": "cost",
-"bps": 5}]`. Its default is in code, in `Params`, so `default.json` leaves it out, and a params file that sets it
-replaces the whole list. A rule may change either list for one portfolio.
+Eligibility can be a flag a rule sets or a constraint; a rule may do either. The objective is cvxpy too: `terms` in
+`optimizer/problem.py` returns each term's amount, which the decision reports as a metric, and `build` maximizes them,
+with their signs. A term's weight, such as `cost_bps`, is a param.
 
 ## The optimizer folder
 
 ```text
 optimizer/
-  solve.py         solve(portfolio, params) -> Decision: build the problem, add this model's own constraints, solve it
-  problem.py       build(universe, constraints, objective, value=...): the example's stand-in for the wrapper
-  constraints.py   constraints written in cvxpy here: trade sizes, cash, and any kind the wrapper cannot express
+  solve.py         solve(portfolio, params) -> Decision: build the problem, solve it
+  problem.py       build(portfolio, params): the variables, the objective's terms, and the list of constraints
+  constraints.py   each constraint in cvxpy: trade sizes, cash, turnover and caps on weights
 ```
 
 `build` makes `buy` and `sell` plain variables, one per row of the universe, and `constraints.py` ties them to whole
-increments, minimum pieces, minimum remaining and whole-lot sales, and never buys back what it sells. The same sizing
-code then works on the wrapper's `buy` and `sell`. The example's `build` compiles three kinds of constraint, a weight
-cap per group (`{"kind": "weight", "per": "issuer", "max": 0.1}`), a weight cap for a filter (`{"kind": "weight",
-"where": {"sector": "Financials"}, "max": 0.25}`) and turnover (`{"kind": "turnover", "max": 0.25}`), and two objective
-terms, income and cost. Moving a model to the wrapper means deleting `problem.py` and importing the wrapper's builder
-in `solve.py`. `optim.cvxpy` only solves a problem (`solve`) or reads one something else solved (`read`).
+increments, minimum pieces, minimum remaining and whole-lot sales, and never buys back what it sells. The example's
+other constraints cap turnover and the weight of each bond, each issuer and each sector a cap names, and its objective
+is income less cost. `optim.cvxpy` only solves a problem (`solve`) or reads one the model solved itself (`read`).
 
 ## What the core accepts
 
@@ -237,8 +232,8 @@ one model keeps everything in the model's folder.
   failure, and explain why a portfolio was rejected. Each points at its how-to guide, so the steps exist once.
 - The docs that ship with `optim`: a tutorial that runs on the fixture, how-to guides (run on live data, add a dataset,
   write a rule, add a constraint, change the objective, find out why a portfolio was rejected, compare params with a
-  sweep, share code between models, decide portfolios in turn, port a legacy model, run the QA suite, and a placeholder
-  for building the problem with the firm's wrapper), the reference, and the explanation.
+  sweep, share code between models, decide portfolios in turn, port a legacy model, and run the QA suite), the
+  reference, and the explanation.
 
 ## Making a repo
 
@@ -247,9 +242,9 @@ example, runs `git init` and `uv sync`, and leaves the first commit to the quant
 `models/NAME/`, its entry point and its README row, and `models/shared/` with the second model. The example is a
 taxable SMA rebalance with four datasets (`portfolios`, with a client's own rating floor; `signals`, one table for
 every portfolio; `controls` and `mandates`, per portfolio), four rule modules (controls, credit, screens, and mandates,
-which turns a portfolio's mandates into constraints), the optimizer folder above, and default params that cap each
-security, each issuer and turnover. The mandates add sector caps to some portfolios, so constraints arrive from both
-params and a dataset.
+which tightens a portfolio's sector caps with its mandates), the optimizer folder above, and default params that cap
+each security, each issuer and turnover. The mandates cap sectors in some portfolios, so limits arrive from both params
+and a dataset.
 
 ## What 0.2.0 removes
 
@@ -267,9 +262,7 @@ suite's `portfolios.sql`.
 | `optim.ide.run(__file__)`, which inferred params, fixture and repo from the file's place | Invisible to the analyst; `main.py` writes every value out instead. |
 | A second file per model for replays | The docstring of `main.py` shows the other calls where the analyst looks first. |
 | Trade sizing in the core | Quants own and change their solver code; sizing is visible code in the model. |
-| A constraint vocabulary, constraint dataset or constraint checks in `optim` | The wrapper owns the vocabulary, and the rounding check makes a second copy of each constraint unnecessary. |
-| A limit's constraint paired with a pandas check, and `null` turning a limit off | Too restrictive once constraints are data: a constraint not listed is not applied. |
-| Required constraints in `Params` | Some models load every constraint from a dataset. |
+| Constraint checks in `optim`, or a limit's constraint paired with a pandas check | The rounding check makes a second copy of each constraint unnecessary. |
 | Raising a hook's error in a run from Python, so the debugger stops there | Debugging that way is uncommon; a reason that names the line, and the logged traceback, are enough. |
 | Pruning old snapshots automatically | `snapshots/` is safe to delete by hand, and deletion stays the analyst's choice. |
 | `models/shared/` in every new repo | An empty folder raises a question before there is an answer. |

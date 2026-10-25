@@ -1,6 +1,6 @@
 """Data prep: joining datasets into what the rules and the optimizer read. `market` builds what every portfolio shares,
-once per run; `portfolio` builds one portfolio's universe, and its constraints and objective from the params, before
-any rule changes them. Change this file to join a new dataset in, or to add a column every rule can read."""
+once per run; `portfolio` builds one portfolio's universe, and its sector caps from the params, before any rule changes
+them. Change this file to join a new dataset in, or to add a column every rule can read."""
 
 import pandas as pd
 from optim.datasets import unit_value
@@ -17,7 +17,7 @@ def market(data: model.Data) -> model.Market:
 
 def portfolio(data: model.Data, market: model.Market, params: model.Params) -> model.Portfolio:
     """The portfolio as the rules first see it: a row per security it holds, cash aside, or may buy, which is every bond
-    with a signal; its cash and value; and the params' constraints and objective."""
+    with a signal; its cash and value; and the params' sector caps."""
     holdings, securities = data.holdings, market.securities
     if unknown := sorted(set(holdings["security_id"]) - set(securities["security_id"])):
         msg = f"holds securities that are not loaded: {unknown[:5]}"
@@ -34,4 +34,4 @@ def portfolio(data: model.Data, market: model.Market, params: model.Params) -> m
         raise ValueError(msg)
     universe = universe.assign(buyable=(universe["asset_class"] == "bond") & universe["has_signal"], sellable=universe["held"] > 0, must_sell=False)
     value = cash + float((universe["held"] * universe["unit_value"]).sum())
-    return model.Portfolio(data=data, universe=universe, constraints=list(params.constraints), objective=list(params.objective), cash=cash, value=value)
+    return model.Portfolio(data=data, universe=universe, sector_caps=dict(params.sector_caps), cash=cash, value=value)

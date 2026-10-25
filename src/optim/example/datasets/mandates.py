@@ -1,5 +1,5 @@
 """Each portfolio's mandates, from SQL Server: the most of its value a client allows in a sector. `rules/mandates.py`
-turns a portfolio's rows into constraints."""
+turns a portfolio's rows into its sector caps."""
 
 from pathlib import Path
 

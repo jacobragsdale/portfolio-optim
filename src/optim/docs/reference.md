@@ -34,10 +34,10 @@ model by that `NAME`, or by its module path, as does a module path that is not a
 | `README.md` | What the model does, in business terms: its objective, constraints, data and known limits. |
 | `main.py` | One `optim.run(...)` call under `if __name__ == "__main__":`, which spawned workers need, since each imports the file that started the run. Its docstring shows `replay` and `sweep`. |
 | `model.py` | The module the entry point names: `Params`, `Data`, `Metrics`, `Market`, `Portfolio`, and the hooks. |
-| `prep.py` | Joins the datasets into the market, and each portfolio's starting universe, constraints and objective. |
+| `prep.py` | Joins the datasets into the market, and each portfolio's starting universe and limits. |
 | `datasets/` | One module per dataset, its row model and `Dataset`; its SQL in `datasets/sql/`. |
 | `rules/` | One module per group of rules, each `(portfolio, market, params) -> portfolio`. |
-| `optimizer/` | `solve.py`, `solve(portfolio, params) -> Decision`; `problem.py`, `build(universe, constraints, objective, *, value)`, which compiles the constraint and objective dicts, in place of the firm's wrapper; `constraints.py`, the constraints written in cvxpy: trade sizes and cash. |
+| `optimizer/` | `solve.py`, `solve(portfolio, params) -> Decision`; `problem.py`, `build(portfolio, params)`, the variables, the objective's `terms` and the list of constraints; `constraints.py`, each constraint in cvxpy: trade sizes, cash, turnover and caps on weights. |
 | `params/default.json` | The default params; other files beside it are variants. |
 | `tests/` | `test_contract.py`, `builders.py`, the behaviour tests, and `fixture/`: a CSV or Parquet file per dataset and `fixture.json`, `{"as_of_date": "YYYY-MM-DD"}`. |
 
@@ -68,8 +68,9 @@ last line of the model's code it passed through, `TYPE: MESSAGE, at PATH:LINE in
 beside the model's folder, `models/shared/` included; the log holds the traceback. An exception in `prepare_market`,
 `order` or `reserve` fails the run.
 
-`optim` defines no constraint vocabulary. The example's `Params` holds `constraints` and `objective`, lists of dicts
-that `optimizer/problem.py` compiles; [how to add a constraint](how-to/add-a-constraint.md) lists its kinds.
+`optim` defines no constraint. The example's constraints are cvxpy, in `optimizer/constraints.py`, and read their
+limits from `Params`, such as `max_issuer_weight`, and from the portfolio, such as its `sector_caps`; see
+[how to add a constraint](how-to/add-a-constraint.md).
 
 ### The portfolios dataset
 
@@ -201,7 +202,7 @@ A quantity that is not a finite number is refused when the decision is made. `So
 
 `solve(problem, settings, *, securities, buy=None, sell=None, metrics=None) -> Decision` solves `problem` with
 `warm_start=False`, then reads it. `read(problem, *, securities, buy=None, sell=None, metrics=None) -> Decision` reads a
-problem something else solved, such as the firm's wrapper. `buy` and `sell` are cvxpy expressions in the holdings'
+problem the model solved itself. `buy` and `sell` are cvxpy expressions in the holdings'
 units, one entry per id in `securities`. `metrics` maps names to expressions or numbers, evaluated at the solution. A
 trade smaller than 1e-6 is dropped. The decision is solved only when the solver stopped `optimal`; without a solution
 it has no trades. A problem with no variables is solved with no trades, without calling a solver.

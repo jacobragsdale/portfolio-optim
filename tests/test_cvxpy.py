@@ -46,7 +46,7 @@ def test_a_piecewise_term_over_unbounded_integers_solves_without_a_warning() -> 
     assert decision.buy == {"A": 10_000.0}
 
 
-def test_a_problem_a_wrapper_solved_reads_as_one_solve_solved() -> None:
+def test_a_problem_solved_elsewhere_reads_as_one_solve_solved() -> None:
     problem, buy, _ = lots()
     problem.solve(solver=cp.HIGHS)
 

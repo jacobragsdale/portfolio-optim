@@ -14,11 +14,11 @@ Prerequisites:
 To sweep params files:
 
 1. Write one params file per variant, beside `default.json` in `models/MODEL/params/`. Copy `default.json` and change
-   what the variant tries: each file is a whole params file. Constraints and the objective are lists in the params, so
-   a variant can add, drop or change one, such as a looser Financials cap in `params/loose.json`:
+   what the variant tries: each file is a whole params file. A variant may change any param, such as a looser
+   Financials cap in `params/loose.json`:
 
    ```json
-       {"kind": "weight", "where": {"sector": "Financials"}, "max": 0.04}
+     "sector_caps": {"Financials": 0.04},
    ```
 
    Params are strict: every file is validated before any variant decides, so a misspelled key or a number written as a

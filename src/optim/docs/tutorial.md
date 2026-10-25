@@ -61,8 +61,8 @@ test is the QA suite, which runs only against QA.
 
 Open `models/income/model.py`. It is the model's table of contents:
 
-- `Params`, the settings a run takes from its params file, such as `constraints`, the limits every portfolio keeps,
-  and `min_rating`, the rating floor for what it buys.
+- `Params`, the settings a run takes from its params file, such as `max_issuer_weight`, the most of a portfolio's
+  value in one issuer, and `min_rating`, the rating floor for what it buys.
 - `Data`, the datasets it reads: holdings and securities, which every model reads, and its own `portfolios`,
   `signals`, `controls` and `mandates`.
 - The hooks: `prepare_market` and `prepare_portfolio`, which call `prep.py` and then each rule in `rules/`, one per
@@ -197,13 +197,11 @@ Neither portfolio buys E any more: it matures in May 2033, more than six years a
 
 ## Add a constraint
 
-Constraints are data: each is a dict in `constraints`, which `optimizer/problem.py` compiles into the integer
-program. Cap Financials at 2% of every portfolio's value. In `params/default.json`, add a line to `constraints`, after
-the turnover cap:
+A model's limits are params, and its constraints, cvxpy functions in `optimizer/constraints.py`, hold the integer
+program to them. Cap Financials at 2% of every portfolio's value. In `params/default.json`, change `sector_caps`:
 
 ```json
-    {"kind": "turnover", "max": 0.25},
-    {"kind": "weight", "where": {"sector": "Financials"}, "max": 0.02}
+  "sector_caps": {"Financials": 0.02},
 ```
 
 Run `main.py` again. The trades should now be:
@@ -251,7 +249,7 @@ the call to decide the first run's data with today's params instead.
 
 A sweep decides a saved run once per params file, saves nothing, and returns one table. Make a variant of the params
 that allows 4% in Financials: copy `params/default.json` to `params/loose.json`, and in the copy change the Financials
-cap's `"max": 0.02` to `"max": 0.04`.
+cap's `0.02` to `0.04`.
 
 In `main.py`, import `sweep` instead of `replay`, and replace the call:
 

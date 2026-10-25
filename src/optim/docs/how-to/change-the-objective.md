@@ -1,25 +1,24 @@
 # How to change the objective
 
 Change what a model maximizes, for every run or for one params file: weigh trading costs differently, add a term such
-as a penalty above a soft cap, or drop one. The objective is a list of terms, dicts in the vocabulary of the model's
-`optimizer/problem.py`, as the firm's cvxpy wrapper's are in a firm model. Its default is in code, and a params file
-may replace it.
+as a penalty above a soft cap, or drop one. The objective is cvxpy, in the model's `optimizer/problem.py`: `terms`
+returns each term's amount, which the decision reports as a metric, and `build` maximizes them, with their signs, as a
+fraction of the portfolio's value. A term's weights, such as the example's `cost_bps`, are params.
 
 Prerequisites:
 
 - A model made by `optim new`, with its tests passing.
 
-To change the objective for one params file, such as a variant a sweep compares:
+To weigh a term differently for one params file, such as a variant a sweep compares:
 
-1. Set `objective` in the params file. It replaces the whole default list, so list every term the variant keeps:
+1. Copy `params/default.json` whole, such as to `params/costly.json`, and change the term's param in the copy, such as
+   a trading cost of 15 basis points instead of 5. A key a params file leaves out takes the default in `Params`, not
+   the one in `default.json`:
 
    ```json
-   "objective": [{"term": "income"}, {"term": "cost", "bps": 15.0}]
+   "cost_bps": 15.0
    ```
 
-   The example's stand-in knows two terms, which it sums and maximizes as a fraction of the portfolio's value:
-   `{"term": "income"}`, expected income over a year after trading, and `{"term": "cost", "bps": 5.0}`, less the
-   trading cost, in basis points of the value traded.
 2. Decide a saved run with it, beside the default, in one table. In `main.py`:
 
    ```python
@@ -28,80 +27,65 @@ To change the objective for one params file, such as a variant a sweep compares:
 
    Each row is a params file and a portfolio, with its objective, turnover and each term's amount as a metric.
 
-To change the objective for every run, change `OBJECTIVE` in `model.py`, which `Params.objective` defaults to:
-
-```python
-OBJECTIVE: list[Definition] = [{"term": "income"}, {"term": "cost", "bps": 5.0}]
-"""What the model maximizes, unless the params say otherwise: see `optimizer/problem.py` for the terms."""
-```
-
-`default.json` leaves `objective` out, so it takes this default. Changing it changes what every portfolio decides, so
-the behaviour tests that solve, in `tests/test_optimizer.py`, may need new expectations; the contract test still decides
-every portfolio of the fixture.
-
 To add a term:
 
-1. In `optimizer/problem.py`, write its model beside the others, and add it to `_TERMS`. This one is a soft cap: a
-   penalty on each bond's weight above `over`, which the objective trades against income:
+1. Add its params to `Params` in `model.py`, with docstrings and defaults, and to `params/default.json`. This one is a
+   soft cap: a penalty on each bond's weight above `soft_cap`, which the objective trades against income. A penalty of
+   0 turns it off:
 
    ```python
-   class Excess(Model):
-       """A penalty on each bond's weight above `over`, of `penalty` times the excess value: a soft cap, which the
-       objective trades against income."""
-
-       term: Literal["excess"]
-       over: float = Field(ge=0)
-       penalty: float = Field(ge=0)
-
-
-   _TERMS = TypeAdapter(list[Annotated[Income | Cost | Excess, Field(discriminator="term")]])
+   soft_cap: Weight = 0.03
+   """The weight above which a bond's excess value is penalized."""
+   soft_cap_penalty: float = Field(default=0.0, ge=0)
+   """The penalty per unit of a bond's value above `soft_cap`, against income: 0 for none."""
    ```
 
-2. Compile it in `build`'s loop over the terms. Each term's amount, in the portfolio's currency, goes in `terms`, which
-   the decision reports as metrics; what it adds to the objective, with its sign, goes in `signed`:
+2. In `terms`, in `optimizer/problem.py`, add its amount, in the portfolio's currency:
 
    ```python
-   if isinstance(term, Income):
-       terms["income"] = (universe["expected_return"].to_numpy(dtype=float) * unit) @ (held + buy - sell)
-       signed.append(terms["income"])
-   elif isinstance(term, Cost):
-       terms["cost"] = (unit * term.bps / 1e4) @ (buy + sell)
-       signed.append(-terms["cost"])
-   else:
-       terms["excess"] = term.penalty * value * cp.sum(cp.pos(weights - term.over))
-       signed.append(-terms["excess"])
+   weights = cp.multiply(unit / portfolio.value, held + buy - sell)
+   return {
+       "income": (universe["expected_return"].to_numpy(dtype=float) * unit) @ (held + buy - sell),
+       "cost": (unit * params.cost_bps / 1e4) @ (buy + sell),
+       "excess": params.soft_cap_penalty * portfolio.value * cp.sum(cp.pos(weights - params.soft_cap)),
+   }
    ```
 
    A term must keep the problem one the solver solves. The example's problem has integer variables, for trade sizes, and
    HiGHS solves linear and piecewise-linear terms, such as `cp.pos` of a linear expression, alongside them, but not
    quadratic ones; COPT solves those too (see the `solve` settings in the [reference](../reference.md)).
-3. List it in the module's docstring, as `{"term": "excess", "over": 0.03, "penalty": 0.1}`, and test it in
-   `tests/test_optimizer.py`:
+3. In `build`, add it to the objective, with its sign:
 
    ```python
-   def test_an_excess_term_holds_weights_toward_its_soft_cap() -> None:
-       found = portfolio({"security_id": "A"}, {"security_id": "B"})
-       soft = [*found.objective, {"term": "excess", "over": 0.03, "penalty": 0.1}]
-
-       capped = decide(replace(found, objective=soft), {"kind": "weight", "per": "security_id", "max": 0.1})
-
-       assert capped.buy == {"A": 30_000.0, "B": 30_000.0}
-       assert capped.metrics["excess"] == pytest.approx(0.0)
+   cp.Maximize((found["income"] - found["cost"] - found["excess"]) / value)
    ```
 
-4. If the term is in `OBJECTIVE`, declare its metric in `Metrics` in `model.py`, with a docstring. The contract test
-   requires the fixture's decisions to report exactly the metrics `Metrics` declares, and fails otherwise:
+4. Declare its metric in `Metrics` in `model.py`, with a docstring. The contract test requires the fixture's decisions
+   to report exactly the metrics `Metrics` declares, and fails otherwise:
 
    ```text
    income's decisions report metrics its Metrics does not declare, or declares metrics they do not report: ['excess']
    ```
 
-   A term that only a variant uses is not declared: its metric appears in that variant's rows of a sweep alone.
+5. Test it in `tests/test_optimizer.py`:
 
-To confirm it worked, run `uv run pytest`, then sweep a saved run with a params file that uses the term, as in step 2
-of the first procedure, and compare its rows with the default's. Describe the objective, in business terms, under
-"What it maximizes" in the model's `README.md`.
+   ```python
+   def test_an_excess_term_holds_weights_toward_its_soft_cap() -> None:
+       found = portfolio({"security_id": "A"}, {"security_id": "B"})
 
-A rule may change the objective for one portfolio, as it may its constraints, by returning `portfolio.objective`
-changed (see [how to write a rule](write-a-rule.md)). For limits rather than preferences, see
-[how to add a constraint](add-a-constraint.md).
+       capped = decide(found, max_bond_weight=0.1, soft_cap_penalty=0.1)
+
+       assert capped.buy == {"A": 30_000.0, "B": 30_000.0}
+       assert capped.metrics["excess"] == pytest.approx(0.0)
+   ```
+
+To drop a term, remove it from `terms`, from the objective in `build`, and from `Metrics`.
+
+Changing the objective changes what every portfolio decides, so the behaviour tests that solve, in
+`tests/test_optimizer.py`, may need new expectations. To confirm it worked, run `uv run pytest`, then sweep a saved run
+with a params file that sets the term's params, as in step 2 of the first procedure, and compare its rows with the
+default's. Describe the objective, in business terms, under "What it maximizes" in the model's `README.md`, and in
+`build`'s and `terms`' docstrings.
+
+A term may differ by portfolio the way a limit does: a rule sets its weight on the portfolio, and `terms` reads it there
+(see [how to add a constraint](add-a-constraint.md#take-a-limit-per-portfolio-from-a-dataset)).

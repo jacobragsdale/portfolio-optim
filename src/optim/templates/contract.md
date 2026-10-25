@@ -26,9 +26,9 @@ A model is a folder in `models/`, and its `model.py` is listed in `pyproject.tom
 | `Metrics(optim.Metrics)` | Optional | The numbers decisions report in `metrics`, for sweeps. |
 
 Every rule has one signature, `(portfolio, market, params) -> portfolio`: it may drop rows of the universe, add columns,
-set flags, and add, remove or change constraints and the objective, but never solves. Constraints and objective terms
-are dicts, which the model's `optimizer/problem.py`, or the firm's cvxpy wrapper, compiles into cvxpy; constraints
-written in cvxpy itself go in `optimizer/constraints.py`. A cvxpy problem goes through
+set flags, and change the limits the optimizer reads from the portfolio, but never solves. Constraints are cvxpy, one
+function each in `optimizer/constraints.py`, which `build` in `optimizer/problem.py` adds to the problem with the
+objective; their limits are params, or fields a rule sets on the portfolio. A cvxpy problem goes through
 `optim.cvxpy.solve(problem, params.solve, securities=..., buy=..., sell=...)`, which returns the `Decision`; a model with
 no solver returns `optim.Decision(buy={...}, sell={...})`.
 
@@ -59,7 +59,7 @@ no solver returns `optim.Decision(buy={...}, sell={...})`.
 | `models/MODEL/prep.py` | Joins the datasets into the market, and each portfolio's universe before its rules. |
 | `models/MODEL/datasets/` | One module per dataset: its row model and `Dataset`; its SQL in `sql/`. |
 | `models/MODEL/rules/` | One module per group of rules. |
-| `models/MODEL/optimizer/` | `solve.py`, `problem.py`, which builds the problem from the dicts, and `constraints.py`. |
+| `models/MODEL/optimizer/` | `solve.py`; `problem.py`, which builds the problem and its objective; and `constraints.py`. |
 | `models/MODEL/params/` | `default.json`, and variants beside it. |
 | `models/MODEL/tests/` | `test_contract.py`, the behaviour tests, `builders.py`, and `fixture/`: a CSV per dataset and `fixture.json`. |
 | `models/shared/` | What two or more models use, laid out like a model's folder. |

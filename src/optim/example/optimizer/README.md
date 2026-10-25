@@ -4,13 +4,11 @@ The cvxpy problem a portfolio's decision solves.
 
 | File | Holds | Change it to |
 |---|---|---|
-| `solve.py` | `solve(portfolio, params)`: build the problem, add the model's own constraints, solve it | change how a portfolio is solved, or what it reports |
-| `problem.py` | `build(universe, constraints, objective, value=...)`: the constraints and the objective, compiled from their dicts | add a kind of constraint or objective term to the stand-in |
-| `constraints.py` | The constraints written in cvxpy here: trade sizes and cash | add a constraint the definitions cannot express |
+| `solve.py` | `solve(portfolio, params)`: build the problem and solve it | change how a portfolio is solved, or what it reports |
+| `problem.py` | `build(portfolio, params)`: the variables, the objective and its `terms`, and the list of constraints | add a constraint to the problem, or a term to the objective |
+| `constraints.py` | Each constraint, a function returning cvxpy constraints: trade sizes, cash, turnover and caps on weights | write a constraint |
 
-`problem.py` stands in for the firm's cvxpy wrapper, which compiles the same kind of dicts in a firm model; its
-docstring lists the kinds it knows. A constraint usually needs no code: add it to `constraints` in the params, or have a
-rule add it for one portfolio. To move to the wrapper, delete `problem.py` and build with the wrapper in `solve.py`;
-`constraints.py` works on the wrapper's `buy` and `sell` as it does on these.
+A limit's number comes from the params, such as `max_issuer_weight`, or from the portfolio, such as its `sector_caps`,
+which its mandates tighten; the constraint that holds the problem to it is cvxpy in `constraints.py`.
 
 `uv run optim docs how-to/add-a-constraint` and `uv run optim docs how-to/change-the-objective` say more.

@@ -71,29 +71,26 @@ problem needs, and their names say what they hold, where `shared` and `prepared`
 ## Rules share one signature
 
 Every rule takes the portfolio, the market and the params, and returns the portfolio. One signature lets a rule do
-anything short of solving: drop rows of the universe, add columns, set its flags, and add, remove or change constraints
-or the objective. A rule that took only the pieces it touched would read a little tighter, but every rule would have a
-different shape, and a rule that later needed one more piece would change its signature and its callers. With one
+anything short of solving: drop rows of the universe, add columns, set its flags, and change the limits the optimizer
+reads from the portfolio. A rule that took only the pieces it touched would read a little tighter, but every rule would
+have a different shape, and a rule that later needed one more piece would change its signature and its callers. With one
 shape, `prepare_portfolio` reads as a list, each rule is tested the same way on a few rows, and adding one is one line.
 
 A held security a rule drops stays held, and is not traded: the portfolio's value is taken from its holdings before
 any rule, so a dropped row still counts.
 
-## Constraints are data
+## Constraints are cvxpy
 
-The firm's quants treat constraints as data. A limit arrives from the params, the same for every portfolio and varied
-in sweeps; from a per-portfolio dataset, such as a client's mandate; from code, such as cash never being overdrawn and
-trades coming in the sizes the market trades; or from prep, computed each run, such as a band around a benchmark's
-weights. The firm's cvxpy wrapper compiles constraint and objective definitions, written as dicts, into a cvxpy problem.
+A limit arrives from the params, the same for every portfolio and varied in sweeps; from a per-portfolio dataset, such
+as a client's mandate; from code, such as cash never being overdrawn and trades coming in the sizes the market trades;
+or from prep, computed each run, such as a band around a benchmark's weights. Whatever its origin, the constraint that
+holds the problem to it is cvxpy, in the model's `optimizer/`: a function that takes the trades and returns cvxpy
+constraints, which `build` adds to the problem. The limit's number is data, a param or a field a rule sets on the
+portfolio, so a sweep varies it without a change of code.
 
-So `optim` owns no constraint vocabulary. Which kinds of constraint exist, and how one is written down, is the
-wrapper's, and a second, competing format in the core would leave quants translating between two. A model keeps its
-constraints as a list in its params and its portfolio, a rule turns a dataset's rows into dicts, and the model's
-`optimizer/` builds the problem. How constraints from different origins combine, whether the tighter binds or a mandate
-overrides, is the model's logic, in its rules; the core prescribes nothing. The public example cannot install the
-wrapper, so its `optimizer/problem.py` stands in for it with a few kinds, and moving to the wrapper replaces that file.
-What the definitions cannot express, the model writes in cvxpy in `optimizer/constraints.py`, which applies the same
-way to the wrapper's problem.
+`optim` defines no constraint of its own. Which constraints a model has, and how limits from different origins combine,
+whether the tighter binds or a mandate overrides, is the model's logic, in its rules and its optimizer; the core
+prescribes nothing.
 
 Trade sizing, the integer program for whole increments, minimum pieces and minimum remainings, is model code too,
 visible and changeable, rather than hidden in the core. Quants know their solver code and change it; a core that hid it
@@ -223,7 +220,7 @@ The last check replaces checking each constraint again. The solver proved the de
 model's problem before rounding; if rounding changed nothing material, it still does. A model that decides whole
 increments, as the example's sizing does, always passes, since rounding then removes only the solver's noise. The
 alternative, writing every limit a second time in pandas to check the rounded trades, kept two copies of each
-constraint that nothing held in step, and could not see a constraint the wrapper built. `check` stays, for anything a
+constraint that nothing held in step. `check` stays, for anything a
 desk wants beyond the problem.
 
 A rejected portfolio writes no orders, its decision and reasons stay in the snapshot, and `optim run` exits non-zero.
@@ -231,13 +228,13 @@ A rejected portfolio writes no orders, its decision and reasons stay in the snap
 
 ## Solving through optim.cvxpy
 
-The core does not call a model's solve, because the firm's wrapper may run its own and hand back its cvxpy problem.
-Instead, `optim.cvxpy` standardizes solving. `solve` passes the solver its time limit and gap under the solver's own
-option names, and `warm_start=False`, since cvxpy's default warm start made HiGHS re-solves about six times slower.
-`read` takes a problem something else solved. Both read the solver's own status, because cvxpy's loses what acceptance
-needs: it reports COPT stopped by its time limit as `optimal_inaccurate` with a solution and `infeasible_inaccurate`
-without one. A decision is solved only when the solver proved it optimal within the gap asked; one that stopped at its
-time limit keeps its trades, for the snapshot, and is rejected.
+The core does not call a model's solve: `decide` is one function for every kind of model, whether it solves one problem,
+several or none. Instead, `optim.cvxpy` standardizes solving. `solve` passes the solver its time limit and gap under the
+solver's own option names, and `warm_start=False`, since cvxpy's default warm start made HiGHS re-solves about six times
+slower. `read` takes a problem the model solved itself. Both read the solver's own status, because cvxpy's loses what
+acceptance needs: it reports COPT stopped by its time limit as `optimal_inaccurate` with a solution and
+`infeasible_inaccurate` without one. A decision is solved only when the solver proved it optimal within the gap asked;
+one that stopped at its time limit keeps its trades, for the snapshot, and is rejected.
 
 ## Portfolios that compete for supply
 

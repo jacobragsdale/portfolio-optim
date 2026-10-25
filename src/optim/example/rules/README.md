@@ -10,8 +10,9 @@ def exclude_issuers(portfolio: model.Portfolio, market: model.Market, params: mo
 ```
 
 A rule may do anything short of solving: drop rows of the universe, add columns, set its `buyable`, `sellable` and
-`must_sell` flags, and add, remove or change constraints or the objective. A held bond dropped from the universe stays
-held, and is not traded. Rules apply in the order `prepare_portfolio` in `model.py` calls them, one per line.
+`must_sell` flags, and change what the optimizer reads from the portfolio, such as its `sector_caps`. A held bond
+dropped from the universe stays held, and is not traded. Rules apply in the order `prepare_portfolio` in `model.py`
+calls them, one per line.
 
 To add one:
 

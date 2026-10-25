@@ -1,7 +1,6 @@
 """Solving a cvxpy problem the same way in every model, and reading its answer as a `Decision`. A model builds its problem,
-directly or through a wrapper that hands back a cvxpy problem, then calls `solve` with the solve settings from its
-params; a problem something else has solved, as a wrapper may, goes to `read`. The core never solves a model's problem
-itself.
+then calls `solve` with the solve settings from its params; a problem the model solved itself goes to `read`. The core
+never solves a model's problem itself.
 
 `solve` passes the solver its time limit and gap under the solver's own option names, and `warm_start=False`, since
 cvxpy's default warm start made HiGHS re-solves about six times slower. `read` reads the solver's own status, because

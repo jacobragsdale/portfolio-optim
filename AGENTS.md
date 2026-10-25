@@ -52,8 +52,8 @@ are under `src/optim/`.
   what is loaded, so a sweep can run every variant from one snapshot.
 - A decision may trade only when it is accepted, never on the solver's status alone.
 - Every value is a float; rounding to each security's trading increment makes trades exact.
-- `optim` defines no kind of constraint: constraints are the wrapper's dicts, which a model's `optimizer/problem.py`
-  compiles, and the example's stand-in shows.
+- `optim` defines no kind of constraint: a model writes its constraints and objective in cvxpy, in its `optimizer/`,
+  and takes their limits from its params and data, as the example shows.
 - A field added to `RunInfo` gets a default, so snapshots from older versions still load.
 - The example, templates and skills are what every new model repo starts from: after changing one, generate a repo
   and run its own checks (see Checks).

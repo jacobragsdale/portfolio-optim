@@ -12,7 +12,7 @@ Follow `uv run optim docs how-to/port-a-legacy-model` step by step. In short:
    optimizer.
 2. Start the model from optim's example: `uv run optim new model NAME`.
 3. Port the data first, one dataset per query, then the rules, then the constraints and the objective, each with its
-   behaviour test named in the log. A limit the old code hard-coded becomes a constraint in the params or a dataset.
+   behaviour test named in the log. A limit the old code hard-coded becomes a param or a dataset.
 4. Sanity-check on one day of the old system's inputs: run with `data=` on its export, compare outcomes per portfolio,
    and log every difference. The old system is a list of requirements, not results to match.
 

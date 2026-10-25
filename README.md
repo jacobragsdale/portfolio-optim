@@ -39,12 +39,11 @@ and `uv run optim docs PAGE` prints one.
   [share code between models](src/optim/docs/how-to/share-code-between-models.md),
   [decide portfolios one at a time](src/optim/docs/how-to/decide-portfolios-in-turn.md),
   [port a legacy model](src/optim/docs/how-to/port-a-legacy-model.md),
-  [run the QA suite](src/optim/docs/how-to/run-the-qa-suite.md), and
-  [build the problem with the firm's wrapper](src/optim/docs/how-to/build-the-problem-with-the-firms-wrapper.md).
+  and [run the QA suite](src/optim/docs/how-to/run-the-qa-suite.md).
 - [Reference](src/optim/docs/reference.md): the repo's layout, the model contract, the Python API, the command line,
   the settings, the snapshot files, `optim.testing` and the pytest plugin.
 - [How optim is put together](src/optim/docs/explanation.md): why the core owns the loop, why model code does no I/O,
-  how runs replay, and why constraints are data.
+  how runs replay, and why constraints are cvxpy.
 - [The optim framework](docs/design.md): the design this package implements, and what was decided against, and
   [The developer experience](docs/developer-experience.md): how a quant works in a model repo.
 

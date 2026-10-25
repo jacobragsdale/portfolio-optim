@@ -36,8 +36,8 @@ Paths are in a model's folder, `models/MODEL/`. `uv run optim docs PAGE` prints 
 | add a dataset | a module in `datasets/`, an attribute of `Data` in `model.py`, and a CSV in `tests/fixture/` | `how-to/add-a-dataset` |
 | join data, or add a column every rule reads | `prep.py` | `how-to/add-a-dataset` |
 | add a rule | a function in `rules/`, called in `prepare_portfolio` in `model.py` | `how-to/write-a-rule` |
-| add a constraint | `constraints` in the params; or a dataset and a rule; or cvxpy in `optimizer/constraints.py` | `how-to/add-a-constraint` |
-| change the objective | `objective` in `Params`, or a params file | `how-to/change-the-objective` |
+| add a constraint | cvxpy in `optimizer/constraints.py`, its limit a param, or a dataset and a rule | `how-to/add-a-constraint` |
+| change the objective | `terms` and `build` in `optimizer/problem.py`; a term's weight in the params | `how-to/change-the-objective` |
 | run on QA or production data | `env=".env.qa"` or `env=".env.prod"` in `main.py` | `how-to/run-on-live-data` |
 | find out why a portfolio was rejected | `replay(...)` in `main.py`, as its docstring shows | `how-to/find-out-why-a-portfolio-was-rejected` |
 | compare params | `sweep(...)` in `main.py`, as its docstring shows | `how-to/compare-params-with-a-sweep` |

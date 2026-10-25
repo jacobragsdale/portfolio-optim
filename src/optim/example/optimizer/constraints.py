@@ -1,10 +1,12 @@
-"""Constraints this model writes in cvxpy itself, on the `buy` and `sell` that `problem.build` makes: the sizes trades
-come in, and cash. A firm model adds them to what the wrapper builds in the same way, and a kind of constraint the
-wrapper cannot express goes here too."""
+"""The model's constraints, in cvxpy, on the `buy` and `sell` that `problem.build` makes, one function each: the sizes
+trades come in, cash, turnover, and caps on weights. Each returns a list, which `build` adds to the problem."""
+
+from collections.abc import Mapping
 
 import cvxpy as cp
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 
 from optim.example import model
 
@@ -41,3 +43,22 @@ def sizes(universe: pd.DataFrame, buy: cp.Variable, sell: cp.Variable, *, value:
 def cash(portfolio: model.Portfolio, buy: cp.Variable, sell: cp.Variable) -> list[cp.Constraint]:
     """Cash after trading is not negative: what it buys, its cash and its sales pay for."""
     return [portfolio.cash + portfolio.universe["unit_value"].to_numpy(dtype=float) @ (sell - buy) >= 0]
+
+
+def turnover(universe: pd.DataFrame, buy: cp.Variable, sell: cp.Variable, cap: float, *, value: float) -> list[cp.Constraint]:
+    """What it buys and sells together at most `cap` of the portfolio's value."""
+    return [(universe["unit_value"].to_numpy(dtype=float) / value) @ (buy + sell) <= cap]
+
+
+def max_weight(universe: pd.DataFrame, buy: cp.Variable, sell: cp.Variable, per: str, cap: float | Mapping[str, float], *, value: float) -> list[cp.Constraint]:
+    """Each group of rows with the same `per`, such as each issuer, at most `cap` of the portfolio's value after
+    trading; or, where `cap` is a cap by group, such as `{"Financials": 0.25}` per sector, each group it names. A cap
+    leaves the portfolio what it may not sell: it may keep that, however much it weighs."""
+    groups = pd.get_dummies(universe[per])
+    caps = pd.Series(cap, dtype=float).reindex(groups.columns).dropna() if isinstance(cap, Mapping) else pd.Series(cap, index=groups.columns, dtype=float)
+    if caps.empty:
+        return []
+    member = groups[caps.index].to_numpy(dtype=float).T
+    unit, held = (universe[column].to_numpy(dtype=float) for column in ("unit_value", "held"))
+    kept = np.where(universe["sellable"].to_numpy(dtype=bool), 0.0, unit * held / value)
+    return [sp.csr_array(member) @ cp.multiply(unit / value, held + buy - sell) <= np.maximum(caps.to_numpy(), member @ kept)]

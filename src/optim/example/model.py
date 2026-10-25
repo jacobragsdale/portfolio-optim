@@ -10,8 +10,8 @@ from dataclasses import dataclass
 import optim
 import optim.cvxpy
 import pandas as pd
-from optim.schema import Rating
-from pydantic import Field, JsonValue
+from optim.schema import Rating, Weight
+from pydantic import Field
 
 from optim.example import prep
 from optim.example.datasets.controls import CONTROLS
@@ -21,19 +21,19 @@ from optim.example.datasets.signals import SIGNALS
 from optim.example.optimizer import solve
 from optim.example.rules import controls, credit, mandates, screens
 
-type Definition = dict[str, JsonValue]
-"""A constraint or an objective term, as `optimizer/problem.py` reads it: the wrapper's vocabulary in a firm model."""
-
-
-OBJECTIVE: list[Definition] = [{"term": "income"}, {"term": "cost", "bps": 5.0}]
-"""What the model maximizes, unless the params say otherwise: see `optimizer/problem.py` for the terms."""
-
 
 class Params(optim.Params):
-    constraints: list[Definition] = Field(default_factory=list)
-    """Limits every portfolio keeps, besides its own mandates: see `optimizer/problem.py` for the kinds."""
-    objective: list[Definition] = Field(default_factory=lambda: list(OBJECTIVE))
-    """What the model maximizes, a term at a time. A params file that sets it replaces the whole list."""
+    max_bond_weight: Weight = 0.05
+    """The most of a portfolio's value in one bond after trading, as a fraction: 0.05 is 5%."""
+    max_issuer_weight: Weight = 0.1
+    """The most of a portfolio's value in one issuer's bonds together after trading."""
+    sector_caps: dict[str, Weight] = Field(default_factory=dict)
+    """The most of a portfolio's value in each sector named after trading, such as `{"Financials": 0.25}`. A
+    portfolio's mandates may tighten them."""
+    max_turnover: Weight = 0.25
+    """The most a portfolio buys and sells together, as a fraction of its value."""
+    cost_bps: float = Field(default=5.0, ge=0)
+    """The estimated cost of trading, in basis points of the value traded, which the objective subtracts from income."""
     min_rating: Rating = "A-"
     """Buy only bonds rated this or better, or better still where the portfolio's own floor is higher."""
     exclude_sectors: list[str] = Field(default_factory=list)
@@ -74,8 +74,8 @@ class Portfolio:
     universe: pd.DataFrame
     """A row per security it holds, cash aside, or may buy, with `held`, and `buyable`, `sellable` and `must_sell`,
     which rules narrow."""
-    constraints: list[Definition]
-    objective: list[Definition]
+    sector_caps: dict[str, float]
+    """The most of its value in each sector named after trading: the params' caps, tightened by its mandates."""
     cash: float
     value: float
     """Cash and every holding at its unit value, from the holdings, so a row a rule drops still counts."""
@@ -88,7 +88,7 @@ def prepare_market(data: Data, params: Params) -> Market:
 def prepare_portfolio(data: Data, market: Market, params: Params) -> Portfolio:
     portfolio = prep.portfolio(data, market, params)
     portfolio = controls.apply(portfolio, market, params)
-    portfolio = mandates.constraints(portfolio, market, params)
+    portfolio = mandates.sector_caps(portfolio, market, params)
     portfolio = credit.min_rating(portfolio, market, params)
     portfolio = screens.exclude_sectors(portfolio, market, params)
     return screens.exclude_issuers(portfolio, market, params)

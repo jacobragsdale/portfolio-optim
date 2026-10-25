@@ -1,5 +1,7 @@
 """The model's rules, on a few bonds each and no solver."""
 
+from dataclasses import replace
+
 import pandas as pd
 import pytest
 from optim.testing import frame
@@ -59,9 +61,16 @@ def test_an_excluded_sector_leaves_the_universe_but_a_holding_in_it_may_still_be
     assert flags(after).to_dict("index") == {"B": {"held": 5000.0, "buyable": False, "sellable": True, "must_sell": False}, "C": {"held": 0.0, "buyable": True, "sellable": False, "must_sell": False}}
 
 
-def test_a_portfolios_mandates_add_sector_caps_to_the_params_constraints() -> None:
-    rows = frame(MANDATES, {"portfolio_id": "P1", "mandate_id": "M1", "sector": "Financials", "max_weight": 0.2})
+def test_a_portfolios_mandates_cap_sectors_and_the_tighter_of_two_caps_applies() -> None:
+    rows = frame(
+        MANDATES,
+        {"mandate_id": "M1", "sector": "Financials", "max_weight": 0.2},
+        {"mandate_id": "M2", "sector": "Energy", "max_weight": 0.05},
+        {"mandate_id": "M3", "sector": "Utilities", "max_weight": 0.3},
+        default={"portfolio_id": "P1"},
+    )
+    found = replace(portfolio({"security_id": "A"}, mandates=rows), sector_caps={"Financials": 0.1, "Energy": 0.1})
 
-    after = mandates.constraints(portfolio({"security_id": "A"}, mandates=rows), MARKET, params())
+    after = mandates.sector_caps(found, MARKET, params())
 
-    assert after.constraints == [*params().constraints, {"kind": "weight", "where": {"sector": "Financials"}, "max": 0.2}]
+    assert after.sector_caps == {"Financials": 0.1, "Energy": 0.05, "Utilities": 0.3}
